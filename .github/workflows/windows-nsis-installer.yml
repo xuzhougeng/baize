@@ -33,6 +33,16 @@ jobs:
         shell: powershell
         run: choco install nsis -y
 
+      - name: Add NSIS to PATH
+        shell: powershell
+        run: |
+          $nsis = Join-Path ${env:ProgramFiles(x86)} "NSIS"
+          $makensis = Join-Path $nsis "makensis.exe"
+          if (!(Test-Path $makensis)) {
+            throw "makensis.exe not found at $makensis"
+          }
+          $nsis | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Test
         shell: powershell
         run: go test ./cmd/myclaw-desktop ./internal/...
@@ -48,6 +58,16 @@ jobs:
             -webview2 download `
             -m `
             -s
+
+      - name: Verify installer output
+        shell: powershell
+        run: |
+          $installers = Get-ChildItem -Path cmd/myclaw-desktop/build/bin -Filter *-installer.exe -File
+          if (-not $installers) {
+            Get-ChildItem -Path cmd/myclaw-desktop/build -Recurse | Select-Object FullName
+            throw "NSIS installer was not generated."
+          }
+          $installers | Select-Object FullName, Length
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
