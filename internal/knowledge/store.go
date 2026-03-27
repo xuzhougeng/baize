@@ -16,6 +16,7 @@ import (
 type Entry struct {
 	ID         string    `json:"id"`
 	Text       string    `json:"text"`
+	Keywords   []string  `json:"keywords,omitempty"`
 	Source     string    `json:"source,omitempty"`
 	RecordedAt time.Time `json:"recorded_at"`
 }
@@ -44,6 +45,7 @@ func (s *Store) Add(_ context.Context, entry Entry) (Entry, error) {
 	if entry.RecordedAt.IsZero() {
 		entry.RecordedAt = time.Now()
 	}
+	entry.Keywords = MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
 
 	entries = append(entries, entry)
 	if err := s.writeAllLocked(entries); err != nil {
@@ -78,6 +80,46 @@ func (s *Store) Clear(_ context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.writeAllLocked(nil)
+}
+
+func (s *Store) Search(_ context.Context, query string, extraKeywords []string, limit int) ([]SearchResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAllLocked()
+	if err != nil {
+		return nil, err
+	}
+	return RankEntries(entries, query, extraKeywords, limit), nil
+}
+
+func (s *Store) BackfillKeywords(_ context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAllLocked()
+	if err != nil {
+		return 0, err
+	}
+
+	updated := 0
+	for index, entry := range entries {
+		keywords := MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
+		if slices.Equal(entry.Keywords, keywords) {
+			continue
+		}
+		entry.Keywords = keywords
+		entries[index] = entry
+		updated++
+	}
+
+	if updated == 0 {
+		return 0, nil
+	}
+	if err := s.writeAllLocked(entries); err != nil {
+		return 0, err
+	}
+	return updated, nil
 }
 
 func (s *Store) Remove(_ context.Context, idOrPrefix string) (Entry, bool, error) {
@@ -116,6 +158,7 @@ func (s *Store) Append(_ context.Context, idOrPrefix, addition string) (Entry, b
 	for index, entry := range entries {
 		if strings.HasPrefix(normalizeEntryID(entry.ID), match) {
 			entry.Text = mergeEntryText(entry.Text, addition)
+			entry.Keywords = GenerateKeywords(entry.Text)
 			entries[index] = entry
 			if err := s.writeAllLocked(entries); err != nil {
 				return Entry{}, false, err
@@ -151,6 +194,7 @@ func (s *Store) AppendLatest(_ context.Context, source, addition string) (Entry,
 
 	entry := entries[selectedIndex]
 	entry.Text = mergeEntryText(entry.Text, addition)
+	entry.Keywords = GenerateKeywords(entry.Text)
 	entries[selectedIndex] = entry
 	if err := s.writeAllLocked(entries); err != nil {
 		return Entry{}, false, err

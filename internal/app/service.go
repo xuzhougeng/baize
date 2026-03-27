@@ -8,14 +8,18 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
 )
 
-const maxReplyPreviewRunes = 240
+const (
+	maxReplyPreviewRunes      = 240
+	retrievalCandidateLimit   = 8
+	retrievalAnswerLimit      = 4
+	retrievalPreviewItemLimit = 3
+)
 
 var (
 	forgetIntentPattern    = regexp.MustCompile(`^(?:请)?(?:帮我)?(?:遗忘|忘掉|删除|删掉)\s*#?([0-9a-fA-F]{4,})\s*$`)
@@ -38,9 +42,19 @@ type Service struct {
 	reminders reminderBackend
 }
 
+type retrievalPlan struct {
+	Queries          []string
+	Keywords         []string
+	FallbackKeywords []string
+	AIStatus         string
+	CanReview        bool
+}
+
 type aiBackend interface {
 	IsConfigured(ctx context.Context) (bool, error)
 	RouteCommand(ctx context.Context, input string) (ai.RouteDecision, error)
+	BuildSearchPlan(ctx context.Context, question string) (ai.SearchPlan, error)
+	ReviewAnswerCandidates(ctx context.Context, question string, entries []knowledge.Entry) ([]string, error)
 	Answer(ctx context.Context, question string, entries []knowledge.Entry) (string, error)
 	TranslateToChinese(ctx context.Context, input string) (string, error)
 	SummarizePDFText(ctx context.Context, fileName, extractedText string) (string, error)
@@ -109,6 +123,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/remember-file <路径> — 总结图片/PDF并存入知识库\n" +
 			"/append <ID前缀> <内容> — 追加到已有知识\n" +
 			"/translate <内容> — 翻译成中文\n" +
+			"/debug-search <问题> — 查看关键词检索和候选复核过程\n" +
 			"/forget <ID前缀> — 删除一条知识\n" +
 			"/list — 查看全部知识\n" +
 			"/stats — 查看知识库状态\n" +
@@ -116,7 +131,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/cron — 与 /notice 等价\n" +
 			"/clear — 清空知识库\n" +
 			"/help — 查看帮助\n\n" +
-			"当前版本不会做复杂推理；收到普通问题时，会读取全部知识后直接回复。", nil
+			"普通问题会先生成 AI 检索计划，再从知识库里筛候选并复核后回答；默认不做向量检索。", nil
 	case "/remember", "/r":
 		if len(fields) < 2 {
 			return "用法: /remember <内容>", nil
@@ -162,6 +177,12 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			return reply, err
 		}
 		return s.aiService.TranslateToChinese(ctx, body)
+	case "/debug-search":
+		if len(fields) < 2 {
+			return "用法: /debug-search <问题>", nil
+		}
+		body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
+		return s.debugSearch(ctx, body)
 	case "/forget", "/delete":
 		if len(fields) < 2 {
 			return "用法: /forget <知识ID前缀>", nil
@@ -400,18 +421,260 @@ func (s *Service) handleAIMessage(ctx context.Context, mc MessageContext, text s
 	case "help":
 		return s.handleCommand(ctx, mc, "/help")
 	case "answer":
-		entries, err := s.store.List(ctx)
-		if err != nil {
-			return "", err
-		}
 		question := strings.TrimSpace(decision.Question)
 		if question == "" {
 			question = text
+		}
+		entries, err := s.selectKnowledgeForAnswer(ctx, question)
+		if err != nil {
+			return "", err
 		}
 		return s.aiService.Answer(ctx, question, entries)
 	default:
 		return fmt.Sprintf("无法识别命令路由: %s", decision.Command), nil
 	}
+}
+
+func (s *Service) selectKnowledgeForAnswer(ctx context.Context, question string) ([]knowledge.Entry, error) {
+	plan, err := s.buildRetrievalPlan(ctx, question)
+	if err != nil {
+		return nil, err
+	}
+	results, err := s.searchCandidates(ctx, plan.Queries, plan.Keywords, retrievalCandidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		entries, err := s.store.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return latestEntries(entries, retrievalAnswerLimit), nil
+	}
+
+	candidates := make([]knowledge.Entry, 0, len(results))
+	for _, result := range results {
+		candidates = append(candidates, result.Entry)
+	}
+
+	selected := candidates
+	if plan.CanReview {
+		if reviewedIDs, err := s.aiService.ReviewAnswerCandidates(ctx, question, candidates); err == nil {
+			reviewed := pickEntriesByID(candidates, reviewedIDs)
+			if len(reviewed) > 0 {
+				selected = reviewed
+			}
+		}
+	}
+
+	if len(selected) > retrievalAnswerLimit {
+		selected = selected[:retrievalAnswerLimit]
+	}
+	return selected, nil
+}
+
+func (s *Service) debugSearch(ctx context.Context, question string) (string, error) {
+	question = strings.TrimSpace(question)
+	if question == "" {
+		return "用法: /debug-search <问题>", nil
+	}
+
+	plan, err := s.buildRetrievalPlan(ctx, question)
+	if err != nil {
+		return "", err
+	}
+	results, err := s.searchCandidates(ctx, plan.Queries, plan.Keywords, retrievalCandidateLimit)
+	if err != nil {
+		return "", err
+	}
+
+	candidates := make([]knowledge.Entry, 0, len(results))
+	for _, result := range results {
+		candidates = append(candidates, result.Entry)
+	}
+
+	selectedEntries := candidates
+	selectedIDs := []string(nil)
+	reviewStatus := "未执行"
+	if !plan.CanReview {
+		reviewStatus = "模型未启用或未配置"
+	}
+	if len(candidates) > 0 && plan.CanReview {
+		reviewedIDs, err := s.aiService.ReviewAnswerCandidates(ctx, question, candidates)
+		if err != nil {
+			reviewStatus = "复核失败: " + err.Error()
+		} else {
+			reviewStatus = "已复核"
+			selectedIDs = reviewedIDs
+			reviewed := pickEntriesByID(candidates, reviewedIDs)
+			if len(reviewed) > 0 {
+				selectedEntries = reviewed
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		entries, err := s.store.List(ctx)
+		if err != nil {
+			return "", err
+		}
+		selectedEntries = latestEntries(entries, retrievalAnswerLimit)
+		if reviewStatus == "未执行" {
+			reviewStatus = "无候选，回退到最近知识"
+		}
+	}
+
+	var builder strings.Builder
+	builder.WriteString("检索调试\n")
+	builder.WriteString("问题：")
+	builder.WriteString(question)
+	builder.WriteString("\n")
+	builder.WriteString("检索问句：")
+	builder.WriteString(formatKeywordList(plan.Queries))
+	builder.WriteString("\n")
+	builder.WriteString("AI关键词：")
+	builder.WriteString(formatKeywordList(plan.Keywords))
+	builder.WriteString("\n")
+	builder.WriteString("模型状态：")
+	builder.WriteString(plan.AIStatus)
+	builder.WriteString("\n")
+	if len(plan.FallbackKeywords) > 0 {
+		builder.WriteString("本地兜底关键词：")
+		builder.WriteString(formatKeywordList(plan.FallbackKeywords))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("复核状态：")
+	builder.WriteString(reviewStatus)
+	builder.WriteString("\n\n")
+
+	if len(results) == 0 {
+		builder.WriteString("候选：没有关键词命中，已回退到最近知识。\n")
+	} else {
+		builder.WriteString("候选：\n")
+		for index, result := range results {
+			builder.WriteString(fmt.Sprintf("%d. #%s score=%d matches=%s\n%s\n",
+				index+1,
+				shortID(result.Entry.ID),
+				result.Score,
+				formatKeywordList(result.Matches),
+				preview(result.Entry.Text, maxReplyPreviewRunes),
+			))
+		}
+	}
+
+	builder.WriteString("\n最终会送去回答的知识：\n")
+	if len(selectedEntries) == 0 {
+		builder.WriteString("(空)")
+		return builder.String(), nil
+	}
+	selectedSet := make(map[string]struct{}, len(selectedIDs))
+	for _, id := range selectedIDs {
+		selectedSet[id] = struct{}{}
+	}
+	for index, entry := range selectedEntries {
+		prefix := ""
+		if len(selectedSet) > 0 {
+			if _, ok := selectedSet[entry.ID]; ok {
+				prefix = "[review] "
+			}
+		}
+		builder.WriteString(fmt.Sprintf("%d. %s#%s %s\n",
+			index+1,
+			prefix,
+			shortID(entry.ID),
+			preview(entry.Text, maxReplyPreviewRunes),
+		))
+	}
+	return strings.TrimSpace(builder.String()), nil
+}
+
+func (s *Service) buildRetrievalPlan(ctx context.Context, question string) (retrievalPlan, error) {
+	question = strings.TrimSpace(question)
+	plan := retrievalPlan{
+		Queries:   []string{question},
+		AIStatus:  "未启用",
+		CanReview: false,
+	}
+
+	if s.aiService == nil {
+		plan.Keywords = knowledge.GenerateKeywords(question)
+		plan.FallbackKeywords = plan.Keywords
+		return plan, nil
+	}
+
+	configured, err := s.aiService.IsConfigured(ctx)
+	if err != nil {
+		return retrievalPlan{}, err
+	}
+	if !configured {
+		plan.AIStatus = "未配置"
+		plan.Keywords = knowledge.GenerateKeywords(question)
+		plan.FallbackKeywords = plan.Keywords
+		return plan, nil
+	}
+
+	plan.CanReview = true
+	searchPlan, err := s.aiService.BuildSearchPlan(ctx, question)
+	if err != nil {
+		plan.AIStatus = "检索计划生成失败: " + err.Error()
+		plan.Keywords = knowledge.GenerateKeywords(question)
+		plan.FallbackKeywords = plan.Keywords
+		return plan, nil
+	}
+
+	plan.AIStatus = "已生成检索计划"
+	if len(searchPlan.Queries) > 0 {
+		plan.Queries = searchPlan.Queries
+	}
+	plan.Keywords = searchPlan.Keywords
+	return plan, nil
+}
+
+func (s *Service) searchCandidates(ctx context.Context, queries []string, keywords []string, limit int) ([]knowledge.SearchResult, error) {
+	queries = normalizeSearchInputs(queries)
+	if len(queries) == 0 {
+		queries = []string{""}
+	}
+
+	combined := make(map[string]knowledge.SearchResult)
+	for _, query := range queries {
+		results, err := s.store.Search(ctx, query, keywords, limit)
+		if err != nil {
+			return nil, err
+		}
+		for _, result := range results {
+			current, ok := combined[result.Entry.ID]
+			if !ok {
+				combined[result.Entry.ID] = result
+				continue
+			}
+			current.Score += result.Score
+			current.Matches = knowledge.MergeKeywords(current.Matches, result.Matches)
+			combined[result.Entry.ID] = current
+		}
+	}
+
+	out := make([]knowledge.SearchResult, 0, len(combined))
+	for _, result := range combined {
+		out = append(out, result)
+	}
+	slices.SortFunc(out, func(a, b knowledge.SearchResult) int {
+		if a.Score != b.Score {
+			return b.Score - a.Score
+		}
+		switch {
+		case a.Entry.RecordedAt.After(b.Entry.RecordedAt):
+			return -1
+		case a.Entry.RecordedAt.Before(b.Entry.RecordedAt):
+			return 1
+		default:
+			return strings.Compare(a.Entry.ID, b.Entry.ID)
+		}
+	})
+	if limit > 0 && len(out) > limit {
+		return out[:limit], nil
+	}
+	return out, nil
 }
 
 func parseRememberIntent(text string) (string, bool) {
@@ -456,12 +719,11 @@ func formatKnowledgeDump(entries []knowledge.Entry, question string) (string, er
 		builder.WriteString("当前知识库的全部内容如下。\n\n")
 	}
 
-	scored := rankEntries(entries, question)
-	if strings.TrimSpace(question) != "" && len(scored) > 0 && scored[0].score > 0 {
+	scored := knowledge.RankEntries(entries, question, nil, retrievalPreviewItemLimit)
+	if strings.TrimSpace(question) != "" && len(scored) > 0 && scored[0].Score > 0 {
 		builder.WriteString("可能更相关的内容：\n")
-		limit := min(3, len(scored))
-		for index := range limit {
-			entry := scored[index].entry
+		for index, result := range scored {
+			entry := result.Entry
 			builder.WriteString(fmt.Sprintf("%d. #%s %s\n", index+1, shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)))
 		}
 		builder.WriteString("\n")
@@ -477,72 +739,79 @@ func formatKnowledgeDump(entries []knowledge.Entry, question string) (string, er
 		))
 	}
 
-	builder.WriteString("\n当前版本是最小实现：每次回复都会直接读取完整知识库，不做向量检索、权限隔离或模型总结。")
+	builder.WriteString("\n当前版本默认使用关键词检索和候选复核来回答问题，不做向量检索、权限隔离或多租户隔离。")
 	return strings.TrimSpace(builder.String()), nil
 }
 
-type rankedEntry struct {
-	entry knowledge.Entry
-	score int
+func latestEntries(entries []knowledge.Entry, limit int) []knowledge.Entry {
+	if limit <= 0 || len(entries) == 0 {
+		return nil
+	}
+	if len(entries) <= limit {
+		out := append([]knowledge.Entry(nil), entries...)
+		reverseEntries(out)
+		return out
+	}
+	out := append([]knowledge.Entry(nil), entries[len(entries)-limit:]...)
+	reverseEntries(out)
+	return out
 }
 
-func rankEntries(entries []knowledge.Entry, question string) []rankedEntry {
-	question = strings.ToLower(strings.TrimSpace(question))
-	if question == "" {
-		return nil
+func reverseEntries(entries []knowledge.Entry) {
+	for left, right := 0, len(entries)-1; left < right; left, right = left+1, right-1 {
+		entries[left], entries[right] = entries[right], entries[left]
 	}
-	tokens := splitTokens(question)
-	if len(tokens) == 0 {
-		return nil
-	}
+}
 
-	ranked := make([]rankedEntry, 0, len(entries))
+func pickEntriesByID(entries []knowledge.Entry, ids []string) []knowledge.Entry {
+	if len(entries) == 0 || len(ids) == 0 {
+		return nil
+	}
+	index := make(map[string]knowledge.Entry, len(entries))
 	for _, entry := range entries {
-		score := 0
-		lower := strings.ToLower(entry.Text)
-		for _, token := range tokens {
-			if strings.Contains(lower, token) {
-				score++
-			}
-		}
-		ranked = append(ranked, rankedEntry{entry: entry, score: score})
+		index[entry.ID] = entry
 	}
 
-	slices.SortFunc(ranked, func(a, b rankedEntry) int {
-		if a.score != b.score {
-			return b.score - a.score
-		}
-		switch {
-		case a.entry.RecordedAt.After(b.entry.RecordedAt):
-			return -1
-		case a.entry.RecordedAt.Before(b.entry.RecordedAt):
-			return 1
-		default:
-			return strings.Compare(a.entry.ID, b.entry.ID)
-		}
-	})
-	return ranked
-}
-
-func splitTokens(text string) []string {
-	parts := strings.FieldsFunc(text, func(r rune) bool {
-		switch {
-		case r >= 'a' && r <= 'z':
-			return false
-		case r >= '0' && r <= '9':
-			return false
-		case r >= 0x4e00 && r <= 0x9fff:
-			return false
-		default:
-			return true
-		}
-	})
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if utf8.RuneCountInString(part) < 2 {
+	out := make([]knowledge.Entry, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
 			continue
 		}
-		out = append(out, part)
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		entry, ok := index[id]
+		if !ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func formatKeywordList(values []string) string {
+	if len(values) == 0 {
+		return "(空)"
+	}
+	return strings.Join(values, ", ")
+}
+
+func normalizeSearchInputs(values []string) []string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 	return out
 }
@@ -573,6 +842,7 @@ func isSlashCommand(text string) bool {
 		"/remember-file", "/ingest",
 		"/append",
 		"/translate",
+		"/debug-search",
 		"/forget", "/delete",
 		"/list", "/ls",
 		"/stats",

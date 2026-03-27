@@ -41,7 +41,7 @@ func TestHandleMessageRememberAndList(t *testing.T) {
 	}
 }
 
-func TestHandleMessageQuestionReturnsAllKnowledge(t *testing.T) {
+func TestHandleMessageQuestionUsesReviewedKnowledgeSubset(t *testing.T) {
 	t.Parallel()
 
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
@@ -52,15 +52,44 @@ func TestHandleMessageQuestionReturnsAllKnowledge(t *testing.T) {
 			Command:  "answer",
 			Question: "macOS 什么时候做？",
 		},
-		answer: "知识库里提到未来需要支持 macOS，目前还没有实现时间表。",
 	}, reminders)
 	ctx := context.Background()
 
-	if _, err := service.HandleMessage(ctx, MessageContext{}, "/remember 未来需要支持 macOS"); err != nil {
+	macEntry, err := store.Add(ctx, knowledge.Entry{
+		ID:         "11111111aaaa1111",
+		Text:       "未来需要支持 macOS。",
+		RecordedAt: time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
 		t.Fatalf("remember macos: %v", err)
 	}
-	if _, err := service.HandleMessage(ctx, MessageContext{}, "/remember 现在只做最小知识库检索"); err != nil {
+	if _, err := store.Add(ctx, knowledge.Entry{
+		ID:         "22222222bbbb2222",
+		Text:       "现在只做最小知识库检索。",
+		RecordedAt: time.Date(2026, 3, 27, 11, 0, 0, 0, time.UTC),
+	}); err != nil {
 		t.Fatalf("remember retrieval: %v", err)
+	}
+	service.aiService = fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "macOS 什么时候做？",
+		},
+		searchPlan: ai.SearchPlan{
+			Queries:  []string{"macOS 支持计划"},
+			Keywords: []string{"macos", "支持"},
+		},
+		reviewIDs: []string{macEntry.ID},
+		answerFunc: func(_ string, entries []knowledge.Entry) string {
+			if len(entries) != 1 {
+				t.Fatalf("expected 1 reviewed entry, got %#v", entries)
+			}
+			if entries[0].ID != macEntry.ID {
+				t.Fatalf("expected macOS entry, got %#v", entries)
+			}
+			return "知识库里提到未来需要支持 macOS，目前还没有实现时间表。"
+		},
 	}
 
 	reply, err := service.HandleMessage(ctx, MessageContext{}, "macOS 什么时候做？")
@@ -69,6 +98,48 @@ func TestHandleMessageQuestionReturnsAllKnowledge(t *testing.T) {
 	}
 	if !strings.Contains(reply, "未来需要支持 macOS") {
 		t.Fatalf("unexpected answer reply: %q", reply)
+	}
+}
+
+func TestDebugSearchShowsKeywordsCandidatesAndReviewedSelection(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+
+	macEntry, err := store.Add(context.Background(), knowledge.Entry{
+		ID:         "11111111aaaa1111",
+		Text:       "未来需要支持 macOS。",
+		RecordedAt: time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("seed mac entry: %v", err)
+	}
+	if _, err := store.Add(context.Background(), knowledge.Entry{
+		ID:         "22222222bbbb2222",
+		Text:       "微信接口先做。",
+		RecordedAt: time.Date(2026, 3, 27, 11, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed weixin entry: %v", err)
+	}
+
+	service := NewService(store, fakeAI{
+		configured: true,
+		searchPlan: ai.SearchPlan{
+			Queries:  []string{"macOS 支持计划", "macOS 什么时候做"},
+			Keywords: []string{"macos", "支持"},
+		},
+		reviewIDs: []string{macEntry.ID},
+	}, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "/debug-search macOS什么时候做")
+	if err != nil {
+		t.Fatalf("debug search: %v", err)
+	}
+	for _, expected := range []string{"检索调试", "检索问句：macOS 支持计划, macOS 什么时候做", "AI关键词：macos, 支持", "score=", "[review] #11111111"} {
+		if !strings.Contains(reply, expected) {
+			t.Fatalf("expected %q in reply: %q", expected, reply)
+		}
 	}
 }
 
@@ -640,7 +711,10 @@ func TestHandleMessageUsesAIRouteForAppendLast(t *testing.T) {
 type fakeAI struct {
 	configured   bool
 	route        ai.RouteDecision
+	searchPlan   ai.SearchPlan
+	reviewIDs    []string
 	answer       string
+	answerFunc   func(string, []knowledge.Entry) string
 	translation  string
 	pdfSummary   string
 	imageSummary string
@@ -654,7 +728,18 @@ func (f fakeAI) RouteCommand(context.Context, string) (ai.RouteDecision, error) 
 	return f.route, nil
 }
 
-func (f fakeAI) Answer(context.Context, string, []knowledge.Entry) (string, error) {
+func (f fakeAI) BuildSearchPlan(context.Context, string) (ai.SearchPlan, error) {
+	return f.searchPlan, nil
+}
+
+func (f fakeAI) ReviewAnswerCandidates(context.Context, string, []knowledge.Entry) ([]string, error) {
+	return f.reviewIDs, nil
+}
+
+func (f fakeAI) Answer(_ context.Context, question string, entries []knowledge.Entry) (string, error) {
+	if f.answerFunc != nil {
+		return f.answerFunc(question, entries), nil
+	}
 	return f.answer, nil
 }
 

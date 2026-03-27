@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"myclaw/internal/knowledge"
 	"myclaw/internal/modelconfig"
@@ -93,6 +94,77 @@ func TestAnswerUsesKnowledgeEntries(t *testing.T) {
 	}
 	if !strings.Contains(reply, "macOS") {
 		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
+func TestBuildSearchPlan(t *testing.T) {
+	store := modelconfig.NewStore()
+	t.Setenv("MYCLAW_MODEL_PROVIDER", "openai")
+	t.Setenv("MYCLAW_MODEL_BASE_URL", "http://example.invalid/v1")
+	t.Setenv("MYCLAW_MODEL_API_KEY", "secret")
+	t.Setenv("MYCLAW_MODEL_NAME", "gpt-test")
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Text == nil || req.Text.Format.Type != "json_schema" {
+			t.Fatalf("expected json schema request, got %#v", req.Text)
+		}
+		if req.Text.Format.Name != "search_plan" {
+			t.Fatalf("unexpected schema name: %#v", req.Text.Format)
+		}
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"queries\":[\"macOS 支持计划\",\"macOS 什么时候做\"],\"keywords\":[\"macOS\",\"支持\"]}"}]}]}`), nil
+	})
+
+	plan, err := service.BuildSearchPlan(context.Background(), "macOS 什么时候做？")
+	if err != nil {
+		t.Fatalf("build search plan: %v", err)
+	}
+	if len(plan.Queries) != 2 || plan.Queries[0] != "macOS 支持计划" {
+		t.Fatalf("unexpected queries: %#v", plan)
+	}
+	if len(plan.Keywords) == 0 || plan.Keywords[0] != "macos" {
+		t.Fatalf("unexpected plan: %#v", plan)
+	}
+}
+
+func TestReviewAnswerCandidates(t *testing.T) {
+	store := modelconfig.NewStore()
+	t.Setenv("MYCLAW_MODEL_PROVIDER", "openai")
+	t.Setenv("MYCLAW_MODEL_BASE_URL", "http://example.invalid/v1")
+	t.Setenv("MYCLAW_MODEL_API_KEY", "secret")
+	t.Setenv("MYCLAW_MODEL_NAME", "gpt-test")
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Text == nil || req.Text.Format.Name != "retrieval_review" {
+			t.Fatalf("unexpected review request: %#v", req.Text)
+		}
+		if len(req.Input) == 0 || !strings.Contains(req.Input[0].Content[0].Text, "11111111aaaa1111") {
+			t.Fatalf("candidate ids missing from prompt: %#v", req.Input)
+		}
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"selected_ids\":[\"11111111aaaa1111\"]}"}]}]}`), nil
+	})
+
+	selected, err := service.ReviewAnswerCandidates(context.Background(), "macOS 什么时候做？", []knowledge.Entry{
+		{
+			ID:         "11111111aaaa1111",
+			Text:       "未来需要支持 macOS。",
+			RecordedAt: time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
+		},
+	})
+	if err != nil {
+		t.Fatalf("review candidates: %v", err)
+	}
+	if len(selected) != 1 || selected[0] != "11111111aaaa1111" {
+		t.Fatalf("unexpected selected ids: %#v", selected)
 	}
 }
 

@@ -25,6 +25,11 @@ type RouteDecision struct {
 	Question     string `json:"question"`
 }
 
+type SearchPlan struct {
+	Queries  []string `json:"queries"`
+	Keywords []string `json:"keywords"`
+}
+
 const pdfSummaryChunkRunes = 12000
 
 type Service struct {
@@ -184,6 +189,115 @@ Keep the answer concise but useful.
 `)
 
 	return s.generateText(ctx, cfg, instructions, prompt.String())
+}
+
+func (s *Service) BuildSearchPlan(ctx context.Context, question string) (SearchPlan, error) {
+	cfg, err := s.requireConfig(ctx)
+	if err != nil {
+		return SearchPlan{}, err
+	}
+
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"queries": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+			"keywords": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+		},
+		"required": []string{"queries", "keywords"},
+	}
+
+	instructions := strings.TrimSpace(`
+You are building a retrieval plan for a personal knowledge base.
+Produce:
+- queries: 1 to 3 short retrieval-oriented rewrites of the user's question
+- keywords: concrete terms only when they materially help retrieval
+
+Guidance:
+- Queries may include likely answer terms, troubleshooting terms, aliases, command names, error phrases, or bilingual variants.
+- Do not force keyword extraction when the question is abstract; use better retrieval queries instead.
+- Prefer concise, search-friendly wording over natural conversation.
+- Avoid generic filler words.
+Return only JSON that matches the schema.
+`)
+
+	var plan SearchPlan
+	if err := s.generateJSON(ctx, cfg, instructions, strings.TrimSpace(question), "search_plan", schema, &plan); err != nil {
+		return SearchPlan{}, err
+	}
+	plan.Queries = normalizeSearchQueries(plan.Queries)
+	plan.Keywords = knowledge.MergeKeywords(plan.Keywords)
+	return plan, nil
+}
+
+func (s *Service) ReviewAnswerCandidates(ctx context.Context, question string, entries []knowledge.Entry) ([]string, error) {
+	cfg, err := s.requireConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"selected_ids": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+		},
+		"required": []string{"selected_ids"},
+	}
+
+	var prompt strings.Builder
+	prompt.WriteString("用户问题：\n")
+	prompt.WriteString(strings.TrimSpace(question))
+	prompt.WriteString("\n\n候选知识：\n")
+	for index, entry := range entries {
+		keywords := entry.Keywords
+		if len(keywords) == 0 {
+			keywords = knowledge.GenerateKeywords(entry.Text)
+		}
+		prompt.WriteString(fmt.Sprintf("%d. id=%s time=%s keywords=%s\n%s\n\n",
+			index+1,
+			entry.ID,
+			entry.RecordedAt.Local().Format("2006-01-02 15:04:05"),
+			strings.Join(keywords, ", "),
+			trimForPrompt(entry.Text, 320),
+		))
+	}
+
+	instructions := strings.TrimSpace(`
+You are reviewing retrieved knowledge-base candidates for answer generation.
+Select only the entries that are genuinely useful for answering the user's question.
+Prefer precision over recall, but keep a small amount of supporting context when it materially helps.
+Use only the provided candidates.
+Return the selected full IDs in best-first order.
+If none are useful, return an empty array.
+Return only JSON that matches the schema.
+`)
+
+	var review struct {
+		SelectedIDs []string `json:"selected_ids"`
+	}
+	if err := s.generateJSON(ctx, cfg, instructions, prompt.String(), "retrieval_review", schema, &review); err != nil {
+		return nil, err
+	}
+	return review.SelectedIDs, nil
 }
 
 func (s *Service) TranslateToChinese(ctx context.Context, input string) (string, error) {
@@ -453,6 +567,31 @@ func splitRunes(text string, size int) []string {
 	for start := 0; start < len(runes); start += size {
 		end := min(start+size, len(runes))
 		out = append(out, strings.TrimSpace(string(runes[start:end])))
+	}
+	return out
+}
+
+func trimForPrompt(text string, maxRunes int) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	return string(runes[:maxRunes]) + "..."
+}
+
+func normalizeSearchQueries(values []string) []string {
+	var out []string
+	seen := make(map[string]struct{})
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 	return out
 }

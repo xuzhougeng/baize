@@ -2,7 +2,10 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -153,5 +156,95 @@ func TestStoreAppendLatestBySource(t *testing.T) {
 	}
 	if updated.Text != "latest same source\n补充内容" {
 		t.Fatalf("unexpected updated text: %q", updated.Text)
+	}
+}
+
+func TestGenerateKeywordsAvoidsBrokenChineseFragments(t *testing.T) {
+	t.Parallel()
+
+	keywords := GenerateKeywords("怎么解除服务器ip被封")
+	for _, expected := range []string{"解除", "服务器", "ip", "被封"} {
+		if !slices.Contains(keywords, expected) {
+			t.Fatalf("expected keyword %q in %#v", expected, keywords)
+		}
+	}
+	for _, unexpected := range []string{"么解", "除服", "务器"} {
+		if slices.Contains(keywords, unexpected) {
+			t.Fatalf("did not expect keyword %q in %#v", unexpected, keywords)
+		}
+	}
+}
+
+func TestStoreSearchFindsRelevantEntryFromMixedQuery(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	ctx := context.Background()
+
+	macEntry, err := store.Add(ctx, Entry{
+		ID:         "11111111aaaa1111",
+		Text:       "未来需要支持 macOS。",
+		RecordedAt: time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("add mac entry: %v", err)
+	}
+	if _, err := store.Add(ctx, Entry{
+		ID:         "22222222bbbb2222",
+		Text:       "微信接口先做。",
+		RecordedAt: time.Date(2026, 3, 27, 11, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("add weixin entry: %v", err)
+	}
+
+	results, err := store.Search(ctx, "macOS什么时候做", nil, 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected search results")
+	}
+	if results[0].Entry.ID != macEntry.ID {
+		t.Fatalf("expected macOS entry first, got %#v", results)
+	}
+	if results[0].Score == 0 {
+		t.Fatalf("expected positive score, got %#v", results[0])
+	}
+}
+
+func TestStoreBackfillKeywords(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "entries.json")
+	data := []byte(`[
+  {
+    "id": "11111111aaaa1111",
+    "text": "未来需要支持 macOS。",
+    "recorded_at": "2026-03-27T10:00:00Z"
+  }
+]`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("seed entries: %v", err)
+	}
+
+	store := NewStore(path)
+	updated, err := store.BackfillKeywords(context.Background())
+	if err != nil {
+		t.Fatalf("backfill keywords: %v", err)
+	}
+	if updated != 1 {
+		t.Fatalf("expected 1 updated entry, got %d", updated)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read entries: %v", err)
+	}
+	var entries []Entry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		t.Fatalf("decode entries: %v", err)
+	}
+	if len(entries) != 1 || !slices.Contains(entries[0].Keywords, "macos") {
+		t.Fatalf("expected backfilled keywords, got %#v", entries)
 	}
 }
