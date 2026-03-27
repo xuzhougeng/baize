@@ -9,12 +9,6 @@ on:
 jobs:
   build-installer:
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - amd64
-          - arm64
 
     steps:
       - name: Checkout
@@ -48,8 +42,8 @@ jobs:
         working-directory: cmd/myclaw-desktop
         run: |
           wails build `
-            -platform windows/${{ matrix.arch }} `
-            -o myclaw-desktop-${{ matrix.arch }}.exe `
+            -platform windows/amd64 `
+            -o myclaw-desktop-amd64.exe `
             -nsis `
             -webview2 download `
             -m `
@@ -58,7 +52,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: myclaw-desktop-windows-${{ matrix.arch }}
-          path: cmd/myclaw-desktop/build/bin/*.exe
+          name: myclaw-desktop-windows-amd64
+          path: cmd/myclaw-desktop/build/bin/*-installer.exe
           if-no-files-found: error
           retention-days: 14

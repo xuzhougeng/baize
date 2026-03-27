@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 func envOrDefault(key, fallback string) string {
@@ -14,8 +15,24 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+func defaultDesktopDataDir() string {
+	if runtime.GOOS == "windows" {
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return filepath.Join(localAppData, "myclaw", "data")
+		}
+	}
+
+	configDir, err := os.UserConfigDir()
+	if err == nil && configDir != "" {
+		return filepath.Join(configDir, "myclaw", "data")
+	}
+
+	return "data"
+}
+
 var migratableDataFiles = []string{
 	filepath.Join("knowledge", "entries.json"),
+	filepath.Join("model", "config.json"),
 	filepath.Join("reminders", "items.json"),
 	filepath.Join("weixin-bridge", "account.json"),
 	filepath.Join("weixin-bridge", "sync_buf"),

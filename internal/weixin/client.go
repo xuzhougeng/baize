@@ -70,12 +70,22 @@ func (c *Client) GetQRCode() (*QRCodeResponse, error) {
 	return &result, nil
 }
 
-func (c *Client) PollQRCodeStatus(qrcode string, timeout time.Duration) (*QRCodeStatusResponse, error) {
+func (c *Client) PollQRCodeStatus(ctx context.Context, qrcode string, timeout time.Duration) (*QRCodeStatusResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	deadline := time.Now().Add(timeout)
 	url := fmt.Sprintf("%s/ilink/bot/get_qrcode_status?qrcode=%s", c.baseURL, qrcode)
 
 	for time.Now().Before(deadline) {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -83,6 +93,9 @@ func (c *Client) PollQRCodeStatus(qrcode string, timeout time.Duration) (*QRCode
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -90,6 +103,9 @@ func (c *Client) PollQRCodeStatus(qrcode string, timeout time.Duration) (*QRCode
 		var result QRCodeStatusResponse
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			resp.Body.Close()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -98,7 +114,12 @@ func (c *Client) PollQRCodeStatus(qrcode string, timeout time.Duration) (*QRCode
 		if result.Status == "confirmed" {
 			return &result, nil
 		}
-		time.Sleep(1 * time.Second)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
 	}
 	return nil, fmt.Errorf("QR code login timed out after %v", timeout)
 }

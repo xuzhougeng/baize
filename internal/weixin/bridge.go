@@ -3,6 +3,7 @@ package weixin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +16,15 @@ import (
 )
 
 const maxReplyChunkRunes = 1400
+
+var ErrSessionExpired = errors.New("weixin session expired")
+
+type Account struct {
+	Token     string `json:"token"`
+	BaseURL   string `json:"base_url"`
+	UserID    string `json:"user_id"`
+	AccountID string `json:"account_id"`
+}
 
 type BridgeConfig struct {
 	DataDir string
@@ -36,13 +46,29 @@ func NewBridge(client *Client, service *app.Service, reminders *reminder.Manager
 	}
 }
 
-func (b *Bridge) Login() error {
+func (b *Bridge) StartLogin() (*QRCodeResponse, error) {
 	qr, err := b.client.GetQRCode()
 	if err != nil {
-		return fmt.Errorf("get QR code: %w", err)
+		return nil, fmt.Errorf("get QR code: %w", err)
 	}
 	if qr.QRCode == "" {
-		return fmt.Errorf("no QR code returned: %s", qr.Message)
+		return nil, fmt.Errorf("no QR code returned: %s", qr.Message)
+	}
+	return qr, nil
+}
+
+func (b *Bridge) WaitLogin(ctx context.Context, qrcode string, timeout time.Duration) (Account, error) {
+	status, err := b.client.PollQRCodeStatus(ctx, qrcode, timeout)
+	if err != nil {
+		return Account{}, err
+	}
+	return b.finalizeLogin(status)
+}
+
+func (b *Bridge) Login() error {
+	qr, err := b.StartLogin()
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("\n请用微信扫描以下二维码：")
@@ -55,49 +81,44 @@ func (b *Bridge) Login() error {
 
 	fmt.Println("\n等待扫码确认...")
 
-	status, err := b.client.PollQRCodeStatus(qr.QRCode, 8*time.Minute)
+	account, err := b.WaitLogin(context.Background(), qr.QRCode, 8*time.Minute)
 	if err != nil {
 		return err
 	}
 
-	b.client.SetToken(status.BotToken)
-	if status.BaseURL != "" {
-		b.client = NewClient(status.BaseURL, status.BotToken)
-	}
-
-	account := map[string]string{
-		"token":      status.BotToken,
-		"base_url":   status.BaseURL,
-		"user_id":    status.ILinkUserID,
-		"account_id": status.ILinkBotID,
-	}
-	if err := b.saveAccount(account); err != nil {
-		return err
-	}
-	log.Printf("[weixin] login succeeded, account=%s", status.ILinkBotID)
+	log.Printf("[weixin] login succeeded, account=%s", account.AccountID)
 	return nil
 }
 
-func (b *Bridge) LoadAccount() bool {
+func (b *Bridge) ReadSavedAccount() (Account, bool) {
 	path := filepath.Join(b.config.DataDir, "weixin-bridge", "account.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return Account{}, false
 	}
-	var account map[string]string
+	var account Account
 	if err := json.Unmarshal(data, &account); err != nil {
+		return Account{}, false
+	}
+	if strings.TrimSpace(account.Token) == "" {
+		return Account{}, false
+	}
+	return account, true
+}
+
+func (b *Bridge) LoadAccount() bool {
+	account, ok := b.ReadSavedAccount()
+	if !ok {
 		return false
 	}
-	token := account["token"]
-	if token == "" {
-		return false
-	}
-	baseURL := account["base_url"]
+
+	token := account.Token
+	baseURL := account.BaseURL
 	if baseURL == "" {
 		baseURL = b.client.BaseURL()
 	}
 	b.client = NewClient(baseURL, token)
-	log.Printf("[weixin] loaded account %s", account["account_id"])
+	log.Printf("[weixin] loaded account %s", account.AccountID)
 	return true
 }
 
@@ -108,6 +129,7 @@ func (b *Bridge) Logout() error {
 			return err
 		}
 	}
+	b.client = NewClient(b.client.BaseURL(), "")
 	return nil
 }
 
@@ -135,7 +157,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 		}
 
 		if resp.ErrCode == -14 {
-			return fmt.Errorf("weixin session expired, please run -weixin-login again")
+			return fmt.Errorf("%w: please run -weixin-login again", ErrSessionExpired)
 		}
 
 		if resp.GetUpdatesBuf != "" && resp.GetUpdatesBuf != updatesBuf {
@@ -197,7 +219,29 @@ func (b *Bridge) sendChunkedReply(ctx context.Context, toUserID, contextToken, t
 	return nil
 }
 
-func (b *Bridge) saveAccount(account map[string]string) error {
+func (b *Bridge) finalizeLogin(status *QRCodeStatusResponse) (Account, error) {
+	if strings.TrimSpace(status.BotToken) == "" {
+		return Account{}, fmt.Errorf("wechat login succeeded without bot token: %s", status.Message)
+	}
+
+	b.client.SetToken(status.BotToken)
+	if status.BaseURL != "" {
+		b.client = NewClient(status.BaseURL, status.BotToken)
+	}
+
+	account := Account{
+		Token:     status.BotToken,
+		BaseURL:   status.BaseURL,
+		UserID:    status.ILinkUserID,
+		AccountID: status.ILinkBotID,
+	}
+	if err := b.saveAccount(account); err != nil {
+		return Account{}, err
+	}
+	return account, nil
+}
+
+func (b *Bridge) saveAccount(account Account) error {
 	dir := filepath.Join(b.config.DataDir, "weixin-bridge")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

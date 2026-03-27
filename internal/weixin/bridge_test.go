@@ -2,6 +2,8 @@ package weixin
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -48,5 +50,58 @@ func TestSendTextMessageIncludesClientIDAndBaseInfo(t *testing.T) {
 	}
 	if got.Msg.ContextToken != "ctx-1" {
 		t.Fatalf("unexpected context token: %q", got.Msg.ContextToken)
+	}
+}
+
+func TestFinalizeLoginPersistsAccount(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	bridge := NewBridge(NewClient("https://unit.test", ""), nil, nil, BridgeConfig{DataDir: dataDir})
+
+	account, err := bridge.finalizeLogin(&QRCodeStatusResponse{
+		Status:      "confirmed",
+		BotToken:    "bot-token",
+		BaseURL:     "https://weixin.example",
+		ILinkBotID:  "bot-123",
+		ILinkUserID: "user-456",
+	})
+	if err != nil {
+		t.Fatalf("finalize login: %v", err)
+	}
+	if account.AccountID != "bot-123" {
+		t.Fatalf("unexpected account id: %q", account.AccountID)
+	}
+
+	saved, ok := bridge.ReadSavedAccount()
+	if !ok {
+		t.Fatal("expected saved account")
+	}
+	if saved.Token != "bot-token" || saved.BaseURL != "https://weixin.example" {
+		t.Fatalf("unexpected saved account: %#v", saved)
+	}
+}
+
+func TestLoadAccountUsesSavedCredentials(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	accountPath := filepath.Join(dataDir, "weixin-bridge", "account.json")
+	if err := os.MkdirAll(filepath.Dir(accountPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(accountPath, []byte(`{"token":"saved-token","base_url":"https://saved.example","account_id":"bot-1"}`), 0o644); err != nil {
+		t.Fatalf("write account: %v", err)
+	}
+
+	bridge := NewBridge(NewClient("https://unit.test", ""), nil, nil, BridgeConfig{DataDir: dataDir})
+	if !bridge.LoadAccount() {
+		t.Fatal("expected saved account to load")
+	}
+	if bridge.client.token != "saved-token" {
+		t.Fatalf("unexpected token: %q", bridge.client.token)
+	}
+	if bridge.client.BaseURL() != "https://saved.example" {
+		t.Fatalf("unexpected base URL: %q", bridge.client.BaseURL())
 	}
 }

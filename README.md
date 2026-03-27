@@ -55,12 +55,19 @@ go run ./cmd/myclaw-desktop
 
 - 图片 / PDF 文件导入
 - 知识库列表、补充、删除、清空
+- 模型配置页面，可直接保存和测试连接
 - 原生文件选择和确认对话框
+- 微信页面，支持在桌面端直接显示二维码扫码登录
 - 对话面板，可继续使用 `/remember`、`/notice`、`/forget`、`/debug-search` 等命令
 
-桌面版和终端版共用同一套数据目录与知识库存储结构，默认仍是 `data/`。
+桌面版默认数据目录会放到用户配置目录：
 
-模型配置只允许通过本地环境变量传入，不提供终端内配置命令。先在本地 shell 里设置：
+- Windows: `%LOCALAPPDATA%\myclaw\data`
+- Linux/macOS: 对应系统的用户配置目录下 `myclaw/data`
+
+如果你显式传了 `-data-dir` 或设置了 `MYCLAW_DATA_DIR`，则以传入值为准。
+
+桌面模式下，模型参数既可以直接在“模型”页面里保存到本地，也可以继续通过环境变量覆盖。先在本地 shell 里设置的方式仍然可用：
 
 ```bash
 export MYCLAW_MODEL_PROVIDER=openai
@@ -85,6 +92,31 @@ $env:MYCLAW_MODEL_NAME="<你的模型名>"
 - `MYCLAW_MODEL_BASE_URL`
 - `MYCLAW_MODEL_API_KEY`
 - `MYCLAW_MODEL_NAME`
+
+### 0.6. 浏览器 HTTP Dev 模式
+
+如果你要在浏览器里调前端，而不是直接起 Wails 窗口，可以运行：
+
+```bash
+make dev
+```
+
+默认会启动：
+
+- HTTP 地址：`http://127.0.0.1:3415`
+- 同一个 Go 进程内同时提供前端静态资源和 `/api/*` 后台接口
+
+如果要改监听地址：
+
+```bash
+make dev HTTP_DEV_ADDR=127.0.0.1:8080
+```
+
+这个模式下前端会自动切到 HTTP backend 适配层，而不是调用 `window.go` / `window.runtime`。因此：
+
+- 模型配置、记忆管理、聊天、微信扫码状态都可以直接联调
+- 文件导入会走浏览器上传接口，而不是 Wails 原生文件对话框
+- 原生提醒弹窗和 Wails 事件只在桌面窗口模式下可用
 
 ### 1. 微信扫码登录
 
@@ -202,7 +234,7 @@ Windows zip 包内会包含：
 
 - 安装 Wails CLI
 - 安装 NSIS
-- 构建 `amd64` / `arm64` 的 Wails 桌面应用
+- 构建 `amd64` 的 Wails 桌面应用
 - 用 `wails build -nsis` 生成桌面安装器 `.exe`
 - 把安装器作为 Actions artifact 上传
 
@@ -214,7 +246,9 @@ Windows zip 包内会包含：
 
 - `cmd/myclaw-desktop/build/bin/`
 
-其中会包含桌面端 `.exe` 和对应的 NSIS 安装器 `.exe`。
+workflow 上传的 artifact 现在只包含 NSIS 安装器：
+
+- `*-installer.exe`
 
 如果你想在本地 Windows 手动构建桌面安装器，可以在 `cmd/myclaw-desktop/` 下执行：
 

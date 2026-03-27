@@ -11,116 +11,356 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Wails Desktop</p>
-          <h1>myclaw 记忆工作台</h1>
-          <p class="hero-text">
-            用桌面前端接管文件导入、记忆管理和对话入口，底层仍复用现有 Go 服务。
-          </p>
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1>myclaw</h1>
+          <p class="tagline">记忆工作台</p>
         </div>
-        <div class="status-panel">
-          <div class="status-card">
-            <span class="status-label">数据目录</span>
-            <strong id="data-dir">加载中</strong>
+        <nav class="sidebar-nav">
+          <a class="nav-item active" data-view="dashboard">
+            <span class="icon">◇</span>
+            <span>概览</span>
+          </a>
+          <a class="nav-item" data-view="import">
+            <span class="icon">↓</span>
+            <span>导入</span>
+          </a>
+          <a class="nav-item" data-view="memory">
+            <span class="icon">◈</span>
+            <span>记忆库</span>
+          </a>
+          <a class="nav-item" data-view="model">
+            <span class="icon">◌</span>
+            <span>模型</span>
+          </a>
+          <a class="nav-item" data-view="weixin">
+            <span class="icon">◎</span>
+            <span>微信</span>
+          </a>
+          <a class="nav-item" data-view="chat">
+            <span class="icon">○</span>
+            <span>对话</span>
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="status-compact">
+            <div class="status-compact-row">
+              <span>模型</span>
+              <span class="value" id="ai-status-compact">—</span>
+            </div>
+            <div class="status-compact-row">
+              <span>记忆数</span>
+              <span class="value" id="memory-count-compact">0</span>
+            </div>
           </div>
-          <div class="status-card">
-            <span class="status-label">模型状态</span>
-            <strong id="ai-status">加载中</strong>
-            <p id="ai-message" class="status-note"></p>
-          </div>
-          <div class="status-card">
-            <span class="status-label">记忆条数</span>
-            <strong id="memory-count">0</strong>
+          <button class="theme-toggle" id="theme-toggle" title="切换主题">
+            <span class="theme-icon">◐</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Dashboard View -->
+        <div id="view-dashboard" class="view active">
+          <header class="content-header">
+            <h2>概览</h2>
+            <p class="subtitle">系统状态与快速操作</p>
+          </header>
+          <div class="content-body">
+            <div class="dashboard-grid">
+              <div class="stat-card">
+                <div class="label">数据目录</div>
+                <div class="value" id="data-dir-stat">—</div>
+                <div class="subtext" id="data-dir-path"></div>
+              </div>
+              <div class="stat-card">
+                <div class="label">记忆条数</div>
+                <div class="value" id="memory-count-stat">0</div>
+                <div class="subtext">知识库总量</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">模型状态</div>
+                <div class="value" id="ai-status-stat">—</div>
+                <div class="subtext" id="ai-message-stat"></div>
+              </div>
+              <div class="stat-card">
+                <div class="label">微信状态</div>
+                <div class="value" id="weixin-status-stat">—</div>
+                <div class="subtext" id="weixin-message-stat"></div>
+              </div>
+            </div>
+
+            <h3 style="margin-bottom: 12px; font-size: 14px; color: var(--text-secondary);">快速操作</h3>
+            <div class="quick-actions">
+              <div class="action-card" onclick="navigateTo('import')">
+                <h3>导入文件</h3>
+                <p>添加图片或 PDF 到知识库</p>
+              </div>
+              <div class="action-card" onclick="navigateTo('memory')">
+                <h3>浏览记忆</h3>
+                <p>查看和管理已存储的记忆</p>
+              </div>
+              <div class="action-card" onclick="navigateTo('chat')">
+                <h3>开始对话</h3>
+                <p>与 AI 助手交流</p>
+              </div>
+              <div class="action-card" onclick="navigateTo('weixin')">
+                <h3>微信接入</h3>
+                <p>在桌面端直接扫码登录</p>
+              </div>
+              <div class="action-card" onclick="navigateTo('model')">
+                <h3>模型配置</h3>
+                <p>直接在 desktop 里保存与测试</p>
+              </div>
+              <div class="action-card" id="quick-add-memory">
+                <h3>快速记忆</h3>
+                <p>直接添加一条新记忆</p>
+              </div>
+            </div>
           </div>
         </div>
-      </header>
 
-      <main class="workspace">
-        <section class="column">
-          <article class="panel accent-panel">
-            <div class="panel-head">
-              <div>
-                <p class="kicker">文件导入</p>
-                <h2>图片 / PDF</h2>
+        <!-- Import View -->
+        <div id="view-import" class="view">
+          <header class="content-header">
+            <h2>文件导入</h2>
+            <p class="subtitle">导入图片或 PDF 文件到知识库</p>
+          </header>
+          <div class="content-body">
+            <div class="import-section">
+              <div class="drop-zone" id="drop-zone">
+                <div class="drop-zone-icon">⬇</div>
+                <div class="drop-zone-text">点击选择或拖拽文件到此处</div>
+                <div class="drop-zone-hint">支持 PNG、JPG、PDF 格式</div>
               </div>
-              <button id="browse-file" class="ghost-button" type="button">浏览文件</button>
-            </div>
-            <p class="panel-text">
-              图片会走视觉总结，PDF 会先提取文本再生成摘要，然后存进知识库。
-            </p>
-            <div class="file-grid">
-              <label class="field">
-                <span>文件路径</span>
-                <input id="file-path" type="text" placeholder="选择图片或 PDF 文件" />
-              </label>
-              <button id="import-file" class="primary-button wide-button" type="button">
-                导入并入库
-              </button>
-            </div>
-          </article>
 
-          <article class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="kicker">新增记忆</p>
-                <h2>直接保存</h2>
+              <div class="file-preview" id="file-preview">
+                <div class="file-preview-header">
+                  <span class="file-preview-icon" id="file-icon">📄</span>
+                  <div class="file-preview-info">
+                    <h4 id="file-name">filename.pdf</h4>
+                    <p id="file-size">2.4 MB</p>
+                  </div>
+                </div>
+                <div class="import-options">
+                  <button class="btn btn-primary wide-button" id="import-confirm">导入并入库</button>
+                </div>
               </div>
             </div>
-            <form id="memory-form" class="stack-form">
-              <label class="field">
-                <span>记忆内容</span>
-                <textarea
-                  id="memory-input"
-                  rows="5"
-                  placeholder="例如：Windows 版本优先把桌面前端和文件导入做完整。"
-                ></textarea>
-              </label>
-              <button class="primary-button" type="submit">写入知识库</button>
-            </form>
-          </article>
 
-          <article class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="kicker">对话框</p>
-                <h2>聊天面板</h2>
+            <div style="margin-top: 24px;">
+              <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--text-secondary);">说明</h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.7;">
+                • 图片文件会自动进行视觉内容分析并生成摘要<br>
+                • PDF 文件会先提取文本内容，然后生成知识摘要<br>
+                • 处理完成后，内容将自动存入知识库供检索使用
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory View -->
+        <div id="view-memory" class="view">
+          <header class="content-header">
+            <h2>记忆库</h2>
+            <p class="subtitle">浏览和管理知识库内容</p>
+          </header>
+          <div class="content-body">
+            <div class="memory-header">
+              <div class="memory-search">
+                <input type="text" id="memory-filter" placeholder="搜索记忆内容、ID 或关键词..." />
+              </div>
+              <button class="btn btn-danger btn-sm" id="clear-memory">清空知识库</button>
+            </div>
+            <div class="memory-list" id="memory-list">
+              <!-- Memory cards will be rendered here -->
+              <div class="empty-state">
+                <div class="empty-state-icon">◈</div>
+                <h3>知识库为空</h3>
+                <p>导入文件或直接添加记忆来开始使用</p>
               </div>
             </div>
-            <div id="chat-list" class="chat-list"></div>
-            <div class="prompt-row" id="prompt-row"></div>
-            <form id="chat-form" class="chat-form">
-              <textarea
-                id="chat-input"
-                rows="3"
-                placeholder="直接提问，或者输入 /remember、/notice、/forget 等命令。"
-              ></textarea>
-              <button class="primary-button" type="submit">发送</button>
-            </form>
-          </article>
-        </section>
+          </div>
+        </div>
 
-        <section class="column wide-column">
-          <article class="panel">
-            <div class="panel-head">
-              <div>
-                <p class="kicker">记忆管理</p>
-                <h2>知识库列表</h2>
+        <!-- Model View -->
+        <div id="view-model" class="view">
+          <header class="content-header">
+            <h2>模型配置</h2>
+            <p class="subtitle">直接在 desktop 内保存、覆盖和测试模型连接</p>
+          </header>
+          <div class="content-body">
+            <div class="model-layout">
+              <section class="model-card">
+                <div class="model-card-header">
+                  <div>
+                    <h3>连接参数</h3>
+                    <p>保存后会写入本地数据目录，供 desktop 直接使用。</p>
+                  </div>
+                  <span class="status-pill off" id="model-status-pill">未配置</span>
+                </div>
+
+                <div class="form-grid">
+                  <label class="form-field">
+                    <span>Provider</span>
+                    <input id="model-provider" type="text" placeholder="openai" />
+                  </label>
+                  <label class="form-field">
+                    <span>Base URL</span>
+                    <input id="model-base-url" type="text" placeholder="https://api.openai.com/v1" />
+                  </label>
+                  <label class="form-field">
+                    <span>Model</span>
+                    <input id="model-name" type="text" placeholder="gpt-4.1-mini" />
+                  </label>
+                  <label class="form-field form-field-wide">
+                    <span>API Key</span>
+                    <input id="model-api-key" type="password" placeholder="sk-..." />
+                  </label>
+                </div>
+
+                <p class="model-message" id="model-message">尚未保存本地模型配置。</p>
+                <div class="model-actions">
+                  <button class="btn btn-primary" id="model-save">保存配置</button>
+                  <button class="btn btn-ghost" id="model-test">测试连接</button>
+                  <button class="btn btn-ghost" id="model-clear">清空本地配置</button>
+                </div>
+              </section>
+
+              <section class="model-card">
+                <div class="model-card-header">
+                  <div>
+                    <h3>当前生效值</h3>
+                    <p>环境变量存在时，会覆盖本地保存的同名字段。</p>
+                  </div>
+                </div>
+
+                <div class="model-summary">
+                  <div class="model-summary-row">
+                    <span>Provider</span>
+                    <strong id="effective-provider">—</strong>
+                  </div>
+                  <div class="model-summary-row">
+                    <span>Base URL</span>
+                    <strong id="effective-base-url">—</strong>
+                  </div>
+                  <div class="model-summary-row">
+                    <span>Model</span>
+                    <strong id="effective-model">—</strong>
+                  </div>
+                  <div class="model-summary-row">
+                    <span>API Key</span>
+                    <strong id="effective-api-key">—</strong>
+                  </div>
+                </div>
+
+                <div class="env-override-box" id="model-env-override-box" hidden>
+                  <h4>环境变量覆盖</h4>
+                  <p id="model-env-override-text">—</p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <!-- Weixin View -->
+        <div id="view-weixin" class="view">
+          <header class="content-header">
+            <h2>微信接入</h2>
+            <p class="subtitle">直接在桌面端扫码登录，不再依赖外部网页</p>
+          </header>
+          <div class="content-body">
+            <div class="weixin-layout">
+              <section class="weixin-card">
+                <div class="weixin-card-header">
+                  <div>
+                    <h3>登录状态</h3>
+                    <p>扫码成功后，desktop 会直接启动微信 bridge。</p>
+                  </div>
+                  <span class="status-pill off" id="weixin-status-pill">未连接</span>
+                </div>
+                <p class="weixin-status-copy" id="weixin-status-copy">未连接微信，可在桌面端直接生成二维码扫码登录。</p>
+                <div class="weixin-actions">
+                  <button class="btn btn-primary" id="weixin-start-login">生成二维码</button>
+                  <button class="btn btn-ghost" id="weixin-stop-login">取消扫码</button>
+                  <button class="btn btn-ghost" id="weixin-logout">退出登录</button>
+                </div>
+                <div class="weixin-account" id="weixin-account" hidden>
+                  <div class="weixin-account-row">
+                    <span>机器人 ID</span>
+                    <strong id="weixin-account-id">—</strong>
+                  </div>
+                  <div class="weixin-account-row">
+                    <span>用户 ID</span>
+                    <strong id="weixin-user-id">—</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="weixin-card weixin-qr-card">
+                <div class="weixin-qr-frame">
+                  <img id="weixin-qr-image" alt="微信扫码二维码" hidden />
+                  <div class="weixin-qr-empty" id="weixin-qr-empty">
+                    <div class="weixin-qr-icon">◎</div>
+                    <h3>等待生成二维码</h3>
+                    <p>点击左侧按钮后，在这里直接扫码即可。</p>
+                  </div>
+                </div>
+                <p class="weixin-qr-caption" id="weixin-qr-caption">二维码会在本窗口内展示。</p>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat View -->
+        <div id="view-chat" class="view">
+          <header class="content-header">
+            <h2>对话</h2>
+            <p class="subtitle">与 AI 助手交流</p>
+          </header>
+          <div class="content-body">
+            <div class="chat-container">
+              <div class="chat-messages" id="chat-list">
+                <!-- Chat messages will be rendered here -->
+                <div class="empty-state">
+                  <div class="empty-state-icon">○</div>
+                  <h3>开始新对话</h3>
+                  <p>输入问题或使用命令如 /remember、/notice、/forget</p>
+                </div>
               </div>
-              <button id="clear-memory" class="danger-button" type="button">清空知识库</button>
+              <div class="chat-input-area">
+                <div class="chat-input-wrapper">
+                  <textarea id="chat-input" placeholder="输入消息..." rows="1"></textarea>
+                  <button class="btn btn-primary btn-icon" id="chat-send">→</button>
+                </div>
+                <div class="chat-shortcuts">
+                  <span class="shortcut-chip" data-cmd="/remember">/remember</span>
+                  <span class="shortcut-chip" data-cmd="/notice">/notice</span>
+                  <span class="shortcut-chip" data-cmd="/forget">/forget</span>
+                  <span class="shortcut-chip" data-cmd="/help">/help</span>
+                </div>
+              </div>
             </div>
-            <div class="toolbar">
-              <label class="field toolbar-field">
-                <span>筛选</span>
-                <input id="memory-filter" type="text" placeholder="按内容、ID、来源或关键词过滤" />
-              </label>
-            </div>
-            <div id="memory-list" class="memory-list"></div>
-          </article>
-        </section>
+          </div>
+        </div>
       </main>
 
+      <!-- Quick Add Memory Modal (simplified) -->
+      <div id="quick-add-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; align-items: center; justify-content: center;">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; width: 90%; max-width: 500px;">
+          <h3 style="font-size: 16px; margin-bottom: 16px;">快速添加记忆</h3>
+          <textarea id="quick-memory-input" style="width: 100%; min-height: 100px; margin-bottom: 12px;" placeholder="输入记忆内容..."></textarea>
+          <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button class="btn btn-ghost" id="quick-add-cancel">取消</button>
+            <button class="btn btn-primary" id="quick-add-confirm">添加</button>
+          </div>
+        </div>
+      </div>
+
       <div id="banner" class="banner" hidden></div>
+      <input id="http-file-input" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,.pdf" hidden />
     </div>
 
     <script src="./app.js"></script>

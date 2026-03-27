@@ -2,7 +2,10 @@ package modelconfig
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -18,10 +21,16 @@ type Config struct {
 	Model    string `json:"model"`
 }
 
-type Store struct{}
+type Store struct {
+	path string
+}
 
-func NewStore() *Store {
-	return &Store{}
+func NewStore(path ...string) *Store {
+	store := &Store{}
+	if len(path) > 0 {
+		store.path = strings.TrimSpace(path[0])
+	}
+	return store
 }
 
 func DefaultConfig() Config {
@@ -31,10 +40,68 @@ func DefaultConfig() Config {
 	}
 }
 
-func (s *Store) Load(_ context.Context) (Config, error) {
+func (s *Store) Load(ctx context.Context) (Config, error) {
 	cfg := DefaultConfig()
+	saved, ok, err := s.LoadSaved(ctx)
+	if err != nil {
+		return Config{}, err
+	}
+	if ok {
+		cfg = mergeConfig(cfg, saved)
+	}
 	applyEnvOverrides(&cfg)
 	return cfg.Normalize(), nil
+}
+
+func (s *Store) LoadSaved(_ context.Context) (Config, bool, error) {
+	if strings.TrimSpace(s.path) == "" {
+		return Config{}, false, nil
+	}
+
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{}, false, nil
+		}
+		return Config{}, false, err
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, false, err
+	}
+	return cfg.Normalize(), true, nil
+}
+
+func (s *Store) Save(_ context.Context, cfg Config) error {
+	if strings.TrimSpace(s.path) == "" {
+		return errors.New("model config store is read-only")
+	}
+
+	cfg = cfg.Normalize()
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, data, 0o600)
+}
+
+func (s *Store) Clear(_ context.Context) error {
+	if strings.TrimSpace(s.path) == "" {
+		return errors.New("model config store is read-only")
+	}
+	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) Path() string {
+	return s.path
 }
 
 func (c Config) Normalize() Config {
@@ -84,6 +151,39 @@ func applyEnvOverrides(cfg *Config) {
 	if value := strings.TrimSpace(os.Getenv("MYCLAW_MODEL_NAME")); value != "" {
 		cfg.Model = value
 	}
+}
+
+func ActiveEnvOverrides() []string {
+	fields := make([]string, 0, 4)
+	if strings.TrimSpace(os.Getenv("MYCLAW_MODEL_PROVIDER")) != "" {
+		fields = append(fields, "provider")
+	}
+	if strings.TrimSpace(os.Getenv("MYCLAW_MODEL_BASE_URL")) != "" {
+		fields = append(fields, "base_url")
+	}
+	if strings.TrimSpace(os.Getenv("MYCLAW_MODEL_API_KEY")) != "" {
+		fields = append(fields, "api_key")
+	}
+	if strings.TrimSpace(os.Getenv("MYCLAW_MODEL_NAME")) != "" {
+		fields = append(fields, "model")
+	}
+	return fields
+}
+
+func mergeConfig(base Config, override Config) Config {
+	if strings.TrimSpace(override.Provider) != "" {
+		base.Provider = override.Provider
+	}
+	if strings.TrimSpace(override.BaseURL) != "" {
+		base.BaseURL = override.BaseURL
+	}
+	if strings.TrimSpace(override.APIKey) != "" {
+		base.APIKey = override.APIKey
+	}
+	if strings.TrimSpace(override.Model) != "" {
+		base.Model = override.Model
+	}
+	return base
 }
 
 func MaskSecret(secret string) string {

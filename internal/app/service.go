@@ -346,7 +346,7 @@ func (s *Service) ingestFilePath(ctx context.Context, mc MessageContext, rawPath
 
 func (s *Service) ensureAIAvailable(ctx context.Context) (string, error) {
 	if s.aiService == nil {
-		return "模型尚未启用。请先在本地环境变量中配置模型，或使用 `/remember` / `记住：` 明确保存内容。", nil
+		return "模型尚未启用。请先配置模型，或使用 `/remember` / `记住：` 明确保存内容。", nil
 	}
 
 	configured, err := s.aiService.IsConfigured(ctx)
@@ -354,7 +354,7 @@ func (s *Service) ensureAIAvailable(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if !configured {
-		return "模型还没有配置完成。请先设置本地环境变量 `MYCLAW_MODEL_PROVIDER`、`MYCLAW_MODEL_BASE_URL`、`MYCLAW_MODEL_API_KEY` 和 `MYCLAW_MODEL_NAME`。", nil
+		return "模型还没有配置完成。请先在桌面端模型页保存 Provider、Base URL、API Key 和 Model，或设置对应环境变量。", nil
 	}
 	return "", nil
 }

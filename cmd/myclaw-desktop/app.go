@@ -14,7 +14,9 @@ import (
 	appsvc "myclaw/internal/app"
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/modelconfig"
 	"myclaw/internal/reminder"
+	"myclaw/internal/weixin"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -26,21 +28,52 @@ const (
 )
 
 type DesktopApp struct {
-	ctx            context.Context
-	dataDir        string
-	store          *knowledge.Store
-	aiService      *ai.Service
-	service        *appsvc.Service
-	reminders      *reminder.Manager
-	reminderCancel context.CancelFunc
-	dialogMu       sync.Mutex
+	ctx               context.Context
+	dataDir           string
+	store             *knowledge.Store
+	modelStore        *modelconfig.Store
+	aiService         *ai.Service
+	service           *appsvc.Service
+	reminders         *reminder.Manager
+	weixinBridge      *weixin.Bridge
+	reminderCancel    context.CancelFunc
+	dialogMu          sync.Mutex
+	weixinMu          sync.Mutex
+	weixinStatus      WeixinStatus
+	weixinRunCancel   context.CancelFunc
+	weixinLoginCancel context.CancelFunc
 }
 
 type Overview struct {
-	DataDir        string `json:"dataDir"`
-	AIAvailable    bool   `json:"aiAvailable"`
-	AIMessage      string `json:"aiMessage"`
-	KnowledgeCount int    `json:"knowledgeCount"`
+	DataDir         string `json:"dataDir"`
+	AIAvailable     bool   `json:"aiAvailable"`
+	AIMessage       string `json:"aiMessage"`
+	KnowledgeCount  int    `json:"knowledgeCount"`
+	WeixinConnected bool   `json:"weixinConnected"`
+	WeixinMessage   string `json:"weixinMessage"`
+}
+
+type ModelSettings struct {
+	Provider              string   `json:"provider"`
+	BaseURL               string   `json:"baseUrl"`
+	APIKey                string   `json:"apiKey"`
+	Model                 string   `json:"model"`
+	Configured            bool     `json:"configured"`
+	Saved                 bool     `json:"saved"`
+	MissingFields         []string `json:"missingFields"`
+	EnvOverrides          []string `json:"envOverrides"`
+	EffectiveProvider     string   `json:"effectiveProvider"`
+	EffectiveBaseURL      string   `json:"effectiveBaseUrl"`
+	EffectiveAPIKeyMasked string   `json:"effectiveApiKeyMasked"`
+	EffectiveModel        string   `json:"effectiveModel"`
+	Message               string   `json:"message"`
+}
+
+type ModelConfigInput struct {
+	Provider string `json:"provider"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Model    string `json:"model"`
 }
 
 type KnowledgeItem struct {
@@ -73,23 +106,32 @@ type reminderNotifier struct {
 	app *DesktopApp
 }
 
-func NewDesktopApp(dataDir string, store *knowledge.Store, aiService *ai.Service, service *appsvc.Service, reminders *reminder.Manager) *DesktopApp {
+func NewDesktopApp(dataDir string, store *knowledge.Store, modelStore *modelconfig.Store, aiService *ai.Service, service *appsvc.Service, reminders *reminder.Manager, weixinBridge *weixin.Bridge) *DesktopApp {
 	return &DesktopApp{
-		dataDir:   dataDir,
-		store:     store,
-		aiService: aiService,
-		service:   service,
-		reminders: reminders,
+		dataDir:      dataDir,
+		store:        store,
+		modelStore:   modelStore,
+		aiService:    aiService,
+		service:      service,
+		reminders:    reminders,
+		weixinBridge: weixinBridge,
+		weixinStatus: defaultWeixinStatus(),
 	}
 }
 
 func (a *DesktopApp) startup(ctx context.Context) {
 	a.ctx = ctx
 	runtime.WindowCenter(ctx)
+	a.startBackgroundServices()
+}
 
+func (a *DesktopApp) startBackgroundServices() {
 	if a.reminders == nil {
+		a.initWeixin()
 		return
 	}
+
+	a.initWeixin()
 
 	target := reminder.Target{
 		Interface: desktopInterface,
@@ -110,8 +152,14 @@ func (a *DesktopApp) startup(ctx context.Context) {
 }
 
 func (a *DesktopApp) shutdown(context.Context) {
+	a.stopBackgroundServices()
+}
+
+func (a *DesktopApp) stopBackgroundServices() {
+	a.stopWeixin()
 	if a.reminderCancel != nil {
 		a.reminderCancel()
+		a.reminderCancel = nil
 	}
 }
 
@@ -128,12 +176,93 @@ func (a *DesktopApp) GetOverview() (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
+	weixinStatus := a.GetWeixinStatus()
 	return Overview{
-		DataDir:        a.dataDir,
-		AIAvailable:    available,
-		AIMessage:      message,
-		KnowledgeCount: len(entries),
+		DataDir:         a.dataDir,
+		AIAvailable:     available,
+		AIMessage:       message,
+		KnowledgeCount:  len(entries),
+		WeixinConnected: weixinStatus.Connected,
+		WeixinMessage:   weixinStatus.Message,
 	}, nil
+}
+
+func (a *DesktopApp) GetModelSettings() (ModelSettings, error) {
+	if a.aiService == nil || a.modelStore == nil {
+		return ModelSettings{}, errors.New("模型服务尚未启用")
+	}
+
+	effective, err := a.aiService.CurrentConfig(context.Background())
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	envOverrides := modelconfig.ActiveEnvOverrides()
+	saved, savedOK, err := a.modelStore.LoadSaved(context.Background())
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	editable := effective
+	if savedOK {
+		editable = saved
+	} else {
+		editable.APIKey = ""
+	}
+
+	missing := effective.MissingFields()
+	settings := ModelSettings{
+		Provider:              editable.Provider,
+		BaseURL:               editable.BaseURL,
+		APIKey:                editable.APIKey,
+		Model:                 editable.Model,
+		Configured:            len(missing) == 0,
+		Saved:                 savedOK,
+		MissingFields:         missing,
+		EnvOverrides:          envOverrides,
+		EffectiveProvider:     effective.Provider,
+		EffectiveBaseURL:      effective.BaseURL,
+		EffectiveAPIKeyMasked: modelconfig.MaskSecret(effective.APIKey),
+		EffectiveModel:        effective.Model,
+		Message:               desktopModelMessage(savedOK, envOverrides, missing),
+	}
+	return settings, nil
+}
+
+func (a *DesktopApp) SaveModelConfig(input ModelConfigInput) (ModelSettings, error) {
+	if a.modelStore == nil {
+		return ModelSettings{}, errors.New("模型配置存储尚未启用")
+	}
+
+	cfg := modelconfig.Config{
+		Provider: input.Provider,
+		BaseURL:  input.BaseURL,
+		APIKey:   input.APIKey,
+		Model:    input.Model,
+	}.Normalize()
+	if err := a.modelStore.Save(context.Background(), cfg); err != nil {
+		return ModelSettings{}, err
+	}
+	return a.GetModelSettings()
+}
+
+func (a *DesktopApp) ClearModelConfig() (MessageResult, error) {
+	if a.modelStore == nil {
+		return MessageResult{}, errors.New("模型配置存储尚未启用")
+	}
+	if err := a.modelStore.Clear(context.Background()); err != nil {
+		return MessageResult{}, err
+	}
+	return MessageResult{Message: "已清空本地模型配置。"}, nil
+}
+
+func (a *DesktopApp) TestModelConnection() (MessageResult, error) {
+	if a.aiService == nil {
+		return MessageResult{}, errors.New("模型服务尚未启用")
+	}
+	result, err := a.aiService.TestConnection(context.Background())
+	if err != nil {
+		return MessageResult{}, err
+	}
+	return MessageResult{Message: "模型连接测试成功：" + strings.TrimSpace(result)}, nil
 }
 
 func (a *DesktopApp) ListKnowledge() ([]KnowledgeItem, error) {
@@ -285,7 +414,7 @@ func (a *DesktopApp) aiStatus(ctx context.Context) (bool, string, error) {
 		return false, "", err
 	}
 	if !configured {
-		return false, "模型未配置。请设置 MYCLAW_MODEL_PROVIDER、MYCLAW_MODEL_BASE_URL、MYCLAW_MODEL_API_KEY 和 MYCLAW_MODEL_NAME。", nil
+		return false, "模型未配置。请在桌面端的模型页面填写 Provider、Base URL、API Key 和 Model，或设置对应环境变量。", nil
 	}
 	return true, "模型已配置，可直接做文件总结和对话检索。", nil
 }
@@ -419,4 +548,19 @@ func preview(text string, maxRunes int) string {
 		return string(runes)
 	}
 	return string(runes[:maxRunes]) + "..."
+}
+
+func desktopModelMessage(saved bool, envOverrides []string, missing []string) string {
+	switch {
+	case len(envOverrides) > 0 && len(missing) == 0:
+		return "当前运行时配置由环境变量覆盖，本地保存的值仅作为备用。"
+	case len(envOverrides) > 0:
+		return "检测到环境变量覆盖，但当前模型配置仍不完整。"
+	case saved && len(missing) == 0:
+		return "本地模型配置已保存并生效。"
+	case saved:
+		return "本地模型配置已保存，但仍有缺失字段。"
+	default:
+		return "尚未保存本地模型配置。"
+	}
 }
