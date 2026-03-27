@@ -228,8 +228,6 @@ func TestRememberFileCommandStoresImageSummary(t *testing.T) {
 }
 
 func TestDirectPDFPathStoresSummary(t *testing.T) {
-	t.Parallel()
-
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
 	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
 	service := NewService(store, fakeAI{
@@ -271,8 +269,6 @@ func TestDirectPDFPathStoresSummary(t *testing.T) {
 }
 
 func TestRememberFileReturnsFriendlyMessageWhenPDFUnavailable(t *testing.T) {
-	t.Parallel()
-
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
 	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
 	service := NewService(store, fakeAI{configured: true}, reminders)
