@@ -268,6 +268,34 @@ func TestDirectPDFPathStoresSummary(t *testing.T) {
 	}
 }
 
+func TestNaturalRememberMessageDoesNotTripDirectFileDetect(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, nil, reminders)
+
+	input := "记住 brwap的安装方法：git clone https://github.com/containers/bubblewrap.git\ncd bubblewrap\nmeson _builddir\nmeson compile -C _builddir\nmeson test -C _builddir\nmeson install -C _builddir"
+	reply, err := service.HandleMessage(context.Background(), MessageContext{
+		UserID:    "u1",
+		Interface: "weixin",
+	}, input)
+	if err != nil {
+		t.Fatalf("handle remember message: %v", err)
+	}
+	if !strings.Contains(reply, "已记住") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+
+	entries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) != 1 || !strings.Contains(entries[0].Text, "git clone https://github.com/containers/bubblewrap.git") {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
 func TestRememberFileReturnsFriendlyMessageWhenPDFUnavailable(t *testing.T) {
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
 	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))

@@ -61,11 +61,7 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 		return "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。", nil
 	}
 
-	if reply, ok, err := s.tryHandleDirectFileIngest(ctx, mc, text); ok || err != nil {
-		return reply, err
-	}
-
-	if normalized := normalizeSlash(text); strings.HasPrefix(normalized, "/") {
+	if normalized := normalizeSlash(text); isSlashCommand(normalized) {
 		return s.handleCommand(ctx, mc, normalized)
 	}
 
@@ -91,6 +87,10 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 			return "", err
 		}
 		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
+	}
+
+	if reply, ok, err := s.tryHandleDirectFileIngest(ctx, mc, text); ok || err != nil {
+		return reply, err
 	}
 
 	return s.handleAIMessage(ctx, mc, text)
@@ -560,6 +560,28 @@ func normalizeSlash(text string) string {
 		return "/" + strings.TrimPrefix(text, "／")
 	}
 	return text
+}
+
+func isSlashCommand(text string) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToLower(fields[0]) {
+	case "/help", "/h",
+		"/remember", "/r",
+		"/remember-file", "/ingest",
+		"/append",
+		"/translate",
+		"/forget", "/delete",
+		"/list", "/ls",
+		"/stats",
+		"/clear",
+		"/notice", "/cron":
+		return true
+	default:
+		return false
+	}
 }
 
 func sourceLabel(mc MessageContext) string {

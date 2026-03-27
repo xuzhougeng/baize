@@ -38,6 +38,15 @@ func Resolve(raw string) (Input, bool, error) {
 		return Input{}, false, nil
 	}
 
+	if strings.ContainsAny(path, "\r\n") || strings.Contains(path, "://") {
+		return Input{}, false, nil
+	}
+
+	kind, mimeType, ok := detectKind(path)
+	if !ok {
+		return Input{}, false, nil
+	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -46,11 +55,6 @@ func Resolve(raw string) (Input, bool, error) {
 		return Input{}, false, err
 	}
 	if info.IsDir() {
-		return Input{}, false, nil
-	}
-
-	kind, mimeType, ok := detectKind(path)
-	if !ok {
 		return Input{}, false, nil
 	}
 
