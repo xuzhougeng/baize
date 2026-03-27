@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "myclaw-desktop",
+  "outputfilename": "myclaw-desktop",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "author": {
+    "name": "myclaw",
+    "email": ""
+  }
+}

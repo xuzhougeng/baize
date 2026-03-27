@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <title>myclaw</title>
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Wails Desktop</p>
+          <h1>myclaw 记忆工作台</h1>
+          <p class="hero-text">
+            用桌面前端接管文件导入、记忆管理和对话入口，底层仍复用现有 Go 服务。
+          </p>
+        </div>
+        <div class="status-panel">
+          <div class="status-card">
+            <span class="status-label">数据目录</span>
+            <strong id="data-dir">加载中</strong>
+          </div>
+          <div class="status-card">
+            <span class="status-label">模型状态</span>
+            <strong id="ai-status">加载中</strong>
+            <p id="ai-message" class="status-note"></p>
+          </div>
+          <div class="status-card">
+            <span class="status-label">记忆条数</span>
+            <strong id="memory-count">0</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="column">
+          <article class="panel accent-panel">
+            <div class="panel-head">
+              <div>
+                <p class="kicker">文件导入</p>
+                <h2>图片 / PDF</h2>
+              </div>
+              <button id="browse-file" class="ghost-button" type="button">浏览文件</button>
+            </div>
+            <p class="panel-text">
+              图片会走视觉总结，PDF 会先提取文本再生成摘要，然后存进知识库。
+            </p>
+            <div class="file-grid">
+              <label class="field">
+                <span>文件路径</span>
+                <input id="file-path" type="text" placeholder="选择图片或 PDF 文件" />
+              </label>
+              <button id="import-file" class="primary-button wide-button" type="button">
+                导入并入库
+              </button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="kicker">新增记忆</p>
+                <h2>直接保存</h2>
+              </div>
+            </div>
+            <form id="memory-form" class="stack-form">
+              <label class="field">
+                <span>记忆内容</span>
+                <textarea
+                  id="memory-input"
+                  rows="5"
+                  placeholder="例如：Windows 版本优先把桌面前端和文件导入做完整。"
+                ></textarea>
+              </label>
+              <button class="primary-button" type="submit">写入知识库</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="kicker">对话框</p>
+                <h2>聊天面板</h2>
+              </div>
+            </div>
+            <div id="chat-list" class="chat-list"></div>
+            <div class="prompt-row" id="prompt-row"></div>
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="chat-input"
+                rows="3"
+                placeholder="直接提问，或者输入 /remember、/notice、/forget 等命令。"
+              ></textarea>
+              <button class="primary-button" type="submit">发送</button>
+            </form>
+          </article>
+        </section>
+
+        <section class="column wide-column">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="kicker">记忆管理</p>
+                <h2>知识库列表</h2>
+              </div>
+              <button id="clear-memory" class="danger-button" type="button">清空知识库</button>
+            </div>
+            <div class="toolbar">
+              <label class="field toolbar-field">
+                <span>筛选</span>
+                <input id="memory-filter" type="text" placeholder="按内容、ID、来源或关键词过滤" />
+              </label>
+            </div>
+            <div id="memory-list" class="memory-list"></div>
+          </article>
+        </section>
+      </main>
+
+      <div id="banner" class="banner" hidden></div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

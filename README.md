@@ -1,16 +1,17 @@
 # myclaw
 
-`myclaw` 现在是一个最小化的 Go 桌面常驻工具，当前支持两类入口：本地终端 REPL 和微信桥接。它可以把需要记住的内容存进本地知识库，并在配置模型后用 AI 做意图识别、整理记忆和基于知识库回答。
+`myclaw` 现在是一个最小化的 Go 桌面常驻工具，当前支持三类入口：本地终端 REPL、微信桥接，以及基于 Wails v2 的桌面前端。它可以把需要记住的内容存进本地知识库，并在配置模型后用 AI 做意图识别、整理记忆和基于知识库回答。
 
 当前版本刻意保持简单：
 
 - 知识库存储在本地 JSON 文件里
 - 模型配置只从本地环境变量读取，不在终端或聊天界面里暴露
 - 配置模型后，会先做 AI 命令路由，再决定是“记住 / 遗忘 / 提醒 / 查看 / 回答”
+- 普通问题默认走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”，不直接把整库全量塞进回答
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持单次提醒和每天重复提醒
 - 微信桥接只保留扫码登录、长轮询、文本/语音文字收发
-- 没有向量检索、没有模型总结、没有多租户隔离
+- 不做向量检索、权限隔离或多租户隔离
 
 ## 目录
 
@@ -23,6 +24,7 @@ internal/modelconfig  模型环境变量读取
 internal/reminder     提醒调度与持久化
 internal/terminal     终端 REPL
 internal/weixin       iLink 微信桥接最小实现
+cmd/myclaw-desktop    Wails 桌面前端入口
 ```
 
 ## 运行
@@ -40,6 +42,23 @@ go run ./cmd/myclaw
 ```bash
 go run ./cmd/myclaw -terminal
 ```
+
+### 0.5. Wails 桌面模式
+
+直接启动桌面前端：
+
+```bash
+go run ./cmd/myclaw-desktop
+```
+
+桌面模式当前提供：
+
+- 图片 / PDF 文件导入
+- 知识库列表、补充、删除、清空
+- 原生文件选择和确认对话框
+- 对话面板，可继续使用 `/remember`、`/notice`、`/forget`、`/debug-search` 等命令
+
+桌面版和终端版共用同一套数据目录与知识库存储结构，默认仍是 `data/`。
 
 模型配置只允许通过本地环境变量传入，不提供终端内配置命令。先在本地 shell 里设置：
 
@@ -110,6 +129,7 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - `/cron 每天 18:00 健身`
 - `/list`
 - `/stats`
+- `/debug-search macOS 什么时候做？`
 - `/clear`
 - `现在我记了什么？`
 
@@ -171,6 +191,36 @@ Windows zip 包内会包含：
 
 这样在 Windows 上解压后就可以直接复制整个目录并运行脚本，不需要 Go 源码环境，也不会因为换了解压目录而丢失微信登录状态。
 如果你之前在旧版本里把登录态存在解压目录下的 `data/weixin-bridge/account.json`，第一次切到新目录启动时也会自动迁移过去。
+
+### GitHub Actions NSIS 桌面安装包
+
+仓库新增了 GitHub Actions workflow：
+
+- `.github/workflows/windows-nsis-installer.yml`
+
+这个 workflow 会在 `windows-latest` 上：
+
+- 安装 Wails CLI
+- 安装 NSIS
+- 构建 `amd64` / `arm64` 的 Wails 桌面应用
+- 用 `wails build -nsis` 生成桌面安装器 `.exe`
+- 把安装器作为 Actions artifact 上传
+
+桌面打包配置放在：
+
+- `cmd/myclaw-desktop/wails.json`
+
+产物会落在：
+
+- `cmd/myclaw-desktop/build/bin/`
+
+其中会包含桌面端 `.exe` 和对应的 NSIS 安装器 `.exe`。
+
+如果你想在本地 Windows 手动构建桌面安装器，可以在 `cmd/myclaw-desktop/` 下执行：
+
+```powershell
+wails build -platform windows/amd64 -o myclaw-desktop-amd64.exe -nsis -webview2 download -m -s
+```
 
 ### Windows 开机自启
 

@@ -1,0 +1,64 @@
+name: windows-nsis-installer
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Wails CLI
+        shell: powershell
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Add Go bin to PATH
+        shell: powershell
+        run: |
+          $gobin = Join-Path (go env GOPATH) "bin"
+          $gobin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install NSIS
+        shell: powershell
+        run: choco install nsis -y
+
+      - name: Test
+        shell: powershell
+        run: go test ./cmd/myclaw-desktop ./internal/...
+
+      - name: Build desktop installer
+        shell: powershell
+        working-directory: cmd/myclaw-desktop
+        run: |
+          wails build `
+            -platform windows/${{ matrix.arch }} `
+            -o myclaw-desktop-${{ matrix.arch }}.exe `
+            -nsis `
+            -webview2 download `
+            -m `
+            -s
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: myclaw-desktop-windows-${{ matrix.arch }}
+          path: cmd/myclaw-desktop/build/bin/*.exe
+          if-no-files-found: error
+          retention-days: 14
