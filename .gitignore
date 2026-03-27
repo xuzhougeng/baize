@@ -1,0 +1,16 @@
+# Build artifacts
+/dist/
+
+# Runtime data
+/data/
+
+# Go temporary outputs
+*.test
+*.out
+coverage.out
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
