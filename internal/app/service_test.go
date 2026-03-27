@@ -44,8 +44,8 @@ func TestHandleMessageQuestionReturnsAllKnowledge(t *testing.T) {
 	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
 	service := NewService(store, fakeAI{
 		configured: true,
-		intent: ai.IntentDecision{
-			Intent:   "answer",
+		route: ai.RouteDecision{
+			Command:  "answer",
 			Question: "macOS 什么时候做？",
 		},
 		answer: "知识库里提到未来需要支持 macOS，目前还没有实现时间表。",
@@ -75,8 +75,8 @@ func TestHandleMessageUsesAIIntentRecognition(t *testing.T) {
 	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
 	service := NewService(store, fakeAI{
 		configured: true,
-		intent: ai.IntentDecision{
-			Intent:     "remember",
+		route: ai.RouteDecision{
+			Command:    "remember",
 			MemoryText: "## 整理后的记忆\n- 未来要支持 macOS",
 		},
 	}, reminders)
@@ -138,6 +138,41 @@ func TestNoticeCreatesReminder(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Message != "喝水" {
 		t.Fatalf("unexpected reminders: %#v", items)
+	}
+}
+
+func TestNaturalReminderCreatesReminder(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, nil, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{
+		UserID:    "u1",
+		Interface: "terminal",
+	}, "一分钟后提醒我喝水")
+	if err != nil {
+		t.Fatalf("create natural reminder: %v", err)
+	}
+	if !strings.Contains(reply, "已创建提醒") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+
+	items, err := reminders.List(context.Background(), reminder.Target{Interface: "terminal", UserID: "u1"})
+	if err != nil {
+		t.Fatalf("list reminders: %v", err)
+	}
+	if len(items) != 1 || items[0].Message != "喝水" {
+		t.Fatalf("unexpected reminders: %#v", items)
+	}
+
+	entries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected reminder not to be stored as knowledge: %#v", entries)
 	}
 }
 
@@ -209,9 +244,66 @@ func TestCronAliasCreatesDateReminder(t *testing.T) {
 	}
 }
 
+func TestForgetRemovesKnowledge(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, nil, reminders)
+
+	_, err := store.Add(context.Background(), knowledge.Entry{
+		ID:         "0015f908abcd1234",
+		Text:       "喝水提醒偏好",
+		RecordedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "删掉 #0015f908")
+	if err != nil {
+		t.Fatalf("forget entry: %v", err)
+	}
+	if !strings.Contains(reply, "已遗忘 #0015f908") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+
+	entries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty store, got %#v", entries)
+	}
+}
+
+func TestHandleMessageUsesAIRouteForReminderList(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command: "notice_list",
+		},
+	}, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{
+		UserID:    "u1",
+		Interface: "terminal",
+	}, "帮我看看当前有哪些提醒")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if !strings.Contains(reply, "当前没有提醒") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
 type fakeAI struct {
 	configured bool
-	intent     ai.IntentDecision
+	route      ai.RouteDecision
 	answer     string
 }
 
@@ -219,8 +311,8 @@ func (f fakeAI) IsConfigured(context.Context) (bool, error) {
 	return f.configured, nil
 }
 
-func (f fakeAI) RecognizeIntent(context.Context, string) (ai.IntentDecision, error) {
-	return f.intent, nil
+func (f fakeAI) RouteCommand(context.Context, string) (ai.RouteDecision, error) {
+	return f.route, nil
 }
 
 func (f fakeAI) Answer(context.Context, string, []knowledge.Entry) (string, error) {

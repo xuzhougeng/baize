@@ -12,7 +12,7 @@ import (
 	"myclaw/internal/modelconfig"
 )
 
-func TestRecognizeIntent(t *testing.T) {
+func TestRouteCommand(t *testing.T) {
 	store := modelconfig.NewStore()
 	t.Setenv("MYCLAW_MODEL_PROVIDER", "openai")
 	t.Setenv("MYCLAW_MODEL_BASE_URL", "http://example.invalid/v1")
@@ -29,19 +29,19 @@ func TestRecognizeIntent(t *testing.T) {
 			t.Fatalf("expected json schema request, got %#v", req.Text)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"intent\":\"remember\",\"memory_text\":\"- 已整理内容\",\"question\":\"\"}"}]}]}`))
+		_, _ = w.Write([]byte(`{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"command\":\"remember\",\"memory_text\":\"- 已整理内容\",\"knowledge_id\":\"\",\"reminder_spec\":\"\",\"reminder_id\":\"\",\"question\":\"\"}"}]}]}`))
 	}))
 	defer server.Close()
 	service.httpClient = server.Client()
 
 	t.Setenv("MYCLAW_MODEL_BASE_URL", server.URL)
 
-	decision, err := service.RecognizeIntent(context.Background(), "请帮我记住这个东西：abc")
+	decision, err := service.RouteCommand(context.Background(), "请帮我记住这个东西：abc")
 	if err != nil {
-		t.Fatalf("recognize: %v", err)
+		t.Fatalf("route: %v", err)
 	}
-	if decision.Intent != "remember" {
-		t.Fatalf("unexpected intent: %#v", decision)
+	if decision.Command != "remember" {
+		t.Fatalf("unexpected command: %#v", decision)
 	}
 	if !strings.Contains(decision.MemoryText, "整理内容") {
 		t.Fatalf("unexpected memory text: %#v", decision)

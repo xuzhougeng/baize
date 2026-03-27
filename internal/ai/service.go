@@ -15,10 +15,13 @@ import (
 	"myclaw/internal/modelconfig"
 )
 
-type IntentDecision struct {
-	Intent     string `json:"intent"`
-	MemoryText string `json:"memory_text"`
-	Question   string `json:"question"`
+type RouteDecision struct {
+	Command      string `json:"command"`
+	MemoryText   string `json:"memory_text"`
+	KnowledgeID  string `json:"knowledge_id"`
+	ReminderSpec string `json:"reminder_spec"`
+	ReminderID   string `json:"reminder_id"`
+	Question     string `json:"question"`
 }
 
 type Service struct {
@@ -55,53 +58,80 @@ func (s *Service) TestConnection(ctx context.Context) (string, error) {
 	return s.generateText(ctx, cfg, "You are a connectivity test endpoint.", "Reply with exactly OK.")
 }
 
-func (s *Service) RecognizeIntent(ctx context.Context, input string) (IntentDecision, error) {
+func (s *Service) RouteCommand(ctx context.Context, input string) (RouteDecision, error) {
 	cfg, err := s.requireConfig(ctx)
 	if err != nil {
-		return IntentDecision{}, err
+		return RouteDecision{}, err
 	}
 
 	schema := map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"intent": map[string]any{
+			"command": map[string]any{
 				"type": "string",
-				"enum": []string{"remember", "answer"},
+				"enum": []string{"remember", "forget", "notice_add", "notice_list", "notice_remove", "list", "stats", "help", "answer"},
 			},
 			"memory_text": map[string]any{
+				"type": "string",
+			},
+			"knowledge_id": map[string]any{
+				"type": "string",
+			},
+			"reminder_spec": map[string]any{
+				"type": "string",
+			},
+			"reminder_id": map[string]any{
 				"type": "string",
 			},
 			"question": map[string]any{
 				"type": "string",
 			},
 		},
-		"required": []string{"intent", "memory_text", "question"},
+		"required": []string{"command", "memory_text", "knowledge_id", "reminder_spec", "reminder_id", "question"},
 	}
 
 	instructions := strings.TrimSpace(`
-You are the intent recognizer for myclaw.
-Classify the user input into one of two intents:
-- remember: the user wants the system to save information into the knowledge base
-- answer: the user is asking a question or wants a response based on the knowledge base
+You are the command router for myclaw.
+Classify the user input into exactly one command:
+- remember: save something into the knowledge base
+- forget: delete one knowledge item by its ID or ID prefix
+- notice_add: create a reminder
+- notice_list: list reminders
+- notice_remove: delete one reminder by ID or ID prefix
+- list: list all knowledge
+- stats: show knowledge stats
+- help: show help
+- answer: answer a question from the knowledge base
 
 Rules:
-- If the user wants to save something, set intent=remember and rewrite the memory as concise Markdown while preserving all facts.
-- If the user is asking a question, set intent=answer and place the cleaned question in question.
+- For remember, rewrite the memory as concise Markdown while preserving facts.
+- For forget, fill knowledge_id without the leading # when present.
+- For notice_add, normalize reminder_spec into one of these executable forms:
+  - <duration>后 <message>
+  - 每天 HH:MM <message>
+  - 明天 HH:MM <message>
+  - YYYY-MM-DD HH:MM <message>
+- For notice_remove, fill reminder_id without the leading # when present.
+- For answer, put the cleaned question in question.
+- Prefer commands over answer when the user is clearly asking to operate the system.
 - Always fill unused text fields with an empty string.
 - Respond only with JSON that matches the schema.
 `)
 
-	var decision IntentDecision
-	if err := s.generateJSON(ctx, cfg, instructions, input, "intent_decision", schema, &decision); err != nil {
-		return IntentDecision{}, err
+	var decision RouteDecision
+	if err := s.generateJSON(ctx, cfg, instructions, input, "route_decision", schema, &decision); err != nil {
+		return RouteDecision{}, err
 	}
 
-	decision.Intent = strings.TrimSpace(strings.ToLower(decision.Intent))
+	decision.Command = strings.TrimSpace(strings.ToLower(decision.Command))
 	decision.MemoryText = strings.TrimSpace(decision.MemoryText)
+	decision.KnowledgeID = strings.TrimSpace(strings.TrimPrefix(decision.KnowledgeID, "#"))
+	decision.ReminderSpec = strings.TrimSpace(decision.ReminderSpec)
+	decision.ReminderID = strings.TrimSpace(strings.TrimPrefix(decision.ReminderID, "#"))
 	decision.Question = strings.TrimSpace(decision.Question)
-	if decision.Intent == "" {
-		return IntentDecision{}, fmt.Errorf("model returned empty intent")
+	if decision.Command == "" {
+		return RouteDecision{}, fmt.Errorf("model returned empty command")
 	}
 	return decision, nil
 }

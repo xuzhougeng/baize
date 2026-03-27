@@ -13,12 +13,16 @@ import (
 )
 
 var (
-	durationWordPattern   = regexp.MustCompile(`^(?:in\s+)?(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s+(.+)$`)
-	chineseAfterPattern   = regexp.MustCompile(`^(?:过)?(\d+)\s*(分钟|小时|天)后?\s+(.+)$`)
-	chineseCompactPattern = regexp.MustCompile(`^(\d+)\s*(分钟|小时|天)后\s+(.+)$`)
-	dailyPattern          = regexp.MustCompile(`^(?:每天|daily)\s+(\d{1,2}:\d{2})\s+(.+)$`)
-	dateTimePattern       = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?\s+(.+)$`)
-	tomorrowPattern       = regexp.MustCompile(`^(?:明天|tomorrow)\s+(\d{1,2}:\d{2})\s+(.+)$`)
+	durationWordPattern    = regexp.MustCompile(`^(?:in\s+)?(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s+(.+)$`)
+	chineseAfterPattern    = regexp.MustCompile(`^(?:过)?([\d一二两三四五六七八九十百零〇]+)\s*(分钟|小时|天)后?\s+(.+)$`)
+	chineseCompactPattern  = regexp.MustCompile(`^([\d一二两三四五六七八九十百零〇]+)\s*(分钟|小时|天)后\s+(.+)$`)
+	dailyPattern           = regexp.MustCompile(`^(?:每天|daily)\s+(\d{1,2}:\d{2})\s+(.+)$`)
+	dateTimePattern        = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?\s+(.+)$`)
+	tomorrowPattern        = regexp.MustCompile(`^(?:明天|tomorrow)\s+(\d{1,2}:\d{2})\s+(.+)$`)
+	naturalAfterPattern    = regexp.MustCompile(`^(.+?后)\s*提醒我(?:\s+)?(.+)$`)
+	naturalDailyPattern    = regexp.MustCompile(`^(?:请)?每天\s+(\d{1,2}:\d{2})\s*提醒我(?:\s+)?(.+)$`)
+	naturalDatePattern     = regexp.MustCompile(`^(?:请)?(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?\s*提醒我(?:\s+)?(.+)$`)
+	naturalTomorrowPattern = regexp.MustCompile(`^(?:请)?明天\s+(\d{1,2}:\d{2})\s*提醒我(?:\s+)?(.+)$`)
 )
 
 type reminderBackend interface {
@@ -70,6 +74,26 @@ func (s *Service) handleReminderCommand(ctx context.Context, mc MessageContext, 
 		return "", err
 	}
 	return formatReminderCreated(item), nil
+}
+
+func (s *Service) tryHandleNaturalReminder(ctx context.Context, mc MessageContext, input string) (string, bool, error) {
+	if s.reminders == nil {
+		return "", false, nil
+	}
+
+	spec, ok := normalizeNaturalReminderSpec(input)
+	if !ok {
+		return "", false, nil
+	}
+
+	item, err := s.scheduleReminderSpec(ctx, reminder.Target{
+		Interface: mc.Interface,
+		UserID:    mc.UserID,
+	}, spec)
+	if err != nil {
+		return "", true, err
+	}
+	return formatReminderCreated(item), true, nil
 }
 
 func (s *Service) scheduleReminderSpec(ctx context.Context, target reminder.Target, spec string) (reminder.Reminder, error) {
@@ -133,6 +157,36 @@ func (s *Service) scheduleReminderSpec(ctx context.Context, target reminder.Targ
 	}
 
 	return reminder.Reminder{}, fmt.Errorf("无法识别提醒语法。\n\n%s", reminderUsage())
+}
+
+func normalizeNaturalReminderSpec(input string) (string, bool) {
+	text := strings.TrimSpace(input)
+	if text == "" {
+		return "", false
+	}
+
+	if matches := naturalDailyPattern.FindStringSubmatch(text); len(matches) == 3 {
+		return "每天 " + strings.TrimSpace(matches[1]) + " " + strings.TrimSpace(matches[2]), true
+	}
+
+	if matches := naturalTomorrowPattern.FindStringSubmatch(text); len(matches) == 3 {
+		return "明天 " + strings.TrimSpace(matches[1]) + " " + strings.TrimSpace(matches[2]), true
+	}
+
+	if matches := naturalDatePattern.FindStringSubmatch(text); len(matches) == 4 {
+		spec := strings.TrimSpace(matches[1])
+		if clock := strings.TrimSpace(matches[2]); clock != "" {
+			spec += " " + clock
+		}
+		spec += " " + strings.TrimSpace(matches[3])
+		return spec, true
+	}
+
+	if matches := naturalAfterPattern.FindStringSubmatch(text); len(matches) == 3 {
+		return strings.TrimSpace(matches[1]) + " " + strings.TrimSpace(matches[2]), true
+	}
+
+	return "", false
 }
 
 func reminderUsage() string {
@@ -229,7 +283,7 @@ func parseEnglishDuration(numText, unit string) (time.Duration, error) {
 }
 
 func parseChineseDuration(numText, unit string) (time.Duration, error) {
-	value, err := strconv.Atoi(numText)
+	value, err := parseChineseOrArabicNumber(numText)
 	if err != nil {
 		return 0, fmt.Errorf("无效时长 %q", numText)
 	}
@@ -243,4 +297,62 @@ func parseChineseDuration(numText, unit string) (time.Duration, error) {
 	default:
 		return 0, fmt.Errorf("不支持的时长单位 %q", unit)
 	}
+}
+
+func parseChineseOrArabicNumber(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, errors.New("empty number")
+	}
+	if parsed, err := strconv.Atoi(value); err == nil {
+		return parsed, nil
+	}
+
+	digits := map[rune]int{
+		'零': 0,
+		'〇': 0,
+		'一': 1,
+		'二': 2,
+		'两': 2,
+		'三': 3,
+		'四': 4,
+		'五': 5,
+		'六': 6,
+		'七': 7,
+		'八': 8,
+		'九': 9,
+	}
+
+	total := 0
+	current := 0
+	for _, r := range value {
+		switch r {
+		case '零', '〇':
+			continue
+		case '十':
+			if current == 0 {
+				current = 1
+			}
+			total += current * 10
+			current = 0
+		case '百':
+			if current == 0 {
+				current = 1
+			}
+			total += current * 100
+			current = 0
+		default:
+			digit, ok := digits[r]
+			if !ok {
+				return 0, fmt.Errorf("invalid chinese numeral %q", string(r))
+			}
+			current = digit
+		}
+	}
+
+	total += current
+	if total <= 0 {
+		return 0, fmt.Errorf("invalid chinese number %q", value)
+	}
+	return total, nil
 }

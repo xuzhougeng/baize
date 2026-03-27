@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,6 +80,29 @@ func (s *Store) Clear(_ context.Context) error {
 	return s.writeAllLocked(nil)
 }
 
+func (s *Store) Remove(_ context.Context, idOrPrefix string) (Entry, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entries, err := s.readAllLocked()
+	if err != nil {
+		return Entry{}, false, err
+	}
+
+	match := normalizeEntryID(idOrPrefix)
+	for index, entry := range entries {
+		if strings.HasPrefix(normalizeEntryID(entry.ID), match) {
+			removed := entry
+			entries = append(entries[:index], entries[index+1:]...)
+			if err := s.writeAllLocked(entries); err != nil {
+				return Entry{}, false, err
+			}
+			return removed, true, nil
+		}
+	}
+	return Entry{}, false, nil
+}
+
 func (s *Store) readAllLocked() ([]Entry, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
@@ -121,4 +145,10 @@ func newID() string {
 		return time.Now().Format("20060102150405")
 	}
 	return hex.EncodeToString(buf[:])
+}
+
+func normalizeEntryID(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "#")
+	return strings.ToLower(value)
 }

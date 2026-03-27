@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 )
 
 const maxReplyPreviewRunes = 240
+
+var forgetIntentPattern = regexp.MustCompile(`^(?:请)?(?:帮我)?(?:遗忘|忘掉|删除|删掉)\s*#?([0-9a-fA-F]{4,})\s*$`)
 
 type MessageContext struct {
 	UserID    string
@@ -27,7 +30,7 @@ type Service struct {
 
 type aiBackend interface {
 	IsConfigured(ctx context.Context) (bool, error)
-	RecognizeIntent(ctx context.Context, input string) (ai.IntentDecision, error)
+	RouteCommand(ctx context.Context, input string) (ai.RouteDecision, error)
 	Answer(ctx context.Context, question string, entries []knowledge.Entry) (string, error)
 }
 
@@ -47,6 +50,14 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 
 	if normalized := normalizeSlash(text); strings.HasPrefix(normalized, "/") {
 		return s.handleCommand(ctx, mc, normalized)
+	}
+
+	if reply, ok, err := s.tryHandleNaturalReminder(ctx, mc, text); ok || err != nil {
+		return reply, err
+	}
+
+	if reply, ok, err := s.tryHandleNaturalForget(ctx, text); ok || err != nil {
+		return reply, err
 	}
 
 	if memoryText, ok := parseRememberIntent(text); ok {
@@ -74,6 +85,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 	case "/help", "/h":
 		return "可用命令:\n" +
 			"/remember <内容> 或 记住：<内容> — 保存一条知识\n" +
+			"/forget <ID前缀> — 删除一条知识\n" +
 			"/list — 查看全部知识\n" +
 			"/stats — 查看知识库状态\n" +
 			"/notice — 创建、查看、删除提醒\n" +
@@ -95,6 +107,11 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			return "", err
 		}
 		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
+	case "/forget", "/delete":
+		if len(fields) < 2 {
+			return "用法: /forget <知识ID前缀>", nil
+		}
+		return s.forgetKnowledge(ctx, fields[1])
 	case "/list", "/ls":
 		entries, err := s.store.List(ctx)
 		if err != nil {
@@ -124,6 +141,26 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 	}
 }
 
+func (s *Service) tryHandleNaturalForget(ctx context.Context, input string) (string, bool, error) {
+	matches := forgetIntentPattern.FindStringSubmatch(strings.TrimSpace(input))
+	if len(matches) != 2 {
+		return "", false, nil
+	}
+	reply, err := s.forgetKnowledge(ctx, matches[1])
+	return reply, true, err
+}
+
+func (s *Service) forgetKnowledge(ctx context.Context, idOrPrefix string) (string, error) {
+	entry, ok, err := s.store.Remove(ctx, idOrPrefix)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return fmt.Sprintf("没有找到知识 #%s。", strings.TrimPrefix(strings.TrimSpace(idOrPrefix), "#")), nil
+	}
+	return fmt.Sprintf("已遗忘 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
+}
+
 func (s *Service) answerWithAllKnowledge(ctx context.Context, question string) (string, error) {
 	entries, err := s.store.List(ctx)
 	if err != nil {
@@ -145,12 +182,12 @@ func (s *Service) handleAIMessage(ctx context.Context, mc MessageContext, text s
 		return "模型还没有配置完成。请先设置本地环境变量 `MYCLAW_MODEL_PROVIDER`、`MYCLAW_MODEL_BASE_URL`、`MYCLAW_MODEL_API_KEY` 和 `MYCLAW_MODEL_NAME`。", nil
 	}
 
-	decision, err := s.aiService.RecognizeIntent(ctx, text)
+	decision, err := s.aiService.RouteCommand(ctx, text)
 	if err != nil {
 		return "", err
 	}
 
-	switch decision.Intent {
+	switch decision.Command {
 	case "remember":
 		memoryText := strings.TrimSpace(decision.MemoryText)
 		if memoryText == "" {
@@ -165,6 +202,29 @@ func (s *Service) handleAIMessage(ctx context.Context, mc MessageContext, text s
 			return "", err
 		}
 		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
+	case "forget":
+		if decision.KnowledgeID == "" {
+			return "请提供要遗忘的知识 ID。", nil
+		}
+		return s.forgetKnowledge(ctx, decision.KnowledgeID)
+	case "notice_add":
+		if decision.ReminderSpec == "" {
+			return "请提供提醒时间和内容。", nil
+		}
+		return s.handleReminderCommand(ctx, mc, "/notice "+decision.ReminderSpec)
+	case "notice_list":
+		return s.handleReminderCommand(ctx, mc, "/notice list")
+	case "notice_remove":
+		if decision.ReminderID == "" {
+			return "请提供要删除的提醒 ID。", nil
+		}
+		return s.handleReminderCommand(ctx, mc, "/notice remove "+decision.ReminderID)
+	case "list":
+		return s.handleCommand(ctx, mc, "/list")
+	case "stats":
+		return s.handleCommand(ctx, mc, "/stats")
+	case "help":
+		return s.handleCommand(ctx, mc, "/help")
 	case "answer":
 		entries, err := s.store.List(ctx)
 		if err != nil {
@@ -176,7 +236,7 @@ func (s *Service) handleAIMessage(ctx context.Context, mc MessageContext, text s
 		}
 		return s.aiService.Answer(ctx, question, entries)
 	default:
-		return fmt.Sprintf("无法识别意图: %s", decision.Intent), nil
+		return fmt.Sprintf("无法识别命令路由: %s", decision.Command), nil
 	}
 }
 
