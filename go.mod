@@ -3,6 +3,7 @@ module myclaw
 go 1.24.0
 
 require (
+	github.com/gen2brain/go-fitz v1.24.15
 	github.com/wailsapp/wails/v2 v2.11.0
 	rsc.io/qr v0.2.0
 )
@@ -10,7 +11,6 @@ require (
 require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
-	github.com/gen2brain/go-fitz v1.24.15 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
