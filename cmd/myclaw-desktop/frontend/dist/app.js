@@ -62,7 +62,7 @@ const state = {
   chat: [
     {
       role: "assistant",
-      text: "桌面前端已接入。你可以在这里导入图片/PDF、直接管理记忆，也可以直接配置模型和微信扫码登录。",
+      text: "桌面前端已接入。你可以在记忆库里导入图片/PDF、管理记忆，也可以直接配置模型和微信扫码登录。",
       time: nowLabel(),
     },
   ],
@@ -120,17 +120,17 @@ function bindNavigation() {
 
 function bindQuickAddModal() {
   const modal = document.getElementById('quick-add-modal');
-  const openBtn = document.getElementById('quick-add-memory');
+  const openButtons = document.querySelectorAll('[data-open-quick-memory]');
   const cancelBtn = document.getElementById('quick-add-cancel');
   const confirmBtn = document.getElementById('quick-add-confirm');
   const input = document.getElementById('quick-memory-input');
 
-  if (openBtn) {
-    openBtn.addEventListener('click', () => {
+  openButtons.forEach((button) => {
+    button.addEventListener('click', () => {
       modal.style.display = 'flex';
       input.focus();
     });
-  }
+  });
 
   const closeModal = () => {
     modal.style.display = 'none';
@@ -903,12 +903,12 @@ async function setActiveProject(nextProject) {
     if (state.projectState.activeProject !== previousProject) {
       state.chat.push({
         role: 'system',
-        text: `已切换到项目 [${state.projectState.activeProject}]，后续导入、记忆和对话检索都会只使用这个项目。`,
+        text: `已切换记忆库项目 [${state.projectState.activeProject}]，后续导入和新增记忆会写入这里，对话也会优先检索这个项目。`,
         time: nowLabel(),
       });
       renderChat();
     }
-    showBanner(`已切换到项目 ${state.projectState.activeProject}。`, false);
+    showBanner(`已切换记忆库项目 ${state.projectState.activeProject}。`, false);
   } catch (error) {
     showBanner(asMessage(error), true);
   }
@@ -1039,8 +1039,8 @@ function renderKnowledge() {
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">◈</div>
-        <h3>${state.filter ? '没有找到匹配的记忆' : `项目 ${escapeHTML(activeProject)} 为空`}</h3>
-        <p>${state.filter ? '尝试其他关键词' : '切换项目或导入文件、直接添加记忆来开始使用'}</p>
+        <h3>${state.filter ? '没有找到匹配的记忆' : `记忆库项目 ${escapeHTML(activeProject)} 为空`}</h3>
+        <p>${state.filter ? '尝试其他关键词' : '切换记忆库项目、导入文件或直接添加记忆来开始使用'}</p>
       </div>
     `;
     return;
@@ -1106,15 +1106,13 @@ function renderProjectState() {
     knowledgeCount: 0,
   };
 
-  const compact = document.getElementById('project-name-compact');
   const display = document.getElementById('project-name-display');
   const summary = document.getElementById('project-summary-display');
   const input = document.getElementById('project-name-input');
   const list = document.getElementById('project-list');
 
-  if (compact) compact.textContent = activeProject;
   if (display) display.textContent = activeProject;
-  if (summary) summary.textContent = `${activeSummary.knowledgeCount || 0} 条记忆会用于当前导入与对话检索`;
+  if (summary) summary.textContent = `${activeSummary.knowledgeCount || 0} 条记忆属于当前记忆库项目`;
   if (input && document.activeElement !== input) input.value = activeProject;
 
   if (!list) return;

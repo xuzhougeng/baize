@@ -266,13 +266,15 @@ select {
 }
 
 .project-toolbar {
-  padding: 18px 24px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   background:
-    radial-gradient(circle at top left, var(--accent-glow), transparent 42%),
-    var(--bg-deep);
+    radial-gradient(circle at top left, var(--accent-glow), transparent 52%),
+    var(--bg-surface);
   display: grid;
   gap: 14px;
+  box-shadow: var(--shadow-elevated);
 }
 
 .project-toolbar-copy {
@@ -518,6 +520,7 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 24px;
+  box-shadow: var(--shadow-elevated);
 }
 
 .drop-zone {
@@ -601,16 +604,58 @@ select {
 }
 
 /* Memory View */
+.memory-workbench {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(320px, 1.08fr);
+  gap: 16px;
+  margin-bottom: 20px;
+  align-items: start;
+}
+
+.memory-section-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.memory-section-header h3 {
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.memory-section-header p {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.memory-section-note {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
 .memory-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 12px;
 }
 
 .memory-search {
   position: relative;
   width: 320px;
+  max-width: 100%;
+}
+
+.memory-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .memory-search input {
@@ -1573,6 +1618,16 @@ select {
   color: var(--text-primary);
 }
 
+.btn-secondary {
+  background: var(--accent-secondary-bg);
+  border: 1px solid rgba(122, 156, 138, 0.2);
+  color: var(--accent-secondary);
+}
+
+.btn-secondary:hover {
+  background: rgba(122, 156, 138, 0.18);
+}
+
 .btn-danger {
   background: var(--danger-bg);
   border: 1px solid rgba(215, 106, 106, 0.2);
@@ -1697,6 +1752,27 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .memory-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .memory-search {
+    width: 100%;
+  }
+
+  .memory-header-actions {
+    justify-content: stretch;
+  }
+
+  .memory-header-actions .btn {
+    flex: 1;
+  }
+
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -1708,10 +1784,6 @@ select {
   .content-header-row {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .project-toolbar {
-    padding: 16px;
   }
 
   .project-toolbar-switch {

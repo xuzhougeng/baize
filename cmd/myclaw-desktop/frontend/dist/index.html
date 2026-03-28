@@ -22,10 +22,6 @@
             <span class="icon">◇</span>
             <span>概览</span>
           </a>
-          <a class="nav-item" data-view="import">
-            <span class="icon">↓</span>
-            <span>导入</span>
-          </a>
           <a class="nav-item" data-view="memory">
             <span class="icon">◈</span>
             <span>记忆库</span>
@@ -65,10 +61,6 @@
               <span>Prompt</span>
               <span class="value" id="prompt-count-compact">0</span>
             </div>
-            <div class="status-compact-row">
-              <span>项目</span>
-              <span class="value" id="project-name-compact">default</span>
-            </div>
           </div>
           <button class="theme-toggle" id="theme-toggle" title="切换主题">
             <span class="theme-icon">◐</span>
@@ -78,19 +70,6 @@
 
       <!-- Main Content -->
       <main class="main-content">
-        <section class="project-toolbar">
-          <div class="project-toolbar-copy">
-            <div class="project-toolbar-label">当前项目</div>
-            <div class="project-toolbar-value" id="project-name-display">default</div>
-            <div class="project-toolbar-subtitle" id="project-summary-display">0 条记忆会用于当前导入与对话检索</div>
-          </div>
-          <div class="project-toolbar-switch">
-            <input id="project-name-input" type="text" placeholder="输入项目名，比如 myclaw / fastclaw / client-a" />
-            <button class="btn btn-primary" id="project-switch">切换项目</button>
-          </div>
-          <div class="project-chip-list" id="project-list"></div>
-        </section>
-
         <!-- Dashboard View -->
         <div id="view-dashboard" class="view active">
           <header class="content-header">
@@ -107,7 +86,7 @@
               <div class="stat-card">
                 <div class="label">记忆条数</div>
                 <div class="value" id="memory-count-stat">0</div>
-                <div class="subtext">当前项目知识量</div>
+                <div class="subtext">当前记忆库知识量</div>
               </div>
               <div class="stat-card">
                 <div class="label">Prompt 数量</div>
@@ -128,9 +107,9 @@
 
             <h3 style="margin-bottom: 12px; font-size: 14px; color: var(--text-secondary);">快速操作</h3>
             <div class="quick-actions">
-              <div class="action-card" onclick="navigateTo('import')">
-                <h3>导入文件</h3>
-                <p>添加图片或 PDF 到知识库</p>
+              <div class="action-card" onclick="navigateTo('memory')">
+                <h3>记忆库</h3>
+                <p>切换记忆库项目、导入文件并管理记忆</p>
               </div>
               <div class="action-card" onclick="navigateTo('memory')">
                 <h3>浏览记忆</h3>
@@ -156,49 +135,10 @@
                 <h3>模型配置</h3>
                 <p>直接在 desktop 里保存与测试</p>
               </div>
-              <div class="action-card" id="quick-add-memory">
+              <div class="action-card" data-open-quick-memory>
                 <h3>快速记忆</h3>
                 <p>直接添加一条新记忆</p>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Import View -->
-        <div id="view-import" class="view">
-          <header class="content-header">
-            <h2>文件导入</h2>
-            <p class="subtitle">导入图片或 PDF 文件到知识库</p>
-          </header>
-          <div class="content-body">
-            <div class="import-section">
-              <div class="drop-zone" id="drop-zone">
-                <div class="drop-zone-icon">⬇</div>
-                <div class="drop-zone-text">点击选择或拖拽文件到此处</div>
-                <div class="drop-zone-hint">支持 PNG、JPG、PDF 格式</div>
-              </div>
-
-              <div class="file-preview" id="file-preview">
-                <div class="file-preview-header">
-                  <span class="file-preview-icon" id="file-icon">📄</span>
-                  <div class="file-preview-info">
-                    <h4 id="file-name">filename.pdf</h4>
-                    <p id="file-size">2.4 MB</p>
-                  </div>
-                </div>
-                <div class="import-options">
-                  <button class="btn btn-primary wide-button" id="import-confirm">导入并入库</button>
-                </div>
-              </div>
-            </div>
-
-            <div style="margin-top: 24px;">
-              <h3 style="font-size: 14px; margin-bottom: 12px; color: var(--text-secondary);">说明</h3>
-              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.7;">
-                • 图片文件会自动进行视觉内容分析并生成摘要<br>
-                • PDF 文件会先提取文本内容，然后生成知识摘要<br>
-                • 处理完成后，内容将自动存入知识库供检索使用
-              </p>
             </div>
           </div>
         </div>
@@ -207,21 +147,69 @@
         <div id="view-memory" class="view">
           <header class="content-header">
             <h2>记忆库</h2>
-            <p class="subtitle">浏览和管理知识库内容</p>
+            <p class="subtitle">在这里切换记忆库项目、导入文件和管理记忆</p>
           </header>
           <div class="content-body">
+            <div class="memory-workbench">
+              <section class="project-toolbar">
+                <div class="project-toolbar-copy">
+                  <div class="project-toolbar-label">记忆库项目</div>
+                  <div class="project-toolbar-value" id="project-name-display">default</div>
+                  <div class="project-toolbar-subtitle" id="project-summary-display">0 条记忆属于当前记忆库项目</div>
+                </div>
+                <div class="project-toolbar-switch">
+                  <input id="project-name-input" type="text" placeholder="输入记忆库项目名，比如 default / 产品资料 / client-a" />
+                  <button class="btn btn-primary" id="project-switch">切换项目</button>
+                </div>
+                <div class="project-chip-list" id="project-list"></div>
+              </section>
+
+              <section class="import-section">
+                <div class="memory-section-header">
+                  <div>
+                    <h3>文件入库</h3>
+                    <p>图片和 PDF 会作为记忆写入当前记忆库项目</p>
+                  </div>
+                </div>
+                <div class="drop-zone" id="drop-zone">
+                  <div class="drop-zone-icon">⬇</div>
+                  <div class="drop-zone-text">点击选择或拖拽文件到此处</div>
+                  <div class="drop-zone-hint">支持 PNG、JPG、PDF 格式</div>
+                </div>
+
+                <div class="file-preview" id="file-preview">
+                  <div class="file-preview-header">
+                    <span class="file-preview-icon" id="file-icon">📄</span>
+                    <div class="file-preview-info">
+                      <h4 id="file-name">filename.pdf</h4>
+                      <p id="file-size">2.4 MB</p>
+                    </div>
+                  </div>
+                  <div class="import-options">
+                    <button class="btn btn-primary wide-button" id="import-confirm">导入并入库</button>
+                  </div>
+                </div>
+
+                <p class="memory-section-note">
+                  图片会做视觉摘要，PDF 会先提取文本再生成摘要，最终统一写入记忆库供后续检索。
+                </p>
+              </section>
+            </div>
             <div class="memory-header">
               <div class="memory-search">
                 <input type="text" id="memory-filter" placeholder="搜索记忆内容、ID 或关键词..." />
               </div>
-              <button class="btn btn-danger btn-sm" id="clear-memory">清空知识库</button>
+              <div class="memory-header-actions">
+                <button class="btn btn-secondary btn-sm" data-open-quick-memory>快速添加</button>
+                <button class="btn btn-danger btn-sm" id="clear-memory">清空知识库</button>
+              </div>
             </div>
             <div class="memory-list" id="memory-list">
               <!-- Memory cards will be rendered here -->
               <div class="empty-state">
                 <div class="empty-state-icon">◈</div>
                 <h3>知识库为空</h3>
-                <p>导入文件或直接添加记忆来开始使用</p>
+                <p>导入文件、切换记忆库项目或直接添加记忆来开始使用</p>
               </div>
             </div>
           </div>
@@ -484,7 +472,7 @@
         <div id="view-chat" class="view">
           <header class="content-header">
             <h2>对话</h2>
-            <p class="subtitle">与 AI 助手交流，默认只检索当前项目记忆</p>
+            <p class="subtitle">与 AI 助手交流，可结合当前记忆库内容检索</p>
           </header>
           <div class="content-body">
             <div class="chat-container">
