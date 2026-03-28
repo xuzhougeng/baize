@@ -52,7 +52,7 @@ func main() {
 	reminderManager := reminder.NewManager(reminderStore)
 	sessionStore := sessionstate.NewStore(filepath.Join(dataDir, "sessions", "items.json"))
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
-	service := appsvc.NewServiceWithSkillsAndSessions(store, aiService, reminderManager, skillLoader, sessionStore)
+	service := appsvc.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
 	weixinBridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{
 		DataDir: dataDir,
 	})

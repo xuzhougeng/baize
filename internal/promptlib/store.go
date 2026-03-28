@@ -76,6 +76,24 @@ func (s *Store) List(_ context.Context) ([]Prompt, error) {
 	return prompts, nil
 }
 
+func (s *Store) Resolve(_ context.Context, idOrPrefix string) (Prompt, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prompts, err := s.readAllLocked()
+	if err != nil {
+		return Prompt{}, false, err
+	}
+
+	match := normalizeID(idOrPrefix)
+	for _, prompt := range prompts {
+		if strings.HasPrefix(normalizeID(prompt.ID), match) {
+			return prompt, true, nil
+		}
+	}
+	return Prompt{}, false, nil
+}
+
 func (s *Store) Remove(_ context.Context, idOrPrefix string) (Prompt, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

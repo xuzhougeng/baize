@@ -11,9 +11,17 @@ import (
 )
 
 type Snapshot struct {
-	Key       string    `json:"key"`
-	Mode      string    `json:"mode,omitempty"`
-	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	Key          string    `json:"key"`
+	Mode         string    `json:"mode,omitempty"`
+	LoadedSkills []string  `json:"loaded_skills,omitempty"`
+	PromptID     string    `json:"prompt_id,omitempty"`
+	History      []Message `json:"history,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+}
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type Store struct {

@@ -156,6 +156,12 @@ type ChatModeState struct {
 	Mode string `json:"mode"`
 }
 
+type ChatPromptState struct {
+	PromptID string `json:"promptId"`
+	ShortID  string `json:"shortId"`
+	Title    string `json:"title"`
+}
+
 type ChatResponse struct {
 	Reply     string `json:"reply"`
 	Timestamp string `json:"timestamp"`
@@ -637,6 +643,66 @@ func (a *DesktopApp) SetChatMode(mode string) (ChatModeState, error) {
 		return ChatModeState{}, err
 	}
 	return ChatModeState{Mode: string(selected)}, nil
+}
+
+func (a *DesktopApp) GetChatPrompt() (ChatPromptState, error) {
+	if a.service == nil {
+		return ChatPromptState{}, errors.New("聊天服务尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatPromptState{}, err
+	}
+
+	prompt, ok, err := a.service.CurrentPromptProfile(context.Background(), desktopMessageContext(project))
+	if err != nil {
+		return ChatPromptState{}, err
+	}
+	if !ok {
+		return ChatPromptState{}, nil
+	}
+	return ChatPromptState{
+		PromptID: prompt.ID,
+		ShortID:  shortID(prompt.ID),
+		Title:    strings.TrimSpace(prompt.Title),
+	}, nil
+}
+
+func (a *DesktopApp) SetChatPrompt(idOrPrefix string) (ChatPromptState, error) {
+	if a.service == nil {
+		return ChatPromptState{}, errors.New("聊天服务尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatPromptState{}, err
+	}
+
+	prompt, err := a.service.SetPromptProfile(context.Background(), desktopMessageContext(project), idOrPrefix)
+	if err != nil {
+		return ChatPromptState{}, err
+	}
+	return ChatPromptState{
+		PromptID: prompt.ID,
+		ShortID:  shortID(prompt.ID),
+		Title:    strings.TrimSpace(prompt.Title),
+	}, nil
+}
+
+func (a *DesktopApp) ClearChatPrompt() (ChatPromptState, error) {
+	if a.service == nil {
+		return ChatPromptState{}, errors.New("聊天服务尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatPromptState{}, err
+	}
+	if err := a.service.ClearPromptProfile(context.Background(), desktopMessageContext(project)); err != nil {
+		return ChatPromptState{}, err
+	}
+	return ChatPromptState{}, nil
 }
 
 func (a *DesktopApp) ConfirmAction(title, message string) (bool, error) {

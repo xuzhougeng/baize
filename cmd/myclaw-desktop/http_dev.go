@@ -268,6 +268,29 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		}
 	})
 
+	mux.HandleFunc("/api/chat/prompt", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			result, err := s.app.GetChatPrompt()
+			s.writeResult(w, result, err)
+		case http.MethodPost:
+			var body struct {
+				IDOrPrefix string `json:"idOrPrefix"`
+			}
+			if err := decodeJSONBody(r, &body); err != nil {
+				s.writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			result, err := s.app.SetChatPrompt(body.IDOrPrefix)
+			s.writeResult(w, result, err)
+		case http.MethodDelete:
+			result, err := s.app.ClearChatPrompt()
+			s.writeResult(w, result, err)
+		default:
+			s.writeMethodNotAllowed(w, http.MethodGet, http.MethodPost, http.MethodDelete)
+		}
+	})
+
 	mux.HandleFunc("/api/model", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			s.writeMethodNotAllowed(w, http.MethodGet)

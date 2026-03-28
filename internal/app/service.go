@@ -14,6 +14,7 @@ import (
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/promptlib"
 	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
 )
@@ -47,6 +48,7 @@ type Service struct {
 	aiService       aiBackend
 	reminders       reminderBackend
 	skillLoader     *skilllib.Loader
+	promptStore     promptBackend
 	sessionStore    *sessionstate.Store
 	modeMu          sync.RWMutex
 	modeMap         map[string]Mode
@@ -68,10 +70,15 @@ type aiBackend interface {
 	BuildSearchPlan(ctx context.Context, question string) (ai.SearchPlan, error)
 	ReviewAnswerCandidates(ctx context.Context, question string, entries []knowledge.Entry) ([]string, error)
 	Answer(ctx context.Context, question string, entries []knowledge.Entry) (string, error)
-	Chat(ctx context.Context, input string) (string, error)
+	Chat(ctx context.Context, input string, history []ai.ConversationMessage) (string, error)
 	TranslateToChinese(ctx context.Context, input string) (string, error)
 	SummarizePDFText(ctx context.Context, fileName, extractedText string) (string, error)
 	SummarizeImageFile(ctx context.Context, fileName, imageURL string) (string, error)
+}
+
+type promptBackend interface {
+	List(ctx context.Context) ([]promptlib.Prompt, error)
+	Resolve(ctx context.Context, idOrPrefix string) (promptlib.Prompt, bool, error)
 }
 
 func NewService(store *knowledge.Store, aiService aiBackend, reminders reminderBackend) *Service {
@@ -83,6 +90,10 @@ func NewServiceWithSkills(store *knowledge.Store, aiService aiBackend, reminders
 }
 
 func NewServiceWithSkillsAndSessions(store *knowledge.Store, aiService aiBackend, reminders reminderBackend, skillLoader *skilllib.Loader, sessionStore *sessionstate.Store) *Service {
+	return NewServiceWithRuntime(store, aiService, reminders, skillLoader, sessionStore, nil)
+}
+
+func NewServiceWithRuntime(store *knowledge.Store, aiService aiBackend, reminders reminderBackend, skillLoader *skilllib.Loader, sessionStore *sessionstate.Store, promptStore promptBackend) *Service {
 	if skillLoader == nil {
 		skillLoader = skilllib.NewLoader()
 	}
@@ -91,6 +102,7 @@ func NewServiceWithSkillsAndSessions(store *knowledge.Store, aiService aiBackend
 		aiService:       aiService,
 		reminders:       reminders,
 		skillLoader:     skillLoader,
+		promptStore:     promptStore,
 		sessionStore:    sessionStore,
 		modeMap:         make(map[string]Mode),
 		loadedSkillsMap: make(map[string]map[string]skilllib.Skill),
@@ -156,6 +168,10 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/load-skill <技能名> — 手动为当前会话加载一个技能\n" +
 			"/unload-skill <技能名> — 从当前会话卸载一个技能\n" +
 			"/page-skills — 查看当前会话已加载技能\n" +
+			"/prompt — 查看当前 Prompt profile\n" +
+			"/prompt list — 查看可用 Prompt profiles\n" +
+			"/prompt use <PromptID前缀> — 为当前会话启用 Prompt profile\n" +
+			"/prompt clear — 清除当前会话 Prompt profile\n" +
 			"/translate <内容> — 翻译成中文\n" +
 			"/debug-search <问题> — 查看关键词检索和候选复核过程\n" +
 			"/mode [direct|knowledge|agent] — 查看或切换普通对话模式\n" +
@@ -256,6 +272,8 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 		return s.unloadSkill(mc, fields[1])
 	case "/page-skills":
 		return s.listLoadedSkills(mc), nil
+	case "/prompt":
+		return s.handlePromptCommand(ctx, mc, input)
 	case "/forget", "/delete":
 		if len(fields) < 2 {
 			return "用法: /forget <知识ID前缀>", nil
@@ -844,6 +862,7 @@ func isSlashCommand(text string) bool {
 		"/load-skill",
 		"/unload-skill",
 		"/page-skills",
+		"/prompt",
 		"/translate",
 		"/debug-search",
 		"/mode",
@@ -922,13 +941,19 @@ func (s *Service) loadSkill(mc MessageContext, name string) (string, error) {
 		return fmt.Sprintf("没有找到技能 %q。先用 /skills 查看可用技能。", strings.TrimSpace(name)), nil
 	}
 
+	_ = s.loadedSkillsFor(mc)
 	key := skillSessionKey(mc)
 	s.loadedSkillsMu.Lock()
 	if s.loadedSkillsMap[key] == nil {
 		s.loadedSkillsMap[key] = make(map[string]skilllib.Skill)
 	}
 	s.loadedSkillsMap[key][strings.ToLower(skill.Name)] = skill
+	names := make([]string, 0, len(s.loadedSkillsMap[key]))
+	for _, loadedSkill := range s.loadedSkillsMap[key] {
+		names = append(names, loadedSkill.Name)
+	}
 	s.loadedSkillsMu.Unlock()
+	s.setPersistedLoadedSkillNames(mc, names)
 
 	if strings.TrimSpace(skill.Description) == "" {
 		return fmt.Sprintf("已加载技能 %s。", skill.Name), nil
@@ -942,6 +967,7 @@ func (s *Service) unloadSkill(mc MessageContext, name string) (string, error) {
 		return "请提供要卸载的技能名。", nil
 	}
 
+	_ = s.loadedSkillsFor(mc)
 	key := skillSessionKey(mc)
 	normalized := strings.ToLower(name)
 
@@ -955,9 +981,14 @@ func (s *Service) unloadSkill(mc MessageContext, name string) (string, error) {
 		return fmt.Sprintf("当前会话没有加载技能 %q。", name), nil
 	}
 	delete(s.loadedSkillsMap[key], normalized)
+	names := make([]string, 0, len(s.loadedSkillsMap[key]))
+	for _, loadedSkill := range s.loadedSkillsMap[key] {
+		names = append(names, loadedSkill.Name)
+	}
 	if len(s.loadedSkillsMap[key]) == 0 {
 		delete(s.loadedSkillsMap, key)
 	}
+	s.setPersistedLoadedSkillNames(mc, names)
 	return fmt.Sprintf("已卸载技能 %s。", name), nil
 }
 
@@ -985,9 +1016,26 @@ func (s *Service) loadedSkillsFor(mc MessageContext) []skilllib.Skill {
 	key := skillSessionKey(mc)
 
 	s.loadedSkillsMu.RLock()
-	defer s.loadedSkillsMu.RUnlock()
-
 	current := s.loadedSkillsMap[key]
+	s.loadedSkillsMu.RUnlock()
+	if len(current) == 0 {
+		restored := make(map[string]skilllib.Skill)
+		for _, name := range s.persistedLoadedSkillNames(mc) {
+			skill, ok, err := s.skillLoader.Load(name)
+			if err != nil || !ok {
+				continue
+			}
+			restored[strings.ToLower(skill.Name)] = skill
+		}
+		if len(restored) > 0 {
+			s.loadedSkillsMu.Lock()
+			if len(s.loadedSkillsMap[key]) == 0 {
+				s.loadedSkillsMap[key] = restored
+			}
+			current = s.loadedSkillsMap[key]
+			s.loadedSkillsMu.Unlock()
+		}
+	}
 	if len(current) == 0 {
 		return nil
 	}
@@ -1019,24 +1067,6 @@ func (s *Service) LoadSkillForSession(mc MessageContext, name string) (string, e
 
 func (s *Service) UnloadSkillForSession(mc MessageContext, name string) (string, error) {
 	return s.unloadSkill(mc, name)
-}
-
-func (s *Service) withSkillContext(ctx context.Context, mc MessageContext) context.Context {
-	skills := s.loadedSkillsFor(mc)
-	if len(skills) == 0 {
-		return ctx
-	}
-
-	var builder strings.Builder
-	builder.WriteString("Loaded skills for this conversation. Apply them only when relevant.\n\n")
-	for _, skill := range skills {
-		builder.WriteString("## ")
-		builder.WriteString(skill.Name)
-		builder.WriteString("\n")
-		builder.WriteString(strings.TrimSpace(skill.Content))
-		builder.WriteString("\n\n")
-	}
-	return ai.WithSkillContext(ctx, strings.TrimSpace(builder.String()))
 }
 
 func skillSessionKey(mc MessageContext) string {

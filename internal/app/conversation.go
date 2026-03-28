@@ -177,13 +177,21 @@ func (s *Service) handleAIDecision(ctx context.Context, mc MessageContext, text 
 			if err != nil {
 				return "", err
 			}
-			return s.aiService.Answer(ctx, question, entries)
+			reply, err := s.aiService.Answer(ctx, question, entries)
+			if err == nil {
+				s.appendConversationHistory(ctx, mc, question, reply)
+			}
+			return reply, err
 		case ModeAgent:
 			return "agent 模式暂未启用工具执行。当前可先使用 `direct` 或 `knowledge` 模式。", nil
 		case ModeDirect:
 			fallthrough
 		default:
-			return s.aiService.Chat(ctx, question)
+			reply, err := s.aiService.Chat(ctx, question, s.conversationHistory(ctx, mc))
+			if err == nil {
+				s.appendConversationHistory(ctx, mc, question, reply)
+			}
+			return reply, err
 		}
 	default:
 		return fmt.Sprintf("无法识别命令路由: %s", decision.Command), nil

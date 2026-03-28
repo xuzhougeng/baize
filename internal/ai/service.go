@@ -31,6 +31,11 @@ type SearchPlan struct {
 	Keywords []string `json:"keywords"`
 }
 
+type ConversationMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 const pdfSummaryChunkRunes = 12000
 
 type Service struct {
@@ -212,7 +217,7 @@ Keep the answer concise but useful.
 	return s.generateText(ctx, cfg, instructions, prompt.String())
 }
 
-func (s *Service) Chat(ctx context.Context, input string) (string, error) {
+func (s *Service) Chat(ctx context.Context, input string, history []ConversationMessage) (string, error) {
 	cfg, err := s.requireConfig(ctx)
 	if err != nil {
 		return "", err
@@ -225,7 +230,18 @@ Be concise, practical, and direct.
 Do not claim to have consulted a knowledge base unless one was explicitly provided.
 `)
 
-	return s.generateText(ctx, cfg, instructions, strings.TrimSpace(input))
+	messages := make([]responseInputMessage, 0, len(history)+1)
+	for _, item := range normalizeConversationMessages(history) {
+		messages = append(messages, newTextMessage(item.Role, item.Content))
+	}
+	messages = append(messages, newTextMessage("user", strings.TrimSpace(input)))
+
+	req := generationRequest{
+		Instructions:    mergeInstructionsWithSkillContext(ctx, instructions),
+		Input:           messages,
+		MaxOutputTokens: 1500,
+	}
+	return s.generate(ctx, cfg, req)
 }
 
 func (s *Service) BuildSearchPlan(ctx context.Context, question string) (SearchPlan, error) {
@@ -780,6 +796,29 @@ func normalizeSearchQueries(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func normalizeConversationMessages(values []ConversationMessage) []ConversationMessage {
+	out := make([]ConversationMessage, 0, len(values))
+	for _, value := range values {
+		role := strings.ToLower(strings.TrimSpace(value.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(value.Content)
+		if content == "" {
+			continue
+		}
+		out = append(out, ConversationMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+	return out
+}
+
+func NormalizeConversationMessages(values []ConversationMessage) []ConversationMessage {
+	return normalizeConversationMessages(values)
 }
 
 type responseTextOptions struct {

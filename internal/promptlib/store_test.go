@@ -43,6 +43,14 @@ func TestStoreAddListRemoveAndClear(t *testing.T) {
 		t.Fatalf("unexpected order: %#v", items)
 	}
 
+	resolved, ok, err := store.Resolve(context.Background(), first.ID[:8])
+	if err != nil {
+		t.Fatalf("resolve prompt: %v", err)
+	}
+	if !ok || resolved.ID != first.ID {
+		t.Fatalf("unexpected resolved prompt: %#v %v", resolved, ok)
+	}
+
 	removed, ok, err := store.Remove(context.Background(), first.ID[:8])
 	if err != nil {
 		t.Fatalf("remove prompt: %v", err)

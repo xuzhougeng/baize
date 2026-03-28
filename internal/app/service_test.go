@@ -13,6 +13,7 @@ import (
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
 	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
@@ -294,9 +295,12 @@ func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
 			t.Fatalf("knowledge answer should not be used in direct mode")
 			return ""
 		},
-		chatFunc: func(_ context.Context, input string) string {
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
 			if input != "macOS 什么时候做？" {
 				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
 			}
 			return "这是 direct 模式下的普通 AI 回复。"
 		},
@@ -466,7 +470,10 @@ func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
 			}
 			return "这是 @kb 临时切到知识库后的回复。"
 		},
-		chatFunc: func(_ context.Context, _ string) string {
+		chatFunc: func(_ context.Context, _ string, history []ai.ConversationMessage) string {
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
 			return "这是默认 direct 模式回复。"
 		},
 	}, reminders)
@@ -1072,6 +1079,155 @@ func TestModePersistsAcrossServiceRestarts(t *testing.T) {
 	}
 }
 
+func TestLoadedSkillsPersistAcrossServiceRestarts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "writer")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(strings.TrimSpace(`
+---
+name: writer
+description: 帮助输出更清晰的中文写作
+---
+# Writer
+Use concise Chinese writing.
+`)), 0o644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	loader := skilllib.NewLoader(filepath.Join(root, "skills"))
+	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
+
+	service := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, loader, stateStore)
+	if _, err := service.LoadSkillForSession(mc, "writer"); err != nil {
+		t.Fatalf("load skill: %v", err)
+	}
+
+	restarted := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, loader, stateStore)
+	loaded := restarted.ListLoadedSkills(mc)
+	if len(loaded) != 1 || loaded[0].Name != "writer" {
+		t.Fatalf("expected persisted writer skill, got %#v", loaded)
+	}
+}
+
+func TestPromptProfilePersistsAndInjectsIntoConversation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	profile, err := promptStore.Add(context.Background(), promptlib.Prompt{
+		Title:      "Architect",
+		Content:    "Always answer with architecture-first tradeoff analysis.",
+		RecordedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("add prompt: %v", err)
+	}
+
+	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
+	service := NewServiceWithRuntime(store, fakeAI{configured: true}, reminders, nil, stateStore, promptStore)
+	if _, err := service.SetPromptProfile(context.Background(), mc, profile.ID[:8]); err != nil {
+		t.Fatalf("set prompt profile: %v", err)
+	}
+
+	restarted := NewServiceWithRuntime(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "帮我分析一下这个架构",
+		},
+		chatFunc: func(ctx context.Context, _ string, history []ai.ConversationMessage) string {
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
+			instructions := ai.SkillContextFromContext(ctx)
+			if !strings.Contains(instructions, "Architect") || !strings.Contains(instructions, "architecture-first tradeoff analysis") {
+				t.Fatalf("prompt profile missing from conversation context: %q", instructions)
+			}
+			return "这是带 prompt profile 的回复。"
+		},
+	}, reminders, nil, stateStore, promptStore)
+
+	reply, err := restarted.HandleMessage(context.Background(), mc, "帮我分析一下这个架构")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "这是带 prompt profile 的回复。" {
+		t.Fatalf("unexpected prompt profile reply: %q", reply)
+	}
+}
+
+func TestDirectModeConversationHistoryPersistsAcrossRestarts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
+
+	service := NewServiceWithSkillsAndSessions(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "我叫小张",
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "我叫小张" {
+				t.Fatalf("unexpected first chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty first history, got %#v", history)
+			}
+			return "记住了，你叫小张。"
+		},
+	}, reminders, nil, stateStore)
+
+	if _, err := service.HandleMessage(context.Background(), mc, "我叫小张"); err != nil {
+		t.Fatalf("first message: %v", err)
+	}
+
+	restarted := NewServiceWithSkillsAndSessions(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "我刚才叫什么名字？",
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "我刚才叫什么名字？" {
+				t.Fatalf("unexpected second chat input: %q", input)
+			}
+			if len(history) != 2 {
+				t.Fatalf("expected persisted 2-message history, got %#v", history)
+			}
+			if history[0].Role != "user" || history[0].Content != "我叫小张" {
+				t.Fatalf("unexpected first history item: %#v", history[0])
+			}
+			if history[1].Role != "assistant" || history[1].Content != "记住了，你叫小张。" {
+				t.Fatalf("unexpected second history item: %#v", history[1])
+			}
+			return "你刚才说你叫小张。"
+		},
+	}, reminders, nil, stateStore)
+
+	reply, err := restarted.HandleMessage(context.Background(), mc, "我刚才叫什么名字？")
+	if err != nil {
+		t.Fatalf("second message: %v", err)
+	}
+	if reply != "你刚才说你叫小张。" {
+		t.Fatalf("unexpected second reply: %q", reply)
+	}
+}
+
 type fakeAI struct {
 	configured      bool
 	route           ai.RouteDecision
@@ -1080,7 +1236,7 @@ type fakeAI struct {
 	answer          string
 	answerFunc      func(string, []knowledge.Entry) string
 	chat            string
-	chatFunc        func(context.Context, string) string
+	chatFunc        func(context.Context, string, []ai.ConversationMessage) string
 	translation     string
 	translationFunc func(context.Context, string) string
 	pdfSummary      string
@@ -1110,9 +1266,9 @@ func (f fakeAI) Answer(_ context.Context, question string, entries []knowledge.E
 	return f.answer, nil
 }
 
-func (f fakeAI) Chat(ctx context.Context, input string) (string, error) {
+func (f fakeAI) Chat(ctx context.Context, input string, history []ai.ConversationMessage) (string, error) {
 	if f.chatFunc != nil {
-		return f.chatFunc(ctx, input), nil
+		return f.chatFunc(ctx, input, history), nil
 	}
 	return f.chat, nil
 }
