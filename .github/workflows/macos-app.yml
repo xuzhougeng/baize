@@ -1,0 +1,69 @@
+name: macos-app
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-app:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Test
+        run: go test ./cmd/myclaw-desktop ./internal/...
+
+      - name: Build desktop app (Universal)
+        working-directory: cmd/myclaw-desktop
+        run: |
+          wails build \
+            -platform darwin/universal \
+            -o myclaw-desktop.app \
+            -m \
+            -s
+
+      - name: Verify app output
+        run: |
+          if [ ! -d "cmd/myclaw-desktop/build/bin/myclaw-desktop.app" ]; then
+            ls -R cmd/myclaw-desktop/build
+            echo "Error: .app bundle was not generated."
+            exit 1
+          fi
+          ls -lh cmd/myclaw-desktop/build/bin/
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "myclaw Desktop" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 450 185 \
+            "cmd/myclaw-desktop/build/bin/myclaw-desktop.dmg" \
+            "cmd/myclaw-desktop/build/bin/myclaw-desktop.app" || true
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: myclaw-desktop-macos-universal
+          path: |
+            cmd/myclaw-desktop/build/bin/myclaw-desktop.app
+            cmd/myclaw-desktop/build/bin/*.dmg
+          if-no-files-found: error
+          retention-days: 14
