@@ -375,7 +375,9 @@ select {
 .content-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
 }
 
 .content-body::-webkit-scrollbar {
@@ -398,20 +400,21 @@ select {
 /* Views */
 .view {
   display: none;
-  max-width: 900px;
 }
 
 .view.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   animation: fade-in 250ms ease;
 }
 
 /* Dashboard View */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .stat-card {
@@ -457,8 +460,8 @@ select {
 
 .quick-actions {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
 }
 
 .action-card {
@@ -780,7 +783,8 @@ select {
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 140px);
+  flex: 1;
+  min-height: 0;
 }
 
 /* Model View */
@@ -1331,7 +1335,7 @@ select {
   }
 
   .dashboard-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .quick-actions {
