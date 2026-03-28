@@ -248,6 +248,26 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		s.writeResult(w, result, err)
 	})
 
+	mux.HandleFunc("/api/chat/mode", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			result, err := s.app.GetChatMode()
+			s.writeResult(w, result, err)
+		case http.MethodPost:
+			var body struct {
+				Mode string `json:"mode"`
+			}
+			if err := decodeJSONBody(r, &body); err != nil {
+				s.writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			result, err := s.app.SetChatMode(body.Mode)
+			s.writeResult(w, result, err)
+		default:
+			s.writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
 	mux.HandleFunc("/api/model", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			s.writeMethodNotAllowed(w, http.MethodGet)

@@ -14,6 +14,7 @@ import (
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/reminder"
+	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
 )
 
@@ -91,6 +92,9 @@ func TestHandleMessageQuestionUsesReviewedKnowledgeSubset(t *testing.T) {
 			}
 			return "知识库里提到未来需要支持 macOS，目前还没有实现时间表。"
 		},
+	}
+	if _, err := service.SetMode(ctx, MessageContext{}, ModeKnowledge); err != nil {
+		t.Fatalf("set mode: %v", err)
 	}
 
 	reply, err := service.HandleMessage(ctx, MessageContext{}, "macOS 什么时候做？")
@@ -275,6 +279,38 @@ Use concise Chinese writing.
 	}
 }
 
+func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "macOS 什么时候做？",
+		},
+		answerFunc: func(string, []knowledge.Entry) string {
+			t.Fatalf("knowledge answer should not be used in direct mode")
+			return ""
+		},
+		chatFunc: func(_ context.Context, input string) string {
+			if input != "macOS 什么时候做？" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			return "这是 direct 模式下的普通 AI 回复。"
+		},
+	}, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "macOS 什么时候做？")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "这是 direct 模式下的普通 AI 回复。" {
+		t.Fatalf("unexpected direct reply: %q", reply)
+	}
+}
+
 func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 	t.Parallel()
 
@@ -316,6 +352,9 @@ func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 			return entries[0].Text
 		},
 	}, reminders)
+	if _, err := service.SetMode(context.Background(), MessageContext{Project: "Alpha"}, ModeKnowledge); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{Project: "Alpha"}, "项目发布计划是什么？")
 	if err != nil {
@@ -395,6 +434,57 @@ func TestHandleMessageUsesAIIntentRecognition(t *testing.T) {
 	}
 	if len(entries) != 1 || !strings.Contains(entries[0].Text, "整理后的记忆") {
 		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
+func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	if _, err := store.Add(context.Background(), knowledge.Entry{
+		ID:         "11111111aaaa1111",
+		Text:       "未来需要支持 macOS。",
+		RecordedAt: time.Date(2026, 3, 27, 10, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed entry: %v", err)
+	}
+
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "macOS 什么时候做？",
+		},
+		searchPlan: ai.SearchPlan{
+			Queries:  []string{"macOS 支持计划"},
+			Keywords: []string{"macos", "支持"},
+		},
+		answerFunc: func(_ string, entries []knowledge.Entry) string {
+			if len(entries) != 1 {
+				t.Fatalf("expected 1 knowledge entry, got %#v", entries)
+			}
+			return "这是 @kb 临时切到知识库后的回复。"
+		},
+		chatFunc: func(_ context.Context, _ string) string {
+			return "这是默认 direct 模式回复。"
+		},
+	}, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "@kb macOS 什么时候做？")
+	if err != nil {
+		t.Fatalf("knowledge override: %v", err)
+	}
+	if reply != "这是 @kb 临时切到知识库后的回复。" {
+		t.Fatalf("unexpected knowledge override reply: %q", reply)
+	}
+
+	reply, err = service.HandleMessage(context.Background(), MessageContext{}, "macOS 什么时候做？")
+	if err != nil {
+		t.Fatalf("direct follow-up: %v", err)
+	}
+	if reply != "这是默认 direct 模式回复。" {
+		t.Fatalf("unexpected direct follow-up reply: %q", reply)
 	}
 }
 
@@ -933,6 +1023,55 @@ func TestHandleMessageUsesAIRouteForAppendLast(t *testing.T) {
 	}
 }
 
+func TestAgentModeReturnsPlaceholderForQuestions(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "现在帮我执行一个操作",
+		},
+	}, reminders)
+	if _, err := service.SetMode(context.Background(), MessageContext{}, ModeAgent); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "现在帮我执行一个操作")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if !strings.Contains(reply, "agent 模式暂未启用工具执行") {
+		t.Fatalf("unexpected agent reply: %q", reply)
+	}
+}
+
+func TestModePersistsAcrossServiceRestarts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, nil, stateStore)
+	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1", Project: "alpha"}
+
+	if _, err := service.SetMode(context.Background(), mc, ModeKnowledge); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
+
+	restarted := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, nil, stateStore)
+	mode, err := restarted.GetMode(context.Background(), mc)
+	if err != nil {
+		t.Fatalf("get mode: %v", err)
+	}
+	if mode != ModeKnowledge {
+		t.Fatalf("expected persisted knowledge mode, got %q", mode)
+	}
+}
+
 type fakeAI struct {
 	configured      bool
 	route           ai.RouteDecision
@@ -940,6 +1079,8 @@ type fakeAI struct {
 	reviewIDs       []string
 	answer          string
 	answerFunc      func(string, []knowledge.Entry) string
+	chat            string
+	chatFunc        func(context.Context, string) string
 	translation     string
 	translationFunc func(context.Context, string) string
 	pdfSummary      string
@@ -967,6 +1108,13 @@ func (f fakeAI) Answer(_ context.Context, question string, entries []knowledge.E
 		return f.answerFunc(question, entries), nil
 	}
 	return f.answer, nil
+}
+
+func (f fakeAI) Chat(ctx context.Context, input string) (string, error) {
+	if f.chatFunc != nil {
+		return f.chatFunc(ctx, input), nil
+	}
+	return f.chat, nil
 }
 
 func (f fakeAI) TranslateToChinese(ctx context.Context, input string) (string, error) {

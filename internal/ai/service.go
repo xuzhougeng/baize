@@ -149,7 +149,7 @@ Rules:
   - 明天 HH:MM <message>
   - YYYY-MM-DD HH:MM <message>
 - For notice_remove, fill reminder_id without the leading # when present.
-- For answer, put the cleaned question in question.
+- For answer, put the cleaned user question in question.
 - Prefer commands over answer when the user is clearly asking to operate the system.
 - Always fill unused text fields with an empty string.
 - Respond only with JSON that matches the schema.
@@ -210,6 +210,22 @@ Keep the answer concise but useful.
 `)
 
 	return s.generateText(ctx, cfg, instructions, prompt.String())
+}
+
+func (s *Service) Chat(ctx context.Context, input string) (string, error) {
+	cfg, err := s.requireConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	instructions := strings.TrimSpace(`
+You are myclaw, a private AI workspace assistant.
+Answer in Chinese unless the user clearly asks otherwise.
+Be concise, practical, and direct.
+Do not claim to have consulted a knowledge base unless one was explicitly provided.
+`)
+
+	return s.generateText(ctx, cfg, instructions, strings.TrimSpace(input))
 }
 
 func (s *Service) BuildSearchPlan(ctx context.Context, question string) (SearchPlan, error) {

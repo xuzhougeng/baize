@@ -152,6 +152,10 @@ type MessageResult struct {
 	Message string `json:"message"`
 }
 
+type ChatModeState struct {
+	Mode string `json:"mode"`
+}
+
 type ChatResponse struct {
 	Reply     string `json:"reply"`
 	Timestamp string `json:"timestamp"`
@@ -601,6 +605,40 @@ func (a *DesktopApp) UnloadSkill(name string) (MessageResult, error) {
 	return MessageResult{Message: message}, nil
 }
 
+func (a *DesktopApp) GetChatMode() (ChatModeState, error) {
+	if a.service == nil {
+		return ChatModeState{}, errors.New("聊天服务尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatModeState{}, err
+	}
+
+	mode, err := a.service.GetMode(context.Background(), desktopMessageContext(project))
+	if err != nil {
+		return ChatModeState{}, err
+	}
+	return ChatModeState{Mode: string(mode)}, nil
+}
+
+func (a *DesktopApp) SetChatMode(mode string) (ChatModeState, error) {
+	if a.service == nil {
+		return ChatModeState{}, errors.New("聊天服务尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatModeState{}, err
+	}
+
+	selected, err := a.service.SetMode(context.Background(), desktopMessageContext(project), appsvc.Mode(mode))
+	if err != nil {
+		return ChatModeState{}, err
+	}
+	return ChatModeState{Mode: string(selected)}, nil
+}
+
 func (a *DesktopApp) ConfirmAction(title, message string) (bool, error) {
 	if a.ctx == nil {
 		return false, errors.New("桌面上下文尚未初始化")
@@ -900,7 +938,7 @@ func desktopMessageContext(project string) appsvc.MessageContext {
 	return appsvc.MessageContext{
 		Interface: desktopInterface,
 		UserID:    desktopUserID,
-		SessionID: desktopChatSessionID,
+		SessionID: desktopChatSessionID + ":" + knowledge.CanonicalProjectName(project),
 		Project:   project,
 	}
 }

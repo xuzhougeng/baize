@@ -7,7 +7,7 @@
 - 知识库存储在本地 JSON 文件里
 - 模型配置只从本地环境变量读取，不在终端或聊天界面里暴露
 - 配置模型后，会先做 AI 命令路由，再决定是“记住 / 遗忘 / 提醒 / 查看 / 回答”
-- 普通问题默认走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”，不直接把整库全量塞进回答
+- 普通问题默认走 direct 模式，直接调用 AI；切到 knowledge 模式后才会走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持单次提醒和每天重复提醒
 - 微信桥接只保留扫码登录、长轮询、文本/语音文字收发
@@ -58,7 +58,7 @@ go run ./cmd/myclaw-desktop
 - 模型配置页面，可直接保存和测试连接
 - 原生文件选择和确认对话框
 - 微信页面，支持在桌面端直接显示二维码扫码登录
-- 对话面板，可继续使用 `/remember`、`/notice`、`/forget`、`/debug-search` 等命令
+- 对话面板，可继续使用 `/remember`、`/notice`、`/forget`、`/debug-search`、`/mode` 等命令
 
 桌面版默认数据目录会放到用户配置目录：
 
@@ -143,6 +143,10 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - `/load-skill writer`
 - `/unload-skill writer`
 - `/page-skills`
+- `/mode`
+- `/mode knowledge`
+- `@kb macOS 什么时候做？`
+- `@ai 帮我直接分析这个方案`
 - `/translate Puppeteer is a browser automation tool.`
 - `/forget 0015f908`
 - `/notice 2小时后 喝水`
@@ -181,6 +185,27 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - 由人先看 `/skills` 和 `/show-skill`，再手动决定是否 `/load-skill`
 - 技能一旦加载，会影响当前页面 / 当前会话里的 AI 路由、翻译、检索计划和回答
 - 现在技能隔离优先按 `SessionID`，没有会话 ID 时才回退到用户维度
+
+## 对话模式
+
+现在普通对话支持 3 种模式：
+
+- `direct`：默认模式。普通问题直接走 AI，不依赖知识库。
+- `knowledge`：普通问题走知识库检索、候选复核和基于知识库回答。
+- `agent`：预留模式，当前只返回“暂未启用工具执行”。
+
+切换方式：
+
+- `/mode` 查看当前模式
+- `/mode direct`
+- `/mode knowledge`
+- `/mode agent`
+
+也可以只对单条消息临时覆盖：
+
+- `@ai ...`
+- `@kb ...`
+- `@agent ...`
 
 默认技能目录：
 

@@ -14,6 +14,7 @@ import (
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
 )
 
@@ -46,6 +47,9 @@ type Service struct {
 	aiService       aiBackend
 	reminders       reminderBackend
 	skillLoader     *skilllib.Loader
+	sessionStore    *sessionstate.Store
+	modeMu          sync.RWMutex
+	modeMap         map[string]Mode
 	loadedSkillsMu  sync.RWMutex
 	loadedSkillsMap map[string]map[string]skilllib.Skill
 }
@@ -64,6 +68,7 @@ type aiBackend interface {
 	BuildSearchPlan(ctx context.Context, question string) (ai.SearchPlan, error)
 	ReviewAnswerCandidates(ctx context.Context, question string, entries []knowledge.Entry) ([]string, error)
 	Answer(ctx context.Context, question string, entries []knowledge.Entry) (string, error)
+	Chat(ctx context.Context, input string) (string, error)
 	TranslateToChinese(ctx context.Context, input string) (string, error)
 	SummarizePDFText(ctx context.Context, fileName, extractedText string) (string, error)
 	SummarizeImageFile(ctx context.Context, fileName, imageURL string) (string, error)
@@ -74,6 +79,10 @@ func NewService(store *knowledge.Store, aiService aiBackend, reminders reminderB
 }
 
 func NewServiceWithSkills(store *knowledge.Store, aiService aiBackend, reminders reminderBackend, skillLoader *skilllib.Loader) *Service {
+	return NewServiceWithSkillsAndSessions(store, aiService, reminders, skillLoader, nil)
+}
+
+func NewServiceWithSkillsAndSessions(store *knowledge.Store, aiService aiBackend, reminders reminderBackend, skillLoader *skilllib.Loader, sessionStore *sessionstate.Store) *Service {
 	if skillLoader == nil {
 		skillLoader = skilllib.NewLoader()
 	}
@@ -82,6 +91,8 @@ func NewServiceWithSkills(store *knowledge.Store, aiService aiBackend, reminders
 		aiService:       aiService,
 		reminders:       reminders,
 		skillLoader:     skillLoader,
+		sessionStore:    sessionStore,
+		modeMap:         make(map[string]Mode),
 		loadedSkillsMap: make(map[string]map[string]skilllib.Skill),
 	}
 }
@@ -125,7 +136,7 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 		return reply, err
 	}
 
-	return s.handleAIMessage(ctx, mc, text)
+	return s.handleConversationMessage(ctx, mc, text)
 }
 
 func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input string) (string, error) {
@@ -147,6 +158,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/page-skills — 查看当前会话已加载技能\n" +
 			"/translate <内容> — 翻译成中文\n" +
 			"/debug-search <问题> — 查看关键词检索和候选复核过程\n" +
+			"/mode [direct|knowledge|agent] — 查看或切换普通对话模式\n" +
 			"/forget <ID前缀> — 删除一条知识\n" +
 			"/list — 查看全部知识\n" +
 			"/stats — 查看知识库状态\n" +
@@ -154,7 +166,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/cron — 与 /notice 等价\n" +
 			"/clear — 清空知识库\n" +
 			"/help — 查看帮助\n\n" +
-			"普通问题会先生成 AI 检索计划，再从知识库里筛候选并复核后回答；默认不做向量检索。", nil
+			"普通问题默认走 direct 模式；可以用 `/mode knowledge` 切到知识库检索，或在单条消息前加 `@kb` 临时覆盖。", nil
 	case "/remember", "/r":
 		if len(fields) < 2 {
 			return "用法: /remember <内容>", nil
@@ -206,6 +218,25 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 		}
 		body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
 		return s.debugSearch(s.withSkillContext(ctx, mc), body)
+	case "/mode":
+		if len(fields) == 1 {
+			mode, err := s.GetMode(ctx, mc)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("当前模式: %s\n%s\n\n%s", mode, modeDescription(mode), modeUsage()), nil
+		}
+		if len(fields) != 2 {
+			return modeUsage(), nil
+		}
+		mode := normalizeMode(fields[1])
+		if mode == "" {
+			return modeUsage(), nil
+		}
+		if _, err := s.SetMode(ctx, mc, mode); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("已切换到 %s 模式。\n%s", mode, modeDescription(mode)), nil
 	case "/skills":
 		return s.listSkills(mc)
 	case "/show-skill":
@@ -255,7 +286,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 	case "/notice", "/cron":
 		return s.handleReminderCommand(ctx, mc, input)
 	default:
-		return s.handleAIMessage(ctx, mc, input)
+		return s.handleConversationMessage(ctx, mc, input)
 	}
 }
 
@@ -400,83 +431,6 @@ func (s *Service) ensureAIAvailable(ctx context.Context) (string, error) {
 		return "模型还没有配置完成。请先在桌面端模型页保存 Provider、Base URL、API Key 和 Model，或设置对应环境变量。", nil
 	}
 	return "", nil
-}
-
-func (s *Service) handleAIMessage(ctx context.Context, mc MessageContext, text string) (string, error) {
-	if reply, err := s.ensureAIAvailable(ctx); reply != "" || err != nil {
-		return reply, err
-	}
-	ctx = s.withSkillContext(ctx, mc)
-
-	decision, err := s.aiService.RouteCommand(ctx, text)
-	if err != nil {
-		return "", err
-	}
-
-	switch decision.Command {
-	case "remember":
-		memoryText := strings.TrimSpace(decision.MemoryText)
-		if memoryText == "" {
-			memoryText = text
-		}
-		entry, err := s.store.Add(ctx, knowledge.Entry{
-			Text:       memoryText,
-			Source:     sourceLabel(mc),
-			RecordedAt: time.Now(),
-		})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
-	case "append":
-		if decision.KnowledgeID == "" {
-			return "请提供要补充的知识 ID。", nil
-		}
-		if decision.AppendText == "" {
-			return "请提供要补充的内容。", nil
-		}
-		return s.appendKnowledge(ctx, decision.KnowledgeID, decision.AppendText)
-	case "append_last":
-		if decision.AppendText == "" {
-			return "请提供要补充的内容。", nil
-		}
-		return s.appendLatestKnowledge(ctx, mc, decision.AppendText)
-	case "forget":
-		if decision.KnowledgeID == "" {
-			return "请提供要遗忘的知识 ID。", nil
-		}
-		return s.forgetKnowledge(ctx, decision.KnowledgeID)
-	case "notice_add":
-		if decision.ReminderSpec == "" {
-			return "请提供提醒时间和内容。", nil
-		}
-		return s.handleReminderCommand(ctx, mc, "/notice "+decision.ReminderSpec)
-	case "notice_list":
-		return s.handleReminderCommand(ctx, mc, "/notice list")
-	case "notice_remove":
-		if decision.ReminderID == "" {
-			return "请提供要删除的提醒 ID。", nil
-		}
-		return s.handleReminderCommand(ctx, mc, "/notice remove "+decision.ReminderID)
-	case "list":
-		return s.handleCommand(ctx, mc, "/list")
-	case "stats":
-		return s.handleCommand(ctx, mc, "/stats")
-	case "help":
-		return s.handleCommand(ctx, mc, "/help")
-	case "answer":
-		question := strings.TrimSpace(decision.Question)
-		if question == "" {
-			question = text
-		}
-		entries, err := s.selectKnowledgeForAnswer(ctx, question)
-		if err != nil {
-			return "", err
-		}
-		return s.aiService.Answer(ctx, question, entries)
-	default:
-		return fmt.Sprintf("无法识别命令路由: %s", decision.Command), nil
-	}
 }
 
 func (s *Service) selectKnowledgeForAnswer(ctx context.Context, question string) ([]knowledge.Entry, error) {
@@ -892,6 +846,7 @@ func isSlashCommand(text string) bool {
 		"/page-skills",
 		"/translate",
 		"/debug-search",
+		"/mode",
 		"/forget", "/delete",
 		"/list", "/ls",
 		"/stats",
@@ -1085,13 +1040,7 @@ func (s *Service) withSkillContext(ctx context.Context, mc MessageContext) conte
 }
 
 func skillSessionKey(mc MessageContext) string {
-	if sessionID := strings.TrimSpace(mc.SessionID); sessionID != "" {
-		return "session:" + sessionID
-	}
-	if key := strings.TrimSpace(sourceLabel(mc)); key != "" {
-		return "source:" + key
-	}
-	return "default"
+	return conversationSessionKey(mc)
 }
 
 func withKnowledgeContext(ctx context.Context, mc MessageContext) context.Context {
