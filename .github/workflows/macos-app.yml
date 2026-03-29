@@ -6,6 +6,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build-app:
     runs-on: macos-latest
@@ -24,6 +27,15 @@ jobs:
           echo "GOCACHE=$RUNNER_TEMP/go-build" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/go-build"
 
+      - name: Resolve build version
+        run: |
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "BUILD_VERSION=${version}" >> "$GITHUB_ENV"
+
       - name: Test
         run: go test ./cmd/myclaw-desktop ./internal/...
 
@@ -36,17 +48,12 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="0.0.${GITHUB_RUN_NUMBER}"
-          fi
-          ./scripts/package-desktop-macos.sh "${version}"
+          ./scripts/package-desktop-macos.sh "${BUILD_VERSION}"
 
       - name: Verify notarized output
         run: |
           APP_PATH="cmd/myclaw-desktop/build/bin/myclaw-desktop.app"
-          DMG_PATH="$(find dist -maxdepth 1 -name 'myclaw-desktop-macos-*.dmg' | head -n 1)"
+          DMG_PATH="dist/myclaw-desktop-macos-${BUILD_VERSION}.dmg"
           if [ ! -d "${APP_PATH}" ]; then
             ls -R cmd/myclaw-desktop/build
             echo "Error: .app bundle was not generated."
@@ -61,6 +68,7 @@ jobs:
           xcrun stapler validate "${APP_PATH}"
           xcrun stapler validate "${DMG_PATH}"
           ls -lh "${APP_PATH}" "${DMG_PATH}"
+          echo "DMG_PATH=${DMG_PATH}" >> "$GITHUB_ENV"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
@@ -71,3 +79,16 @@ jobs:
             dist/myclaw-desktop-macos-*.dmg
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish DMG to GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          title="${tag}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${DMG_PATH}" --clobber
+          else
+            gh release create "${tag}" "${DMG_PATH}" --title "${title}" --generate-notes
+          fi
