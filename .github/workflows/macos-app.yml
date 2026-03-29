@@ -9,8 +9,6 @@ on:
 jobs:
   build-app:
     runs-on: macos-latest
-    env:
-      GOCACHE: ${{ runner.temp }}/go-build
 
     steps:
       - name: Checkout
@@ -20,6 +18,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Set build cache env
+        run: |
+          echo "GOCACHE=$RUNNER_TEMP/go-build" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/go-build"
 
       - name: Test
         run: go test ./cmd/myclaw-desktop ./internal/...
