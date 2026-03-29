@@ -47,9 +47,12 @@ const state = {
   backendMode: "",
   overview: null,
   projectState: defaultProjectState(),
+  reminders: [],
   knowledge: [],
   prompts: [],
   skills: [],
+  chatPrompt: defaultChatPromptState(),
+  autocomplete: defaultAutocompleteState(),
   selectedSkillName: "",
   filter: "",
   promptFilter: "",
@@ -77,6 +80,36 @@ const promptExamples = [
   "现在我记了什么？",
 ];
 
+const CHAT_SLASH_COMMANDS = [
+  { label: '/help', insert: '/help', description: '查看可用命令' },
+  { label: '/remember', insert: '/remember ', description: '保存一条知识' },
+  { label: '/remember-file', insert: '/remember-file ', description: '总结图片或 PDF 并写入知识库' },
+  { label: '/append', insert: '/append ', description: '追加到已有知识' },
+  { label: '/skills', insert: '/skills', description: '查看可用技能和当前会话已加载技能' },
+  { label: '/show-skill', insert: '/show-skill ', description: '查看某个技能内容' },
+  { label: '/load-skill', insert: '/load-skill ', description: '为当前会话加载一个技能' },
+  { label: '/unload-skill', insert: '/unload-skill ', description: '从当前会话卸载一个技能' },
+  { label: '/page-skills', insert: '/page-skills', description: '查看当前会话已加载技能' },
+  { label: '/prompt', insert: '/prompt', description: '查看当前 Prompt profile' },
+  { label: '/prompt list', insert: '/prompt list', description: '查看可用 Prompt profiles' },
+  { label: '/prompt use', insert: '/prompt use ', description: '为当前会话启用 Prompt profile' },
+  { label: '/prompt clear', insert: '/prompt clear', description: '清除当前会话 Prompt profile' },
+  { label: '/translate', insert: '/translate ', description: '翻译成中文' },
+  { label: '/debug-search', insert: '/debug-search ', description: '查看关键词检索和候选复核过程' },
+  { label: '/mode', insert: '/mode', description: '查看当前对话模式' },
+  { label: '/mode direct', insert: '/mode direct', description: '切换到 direct 模式' },
+  { label: '/mode knowledge', insert: '/mode knowledge', description: '切换到 knowledge 模式' },
+  { label: '/mode agent', insert: '/mode agent', description: '切换到 agent 模式' },
+  { label: '/forget', insert: '/forget ', description: '删除一条知识' },
+  { label: '/list', insert: '/list', description: '查看全部知识' },
+  { label: '/stats', insert: '/stats', description: '查看知识库状态' },
+  { label: '/notice', insert: '/notice ', description: '创建提醒' },
+  { label: '/notice list', insert: '/notice list', description: '查看提醒列表' },
+  { label: '/notice remove', insert: '/notice remove ', description: '删除提醒' },
+  { label: '/cron', insert: '/cron ', description: '与 /notice 等价' },
+  { label: '/clear', insert: '/clear', description: '清空知识库' },
+];
+
 document.addEventListener("DOMContentLoaded", () => {
   void init();
 });
@@ -87,9 +120,12 @@ async function init() {
   bindNavigation();
   bindQuickAddModal();
   renderChatShortcuts();
+  renderChatContext();
+  renderChatAutocomplete();
   renderProjectState();
   renderChat();
   renderKnowledge();
+  renderReminders();
   renderPrompts();
   renderSkills();
   renderModel();
@@ -252,6 +288,11 @@ function bindStaticEvents() {
     clearMemory.addEventListener('click', () => void clearKnowledge());
   }
 
+  const reminderRefresh = document.getElementById('reminder-refresh');
+  if (reminderRefresh) {
+    reminderRefresh.addEventListener('click', () => void refreshReminders());
+  }
+
   const promptFilter = document.getElementById('prompt-filter');
   if (promptFilter) {
     promptFilter.addEventListener('input', (event) => {
@@ -329,11 +370,82 @@ function bindStaticEvents() {
 
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
+    autoResizeChatInput();
     chatInput.addEventListener('keydown', (e) => {
+      if (state.autocomplete.open) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          moveAutocompleteSelection(1);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          moveAutocompleteSelection(-1);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          const selected = (state.autocomplete.items || [])[state.autocomplete.selectedIndex];
+          if (selected && !selected.disabled) {
+            e.preventDefault();
+            void applySelectedAutocompleteItem();
+            return;
+          }
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            closeChatAutocomplete();
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeChatAutocomplete();
+          return;
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         void sendMessage();
       }
+    });
+
+    chatInput.addEventListener('input', () => {
+      autoResizeChatInput();
+      updateChatAutocomplete();
+    });
+    chatInput.addEventListener('click', updateChatAutocomplete);
+    chatInput.addEventListener('focus', updateChatAutocomplete);
+  }
+
+  const chatContextBar = document.getElementById('chat-context-bar');
+  if (chatContextBar) {
+    chatContextBar.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-chat-context-action]');
+      if (!target) return;
+
+      const action = target.dataset.chatContextAction || '';
+      const value = target.dataset.value || '';
+      if (action === 'clear-prompt') {
+        void clearChatPromptSelection();
+      } else if (action === 'unload-skill') {
+        void unloadSkill(value);
+      }
+    });
+  }
+
+  const chatAutocomplete = document.getElementById('chat-autocomplete');
+  if (chatAutocomplete) {
+    chatAutocomplete.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
+    chatAutocomplete.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-autocomplete-index]');
+      if (!target) return;
+      const index = Number(target.dataset.autocompleteIndex || '-1');
+      if (Number.isNaN(index) || index < 0) return;
+      state.autocomplete.selectedIndex = index;
+      renderChatAutocomplete();
+      void applySelectedAutocompleteItem();
     });
   }
 
@@ -439,6 +551,11 @@ function bindStaticEvents() {
       }
     });
   }
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('.chat-input-area')) return;
+    closeChatAutocomplete();
+  });
 }
 
 function bindRuntimeEvents() {
@@ -457,6 +574,7 @@ function bindRuntimeEvents() {
     });
     renderChat();
     showBanner(`提醒 #${shortId}: ${message}`, false);
+    void refreshReminders().catch(() => {});
   });
 
   window.runtime.EventsOn('weixin:status', (payload) => {
@@ -471,6 +589,10 @@ function renderChatShortcuts() {
       const input = document.getElementById('chat-input');
       if (input) {
         input.value = chip.dataset.cmd || '';
+        const cursor = input.value.length;
+        input.setSelectionRange(cursor, cursor);
+        autoResizeChatInput();
+        updateChatAutocomplete();
         input.focus();
       }
     });
@@ -526,6 +648,7 @@ function createWailsBackend(backend) {
     GetOverview: () => backend.GetOverview(),
     GetProjectState: () => backend.GetProjectState(),
     SetActiveProject: (name) => backend.SetActiveProject(name),
+    ListReminders: () => backend.ListReminders(),
     ListKnowledge: () => backend.ListKnowledge(),
     CreateKnowledge: (text) => backend.CreateKnowledge(text),
     AppendKnowledge: (idOrPrefix, addition) => backend.AppendKnowledge(idOrPrefix, addition),
@@ -546,6 +669,9 @@ function createWailsBackend(backend) {
     ImportFile: (path) => backend.ImportFile(path),
     UploadImportFile: () => Promise.reject(new Error('Wails 模式不使用浏览器上传。')),
     SendMessage: (input) => backend.SendMessage(input),
+    GetChatPrompt: () => backend.GetChatPrompt(),
+    SetChatPrompt: (idOrPrefix) => backend.SetChatPrompt(idOrPrefix),
+    ClearChatPrompt: () => backend.ClearChatPrompt(),
     GetModelSettings: () => backend.GetModelSettings(),
     SaveModelConfig: (payload) => backend.SaveModelConfig(payload),
     TestModelConnection: (id) => backend.TestModelConnection(id),
@@ -564,6 +690,7 @@ function createHTTPBackend() {
     GetOverview: () => requestJSON('GET', '/api/overview'),
     GetProjectState: () => requestJSON('GET', '/api/projects'),
     SetActiveProject: (name) => requestJSON('POST', '/api/projects/active', { name }),
+    ListReminders: () => requestJSON('GET', '/api/reminders'),
     ListKnowledge: () => requestJSON('GET', '/api/knowledge'),
     CreateKnowledge: (text) => requestJSON('POST', '/api/knowledge', { text }),
     AppendKnowledge: (idOrPrefix, addition) => requestJSON('POST', '/api/knowledge/append', { idOrPrefix, addition }),
@@ -588,6 +715,9 @@ function createHTTPBackend() {
     },
     UploadImportFile: (file) => uploadFile('/api/import/upload', file),
     SendMessage: (input) => requestJSON('POST', '/api/chat', { input }),
+    GetChatPrompt: () => requestJSON('GET', '/api/chat/prompt'),
+    SetChatPrompt: (idOrPrefix) => requestJSON('POST', '/api/chat/prompt', { idOrPrefix }),
+    ClearChatPrompt: () => requestJSON('DELETE', '/api/chat/prompt'),
     GetModelSettings: () => requestJSON('GET', '/api/model'),
     SaveModelConfig: (payload) => requestJSON('POST', '/api/model/save', payload),
     TestModelConnection: (id) => requestJSON('POST', '/api/model/test', { id }),
@@ -637,12 +767,12 @@ function startBackendPolling() {
   if (state.backendMode !== 'http') return;
 
   devPollTimer = window.setInterval(() => {
-    void Promise.all([refreshProjectState(), refreshOverview(), refreshModel(), refreshWeixin()]).catch(() => {});
+    void Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshModel(), refreshWeixin()]).catch(() => {});
   }, 2000);
 }
 
 async function refreshAll() {
-  await Promise.all([refreshProjectState(), refreshOverview(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshModel(), refreshWeixin()]);
+  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshChatPrompt(), refreshModel(), refreshWeixin()]);
 }
 
 async function refreshProjectState() {
@@ -682,6 +812,11 @@ async function refreshOverview() {
   if (promptCountCompact) promptCountCompact.textContent = String(state.overview.promptCount || 0);
 }
 
+async function refreshReminders() {
+  state.reminders = normalizeReminders(await state.backend.ListReminders());
+  renderReminders();
+}
+
 async function refreshKnowledge() {
   state.knowledge = await state.backend.ListKnowledge();
   renderKnowledge();
@@ -690,12 +825,21 @@ async function refreshKnowledge() {
 async function refreshPrompts() {
   state.prompts = await state.backend.ListPrompts();
   renderPrompts();
+  updateChatAutocomplete();
 }
 
 async function refreshSkills() {
   state.skills = normalizeSkills(await state.backend.ListSkills());
   ensureSelectedSkill();
   renderSkills();
+  renderChatContext();
+  updateChatAutocomplete();
+}
+
+async function refreshChatPrompt() {
+  state.chatPrompt = normalizeChatPromptState(await state.backend.GetChatPrompt());
+  renderChatContext();
+  updateChatAutocomplete();
 }
 
 async function refreshModel() {
@@ -960,6 +1104,10 @@ function insertPromptToChat(id) {
   const input = document.getElementById('chat-input');
   if (input) {
     input.value = prompt.content || '';
+    const cursor = input.value.length;
+    input.setSelectionRange(cursor, cursor);
+    autoResizeChatInput();
+    updateChatAutocomplete();
     input.focus();
   }
 
@@ -1000,7 +1148,11 @@ async function sendMessage() {
 
   state.chat.push({ role: 'user', text, time: nowLabel() });
   renderChat();
-  if (input) input.value = '';
+  closeChatAutocomplete();
+  if (input) {
+    input.value = '';
+    autoResizeChatInput();
+  }
 
   try {
     const result = await state.backend.SendMessage(text);
@@ -1020,6 +1172,350 @@ async function sendMessage() {
     renderChat();
     showBanner(asMessage(error), true);
   }
+}
+
+function renderChatContext() {
+  const container = document.getElementById('chat-context-bar');
+  if (!container) return;
+
+  const chips = [];
+  if (state.chatPrompt.promptId) {
+    chips.push(`
+      <span class="chat-context-chip prompt">
+        <span>Prompt</span>
+        <strong>${escapeHTML(state.chatPrompt.title || `#${state.chatPrompt.shortId}`)}</strong>
+        <button type="button" data-chat-context-action="clear-prompt" title="清除当前 Prompt">×</button>
+      </span>
+    `);
+  }
+
+  const loadedSkills = [...state.skills]
+    .filter((item) => item.loaded)
+    .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+  for (const skill of loadedSkills) {
+    chips.push(`
+      <span class="chat-context-chip skill">
+        <span>Skill</span>
+        <strong>${escapeHTML(skill.name)}</strong>
+        <button type="button" data-chat-context-action="unload-skill" data-value="${escapeAttribute(skill.name)}" title="卸载技能">×</button>
+      </span>
+    `);
+  }
+
+  container.innerHTML = chips.join('');
+}
+
+async function clearChatPromptSelection() {
+  try {
+    await state.backend.ClearChatPrompt();
+    state.chatPrompt = defaultChatPromptState();
+    renderChatContext();
+    updateChatAutocomplete();
+    showBanner('已清除当前对话 Prompt。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  }
+}
+
+function autoResizeChatInput() {
+  const input = document.getElementById('chat-input');
+  if (!(input instanceof HTMLTextAreaElement)) return;
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+}
+
+function updateChatAutocomplete() {
+  const input = document.getElementById('chat-input');
+  if (!(input instanceof HTMLTextAreaElement)) {
+    closeChatAutocomplete();
+    return;
+  }
+
+  const active = getActiveChatTrigger(input);
+  if (!active) {
+    closeChatAutocomplete();
+    return;
+  }
+
+  const items = buildAutocompleteItems(active.trigger, active.query);
+  state.autocomplete = {
+    open: true,
+    trigger: active.trigger,
+    query: active.query,
+    tokenStart: active.start,
+    tokenEnd: active.end,
+    selectedIndex: firstSelectableAutocompleteIndex(items),
+    items,
+  };
+  renderChatAutocomplete();
+}
+
+function getActiveChatTrigger(input) {
+  const value = input.value || '';
+  const caret = input.selectionStart ?? value.length;
+  let start = caret;
+  while (start > 0 && !/\s/.test(value[start - 1])) {
+    start -= 1;
+  }
+
+  if (start >= value.length) return null;
+  const trigger = value[start];
+  if (!['/', '$', '@'].includes(trigger)) return null;
+
+  let end = caret;
+  while (end < value.length && !/\s/.test(value[end])) {
+    end += 1;
+  }
+
+  return {
+    trigger,
+    query: value.slice(start + 1, caret),
+    start,
+    end,
+  };
+}
+
+function buildAutocompleteItems(trigger, query) {
+  switch (trigger) {
+    case '/':
+      return buildCommandAutocompleteItems(query);
+    case '$':
+      return buildSkillAutocompleteItems(query);
+    case '@':
+      return buildPromptAutocompleteItems(query);
+    default:
+      return [];
+  }
+}
+
+function buildCommandAutocompleteItems(query) {
+  const filtered = CHAT_SLASH_COMMANDS.filter((item) =>
+    autocompleteMatches(query, [item.label, item.insert, item.description]),
+  );
+  const items = filtered.map((item) => ({
+    kind: 'command',
+    title: item.label,
+    description: item.description,
+    meta: 'slash',
+    insertText: item.insert,
+    disabled: false,
+  }));
+  if (items.length > 0) return items;
+  return [
+    {
+      kind: 'empty',
+      title: '没有匹配的 slash command',
+      description: '继续输入，或直接发送普通消息。',
+      meta: '',
+      disabled: true,
+    },
+  ];
+}
+
+function buildSkillAutocompleteItems(query) {
+  const sorted = [...state.skills].sort((left, right) => {
+    if (left.loaded !== right.loaded) return left.loaded ? -1 : 1;
+    return left.name.localeCompare(right.name, 'zh-CN');
+  });
+  const filtered = sorted.filter((item) =>
+    autocompleteMatches(query, [item.name, item.description, item.dir]),
+  );
+  if (filtered.length === 0) {
+    return [
+      {
+        kind: 'empty',
+        title: state.skills.length === 0 ? '当前没有可用 skill' : '没有匹配的 skill',
+        description: state.skills.length === 0 ? '先在 Skill 库导入或添加本地技能。' : '尝试按技能名或描述搜索。',
+        meta: '',
+        disabled: true,
+      },
+    ];
+  }
+
+  return filtered.map((item) => ({
+    kind: 'skill',
+    title: `$${item.name}`,
+    description: item.description || '加载到当前对话会话',
+    meta: item.loaded ? '已加载' : '可加载',
+    name: item.name,
+    disabled: false,
+  }));
+}
+
+function buildPromptAutocompleteItems(query) {
+  const filtered = state.prompts.filter((item) =>
+    autocompleteMatches(query, [item.title, item.shortId, item.content]),
+  );
+  const items = filtered.map((item) => ({
+    kind: 'prompt',
+    title: `@${item.title}`,
+    description: preview(item.content, 80),
+    meta: state.chatPrompt.promptId === item.id ? `当前 · #${item.shortId}` : `Prompt · #${item.shortId}`,
+    promptId: item.id,
+    shortId: item.shortId,
+    disabled: false,
+  }));
+
+  if (state.chatPrompt.promptId) {
+    items.unshift({
+      kind: 'prompt-clear',
+      title: '@清除当前 Prompt',
+      description: `当前使用：${state.chatPrompt.title || `#${state.chatPrompt.shortId}`}`,
+      meta: 'Prompt',
+      disabled: false,
+    });
+  }
+
+  if (items.length > 0) return items;
+  return [
+    {
+      kind: 'empty',
+      title: state.prompts.length === 0 ? '当前没有可用 Prompt' : '没有匹配的 Prompt',
+      description: state.prompts.length === 0 ? '先在 Prompt 库保存常用模板。' : '尝试按标题、ID 或内容搜索。',
+      meta: '',
+      disabled: true,
+    },
+  ];
+}
+
+function autocompleteMatches(query, values) {
+  const normalized = String(query || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return values.some((value) => String(value || '').toLowerCase().includes(normalized));
+}
+
+function firstSelectableAutocompleteIndex(items) {
+  const index = items.findIndex((item) => !item.disabled);
+  return index >= 0 ? index : 0;
+}
+
+function moveAutocompleteSelection(direction) {
+  const items = state.autocomplete.items || [];
+  if (!state.autocomplete.open || items.length === 0) return;
+
+  let nextIndex = state.autocomplete.selectedIndex;
+  for (let step = 0; step < items.length; step += 1) {
+    nextIndex = (nextIndex + direction + items.length) % items.length;
+    if (!items[nextIndex]?.disabled) {
+      state.autocomplete.selectedIndex = nextIndex;
+      renderChatAutocomplete();
+      return;
+    }
+  }
+}
+
+function renderChatAutocomplete() {
+  const container = document.getElementById('chat-autocomplete');
+  if (!container) return;
+
+  if (!state.autocomplete.open || (state.autocomplete.items || []).length === 0) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+
+  container.hidden = false;
+  container.innerHTML = `
+    <div class="chat-autocomplete-list">
+      ${(state.autocomplete.items || [])
+        .map((item, index) => `
+          <button
+            type="button"
+            class="chat-autocomplete-item ${index === state.autocomplete.selectedIndex ? 'active' : ''} ${item.disabled ? 'disabled' : ''}"
+            data-autocomplete-index="${index}"
+            ${item.disabled ? 'disabled' : ''}
+          >
+            <div class="chat-autocomplete-head">
+              <span class="chat-autocomplete-title">${escapeHTML(item.title || '')}</span>
+              ${item.meta ? `<span class="chat-autocomplete-meta">${escapeHTML(item.meta)}</span>` : ''}
+            </div>
+            <div class="chat-autocomplete-desc">${escapeHTML(item.description || '')}</div>
+          </button>
+        `)
+        .join('')}
+    </div>
+  `;
+}
+
+function closeChatAutocomplete() {
+  state.autocomplete = defaultAutocompleteState();
+  renderChatAutocomplete();
+}
+
+async function applySelectedAutocompleteItem() {
+  const items = state.autocomplete.items || [];
+  const item = items[state.autocomplete.selectedIndex];
+  if (!item || item.disabled) return;
+  await applyAutocompleteItem(item);
+}
+
+async function applyAutocompleteItem(item) {
+  switch (item.kind) {
+    case 'command':
+      replaceCurrentChatToken(item.insertText || '');
+      closeChatAutocomplete();
+      break;
+    case 'skill':
+      replaceCurrentChatToken('');
+      closeChatAutocomplete();
+      await loadSkill(item.name || '');
+      focusChatInput();
+      break;
+    case 'prompt':
+      replaceCurrentChatToken('');
+      closeChatAutocomplete();
+      try {
+        state.chatPrompt = normalizeChatPromptState(await state.backend.SetChatPrompt(item.promptId || ''));
+        renderChatContext();
+        showBanner(`已为当前对话启用 Prompt ${item.title.replace(/^@/, '')}。`, false);
+      } catch (error) {
+        showBanner(asMessage(error), true);
+      }
+      focusChatInput();
+      break;
+    case 'prompt-clear':
+      replaceCurrentChatToken('');
+      closeChatAutocomplete();
+      await clearChatPromptSelection();
+      focusChatInput();
+      break;
+    default:
+      break;
+  }
+}
+
+function replaceCurrentChatToken(replacement) {
+  const input = document.getElementById('chat-input');
+  if (!(input instanceof HTMLTextAreaElement)) return;
+
+  const value = input.value || '';
+  let start = state.autocomplete.tokenStart;
+  let end = state.autocomplete.tokenEnd;
+  if (start < 0 || end < start) return;
+
+  if (!replacement) {
+    if (start === 0) {
+      while (end < value.length && /\s/.test(value[end])) {
+        end += 1;
+      }
+    } else if (/\s/.test(value[start - 1] || '') && /\s/.test(value[end] || '')) {
+      while (end < value.length && /\s/.test(value[end])) {
+        end += 1;
+      }
+    }
+  }
+
+  input.value = value.slice(0, start) + replacement + value.slice(end);
+  const cursor = start + replacement.length;
+  input.setSelectionRange(cursor, cursor);
+  autoResizeChatInput();
+}
+
+function focusChatInput() {
+  const input = document.getElementById('chat-input');
+  if (!(input instanceof HTMLTextAreaElement)) return;
+  input.focus();
+  updateChatAutocomplete();
 }
 
 function renderKnowledge() {
@@ -1096,6 +1592,60 @@ function renderKnowledge() {
         </article>
       `;
     })
+    .join('');
+}
+
+function renderReminders() {
+  const container = document.getElementById('reminder-list');
+  const count = document.getElementById('reminder-count');
+  if (!container) return;
+
+  const reminders = [...state.reminders].sort((left, right) => {
+    if (left.nextRunAtUnix !== right.nextRunAtUnix) {
+      return left.nextRunAtUnix - right.nextRunAtUnix;
+    }
+    return left.createdAtUnix - right.createdAtUnix;
+  });
+
+  if (count) {
+    count.textContent = `${reminders.length} 个任务`;
+  }
+
+  if (reminders.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">◷</div>
+        <h3>当前没有提醒任务</h3>
+        <p>在对话里创建提醒后，这里会显示你的定时列表。</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = reminders
+    .map((item) => `
+      <article class="memory-card reminder-card">
+        <div class="memory-card-header">
+          <div>
+            <div class="memory-meta">
+              <span class="memory-badge id">#${escapeHTML(item.shortId)}</span>
+              <span class="memory-badge source">${escapeHTML(item.frequencyLabel)}</span>
+              <span class="memory-badge source">${escapeHTML(item.scheduleLabel)}</span>
+            </div>
+            <h3 class="reminder-card-title">${escapeHTML(item.message)}</h3>
+          </div>
+          <div class="reminder-card-side">
+            <div class="reminder-card-label">下次执行</div>
+            <div class="reminder-card-next">${escapeHTML(item.nextRunAt || '—')}</div>
+            <div class="reminder-card-relative">${escapeHTML(relativeTimeLabel(item.nextRunAtUnix))}</div>
+          </div>
+        </div>
+        <div class="reminder-card-footer">
+          <span class="memory-date">创建于 ${escapeHTML(item.createdAt || '—')}</span>
+          <span class="reminder-card-kind">${escapeHTML(item.frequency === 'daily' ? '每日循环' : '执行一次')}</span>
+        </div>
+      </article>
+    `)
     .join('');
 }
 
@@ -1715,6 +2265,34 @@ function defaultProjectState() {
   };
 }
 
+function defaultChatPromptState() {
+  return {
+    promptId: '',
+    shortId: '',
+    title: '',
+  };
+}
+
+function normalizeChatPromptState(payload) {
+  const source = Array.isArray(payload) ? payload[0] : payload;
+  return {
+    ...defaultChatPromptState(),
+    ...(source || {}),
+  };
+}
+
+function defaultAutocompleteState() {
+  return {
+    open: false,
+    trigger: '',
+    query: '',
+    tokenStart: -1,
+    tokenEnd: -1,
+    selectedIndex: 0,
+    items: [],
+  };
+}
+
 function normalizeProjectState(payload) {
   const source = Array.isArray(payload) ? payload[0] : payload;
   const stateValue = {
@@ -1739,6 +2317,22 @@ function normalizeProjectState(payload) {
     activeProject: stateValue.activeProject || projects.find((item) => item.active)?.name || 'default',
     projects,
   };
+}
+
+function normalizeReminders(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    id: item.id || '',
+    shortId: item.shortId || (item.id || '').slice(0, 8),
+    message: item.message || '',
+    frequency: item.frequency || 'once',
+    frequencyLabel: item.frequencyLabel || (item.frequency === 'daily' ? '每天' : '单次'),
+    scheduleLabel: item.scheduleLabel || (item.frequency === 'daily' ? '每天' : '单次'),
+    nextRunAt: item.nextRunAt || '',
+    nextRunAtUnix: Number(item.nextRunAtUnix || 0),
+    createdAt: item.createdAt || '',
+    createdAtUnix: Number(item.createdAtUnix || 0),
+  }));
 }
 
 const MODEL_PROVIDER_DEFAULTS = {
@@ -1843,6 +2437,34 @@ function delay(ms) {
 
 function nowLabel() {
   return new Date().toLocaleString('zh-CN', { hour12: false });
+}
+
+function relativeTimeLabel(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) return '未安排';
+
+  const diffSeconds = value - Math.floor(Date.now() / 1000);
+  const absSeconds = Math.abs(diffSeconds);
+  const future = diffSeconds >= 0;
+
+  if (absSeconds < 60) {
+    return future ? '1 分钟内' : '刚刚';
+  }
+
+  const units = [
+    { size: 24 * 60 * 60, label: '天' },
+    { size: 60 * 60, label: '小时' },
+    { size: 60, label: '分钟' },
+  ];
+
+  for (const unit of units) {
+    if (absSeconds >= unit.size) {
+      const amount = Math.floor(absSeconds / unit.size);
+      return future ? `${amount} ${unit.label}后` : `${amount} ${unit.label}前`;
+    }
+  }
+
+  return future ? '即将执行' : '已执行';
 }
 
 function asMessage(error) {
@@ -2067,6 +2689,13 @@ function sanitizeURL(value) {
   }
 
   return '';
+}
+
+function preview(value, maxLength) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(maxLength - 1, 1))}…`;
 }
 
 function stripFrontmatter(source) {

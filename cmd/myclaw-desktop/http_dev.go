@@ -74,6 +74,15 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		s.writeResult(w, result, err)
 	})
 
+	mux.HandleFunc("/api/reminders", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		result, err := s.app.ListReminders()
+		s.writeResult(w, result, err)
+	})
+
 	mux.HandleFunc("/api/knowledge", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

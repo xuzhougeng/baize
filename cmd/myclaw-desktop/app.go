@@ -167,6 +167,19 @@ type ChatResponse struct {
 	Timestamp string `json:"timestamp"`
 }
 
+type ReminderItem struct {
+	ID             string `json:"id"`
+	ShortID        string `json:"shortId"`
+	Message        string `json:"message"`
+	Frequency      string `json:"frequency"`
+	FrequencyLabel string `json:"frequencyLabel"`
+	ScheduleLabel  string `json:"scheduleLabel"`
+	NextRunAt      string `json:"nextRunAt"`
+	NextRunAtUnix  int64  `json:"nextRunAtUnix"`
+	CreatedAt      string `json:"createdAt"`
+	CreatedAtUnix  int64  `json:"createdAtUnix"`
+}
+
 type reminderNotifier struct {
 	app *DesktopApp
 }
@@ -280,6 +293,26 @@ func (a *DesktopApp) SetActiveProject(name string) (ProjectState, error) {
 	}
 	a.rememberActiveProject(project)
 	return a.buildProjectState(context.Background())
+}
+
+func (a *DesktopApp) ListReminders() ([]ReminderItem, error) {
+	if a.reminders == nil {
+		return []ReminderItem{}, nil
+	}
+
+	items, err := a.reminders.List(context.Background(), reminder.Target{
+		Interface: desktopInterface,
+		UserID:    desktopUserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ReminderItem, 0, len(items))
+	for _, item := range items {
+		result = append(result, toReminderItem(item))
+	}
+	return result, nil
 }
 
 func (a *DesktopApp) GetModelSettings() (ModelSettings, error) {
@@ -1038,6 +1071,29 @@ func toPromptItem(prompt promptlib.Prompt) PromptItem {
 		Preview:        preview(content, maxKnowledgePreviewRunes),
 		RecordedAt:     prompt.RecordedAt.Local().Format("2006-01-02 15:04:05"),
 		RecordedAtUnix: prompt.RecordedAt.Unix(),
+	}
+}
+
+func toReminderItem(item reminder.Reminder) ReminderItem {
+	frequency := string(item.Frequency)
+	frequencyLabel := "单次"
+	scheduleLabel := "单次"
+	if item.Frequency == reminder.FrequencyDaily {
+		frequencyLabel = "每天"
+		scheduleLabel = fmt.Sprintf("每天 %02d:%02d", item.DailyHour, item.DailyMinute)
+	}
+
+	return ReminderItem{
+		ID:             item.ID,
+		ShortID:        shortID(item.ID),
+		Message:        strings.TrimSpace(item.Message),
+		Frequency:      frequency,
+		FrequencyLabel: frequencyLabel,
+		ScheduleLabel:  scheduleLabel,
+		NextRunAt:      item.NextRunAt.Local().Format("2006-01-02 15:04:05"),
+		NextRunAtUnix:  item.NextRunAt.Unix(),
+		CreatedAt:      item.CreatedAt.Local().Format("2006-01-02 15:04:05"),
+		CreatedAtUnix:  item.CreatedAt.Unix(),
 	}
 }
 

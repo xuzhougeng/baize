@@ -26,6 +26,10 @@
             <span class="icon">◈</span>
             <span>记忆库</span>
           </a>
+          <a class="nav-item" data-view="reminders">
+            <span class="icon">◷</span>
+            <span>提醒</span>
+          </a>
           <a class="nav-item" data-view="prompts">
             <span class="icon">✦</span>
             <span>Prompt库</span>
@@ -111,9 +115,9 @@
                 <h3>记忆库</h3>
                 <p>切换记忆库项目、导入文件并管理记忆</p>
               </div>
-              <div class="action-card" onclick="navigateTo('memory')">
-                <h3>浏览记忆</h3>
-                <p>查看和管理已存储的记忆</p>
+              <div class="action-card" onclick="navigateTo('reminders')">
+                <h3>提醒列表</h3>
+                <p>查看当前 desktop 用户的定时任务</p>
               </div>
               <div class="action-card" onclick="navigateTo('prompts')">
                 <h3>Prompt 库</h3>
@@ -212,6 +216,44 @@
                 <p>导入文件、切换记忆库项目或直接添加记忆来开始使用</p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Reminders View -->
+        <div id="view-reminders" class="view">
+          <header class="content-header">
+            <div class="content-header-row">
+              <div>
+                <h2>提醒</h2>
+                <p class="subtitle">查看当前 desktop 用户的定时任务。创建任务请在对话里使用 `/notice` 或 `/cron`。</p>
+              </div>
+              <div class="content-header-actions">
+                <button class="btn btn-ghost btn-sm" id="reminder-refresh">刷新列表</button>
+              </div>
+            </div>
+          </header>
+          <div class="content-body">
+            <section class="reminder-panel">
+              <div class="reminder-panel-header">
+                <div>
+                  <h3>当前定时</h3>
+                  <p>展示下一次执行时间，以及单次 / 每日循环类型。</p>
+                </div>
+                <div class="skill-badge" id="reminder-count">0 个任务</div>
+              </div>
+              <div class="reminder-inline-tip">
+                <code>/notice 2小时后 喝水</code>
+                <span>或</span>
+                <code>/cron 每天 09:30 写日报</code>
+              </div>
+              <div class="reminder-list" id="reminder-list">
+                <div class="empty-state">
+                  <div class="empty-state-icon">◷</div>
+                  <h3>当前没有提醒任务</h3>
+                  <p>在对话里创建提醒后，这里会显示你的定时列表。</p>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -485,10 +527,12 @@
                 </div>
               </div>
               <div class="chat-input-area">
+                <div class="chat-context-bar" id="chat-context-bar"></div>
                 <div class="chat-input-wrapper">
-                  <textarea id="chat-input" placeholder="输入消息..." rows="1"></textarea>
+                  <textarea id="chat-input" placeholder="输入消息，或使用 / 命令、$ 技能、@ Prompt..." rows="1"></textarea>
                   <button class="btn btn-primary btn-icon" id="chat-send">→</button>
                 </div>
+                <div class="chat-autocomplete" id="chat-autocomplete" hidden></div>
                 <div class="chat-shortcuts">
                   <span class="shortcut-chip" data-cmd="/remember">/remember</span>
                   <span class="shortcut-chip" data-cmd="/notice">/notice</span>
