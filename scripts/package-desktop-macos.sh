@@ -68,7 +68,10 @@ import_signing_certificate() {
 
     CERT_PATH="${CERT_PATH}" python3 -c 'import base64, os, pathlib; pathlib.Path(os.environ["CERT_PATH"]).write_bytes(base64.b64decode(os.environ["MAC_CERT_P12_BASE64"]))'
 
-    mapfile -t ORIGINAL_KEYCHAINS < <(security list-keychains -d user | sed 's/^[[:space:]]*//; s/^"//; s/"$//')
+    ORIGINAL_KEYCHAINS=()
+    while IFS= read -r keychain; do
+        ORIGINAL_KEYCHAINS+=("${keychain}")
+    done < <(security list-keychains -d user | sed 's/^[[:space:]]*//; s/^"//; s/"$//')
     ORIGINAL_DEFAULT_KEYCHAIN="$(security default-keychain -d user | sed 's/^[[:space:]]*//; s/^"//; s/"$//')"
 
     rm -f "${KEYCHAIN_PATH}"
@@ -86,7 +89,7 @@ import_signing_certificate() {
     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
 
     if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
-        CODESIGN_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)"
+        CODESIGN_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk -F'"' 'NF >= 2 { print $2; exit }')"
     fi
 
     if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
