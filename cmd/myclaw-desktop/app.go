@@ -46,8 +46,11 @@ type DesktopApp struct {
 	reminderCancel    context.CancelFunc
 	dialogMu          sync.Mutex
 	projectMu         sync.RWMutex
+	trayMu            sync.Mutex
 	weixinMu          sync.Mutex
 	activeProject     string
+	trayController    desktopTrayController
+	allowWindowClose  bool
 	weixinStatus      WeixinStatus
 	weixinRunCancel   context.CancelFunc
 	weixinLoginCancel context.CancelFunc
@@ -202,6 +205,7 @@ func NewDesktopApp(dataDir string, store *knowledge.Store, promptStore *promptli
 func (a *DesktopApp) startup(ctx context.Context) {
 	a.ctx = ctx
 	runtime.WindowCenter(ctx)
+	a.initTrayController()
 	a.startBackgroundServices()
 }
 
@@ -232,7 +236,71 @@ func (a *DesktopApp) startBackgroundServices() {
 }
 
 func (a *DesktopApp) shutdown(context.Context) {
+	a.disposeTrayController()
 	a.stopBackgroundServices()
+}
+
+func (a *DesktopApp) beforeClose(ctx context.Context) bool {
+	a.trayMu.Lock()
+	allowClose := a.allowWindowClose
+	if allowClose {
+		a.allowWindowClose = false
+	}
+	trayReady := a.trayController != nil
+	a.trayMu.Unlock()
+
+	if allowClose || !trayReady {
+		return false
+	}
+
+	runtime.WindowHide(ctx)
+	return true
+}
+
+func (a *DesktopApp) initTrayController() {
+	controller, err := newDesktopTrayController(a)
+	if err != nil {
+		log.Printf("init tray controller: %v", err)
+		return
+	}
+	if controller == nil {
+		return
+	}
+
+	a.trayMu.Lock()
+	a.trayController = controller
+	a.trayMu.Unlock()
+}
+
+func (a *DesktopApp) disposeTrayController() {
+	a.trayMu.Lock()
+	controller := a.trayController
+	a.trayController = nil
+	a.trayMu.Unlock()
+
+	if controller == nil {
+		return
+	}
+	if err := controller.Dispose(); err != nil {
+		log.Printf("dispose tray controller: %v", err)
+	}
+}
+
+func (a *DesktopApp) restoreMainWindow() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowShow(a.ctx)
+}
+
+func (a *DesktopApp) quitFromTray() {
+	if a.ctx == nil {
+		return
+	}
+	a.trayMu.Lock()
+	a.allowWindowClose = true
+	a.trayMu.Unlock()
+	runtime.Quit(a.ctx)
 }
 
 func (a *DesktopApp) stopBackgroundServices() {

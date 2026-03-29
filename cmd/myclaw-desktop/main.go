@@ -77,6 +77,7 @@ func main() {
 		BackgroundColour:         options.NewRGB(244, 238, 228),
 		EnableDefaultContextMenu: true,
 		OnStartup:                desktopApp.startup,
+		OnBeforeClose:            desktopApp.beforeClose,
 		OnShutdown:               desktopApp.shutdown,
 		Bind: []interface{}{
 			desktopApp,
