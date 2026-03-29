@@ -331,7 +331,7 @@ workflow 上传的 artifact 现在只包含 NSIS 安装器：
 如果你想在本地 Windows 手动构建桌面安装器，可以在 `cmd/myclaw-desktop/` 下执行：
 
 ```powershell
-wails build -platform windows/amd64 -o myclaw-desktop-amd64.exe -nsis -webview2 download -m -s
+wails build -platform windows/amd64 -o myclaw-amd64.exe -nsis -webview2 download -m -s
 ```
 
 ### GitHub Actions macOS 签名 DMG

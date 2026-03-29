@@ -3,7 +3,7 @@
 set -euo pipefail
 
 VERSION="${1:-0.0.0}"
-APP_NAME="myclaw-desktop"
+APP_NAME="myclaw"
 APP_DISPLAY_NAME="myclaw"
 BUNDLE_ID="${MACOS_BUNDLE_ID:-com.myclaw.desktop}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

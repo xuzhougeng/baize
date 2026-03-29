@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$binaryName = "myclaw-desktop"
+$binaryName = "myclaw"
 $installerPath = Join-Path "dist" "$binaryName-windows-$Version.exe"
 
 if (Test-Path $installerPath) {
@@ -14,7 +14,7 @@ if (Test-Path $installerPath) {
 
 # Build with Wails
 Set-Location cmd/myclaw-desktop
-wails build -platform windows/amd64 -o myclaw-desktop.exe -nsis -webview2 download -m -s
+wails build -platform windows/amd64 -o myclaw.exe -nsis -webview2 download -m -s
 Set-Location ../..
 
 # Move installer to dist
