@@ -334,6 +334,39 @@ workflow 上传的 artifact 现在只包含 NSIS 安装器：
 wails build -platform windows/amd64 -o myclaw-desktop-amd64.exe -nsis -webview2 download -m -s
 ```
 
+### GitHub Actions macOS 签名 DMG
+
+仓库里的 macOS workflow：
+
+- `.github/workflows/macos-app.yml`
+
+现在会在 `macos-latest` 上：
+
+- 构建 `darwin/arm64` 的桌面应用 bundle
+- 导入 Developer ID 的 `.p12` 证书
+- 对 `.app` 和 `.dmg` 做 codesign
+- 使用 Apple notary service 提交 notarization
+- 对产物执行 staple，并上传最终 DMG artifact
+
+需要在 GitHub 仓库 Secrets 里配置：
+
+- `MAC_CERT_P12_BASE64`：Developer ID Application 证书导出的 `.p12` 文件，做 base64 后的内容
+- `MAC_CERT_PASSWORD`：导出 `.p12` 时设置的密码
+- `APPLE_ID`：用于 notarization 的 Apple ID 邮箱
+- `APPLE_APP_PASSWORD`：Apple ID 的 app-specific password
+- `APPLE_TEAM_ID`：Apple Developer Team ID
+
+本地如果也想走同一套签名流程，可以直接执行：
+
+```bash
+MAC_CERT_P12_BASE64=... \
+MAC_CERT_PASSWORD=... \
+APPLE_ID=... \
+APPLE_APP_PASSWORD=... \
+APPLE_TEAM_ID=... \
+./scripts/package-desktop-macos.sh 1.0.0
+```
+
 ### Windows 开机自启
 
 先确保你已经编译出 Windows 可执行文件，然后安装用户级开机自启：

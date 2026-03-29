@@ -9,6 +9,8 @@ on:
 jobs:
   build-app:
     runs-on: macos-latest
+    env:
+      GOCACHE: ${{ runner.temp }}/go-build
 
     steps:
       - name: Checkout
@@ -19,51 +21,50 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
-
-      - name: Add Go bin to PATH
-        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
       - name: Test
         run: go test ./cmd/myclaw-desktop ./internal/...
 
-      - name: Build desktop app (Universal)
-        working-directory: cmd/myclaw-desktop
+      - name: Build signed and notarized DMG
+        env:
+          MACOS_BUILD_PLATFORM: darwin/arm64
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          wails build \
-            -platform darwin/universal \
-            -o myclaw-desktop.app \
-            -m \
-            -s
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.${GITHUB_RUN_NUMBER}"
+          fi
+          ./scripts/package-desktop-macos.sh "${version}"
 
-      - name: Verify app output
+      - name: Verify notarized output
         run: |
-          if [ ! -d "cmd/myclaw-desktop/build/bin/myclaw-desktop.app" ]; then
+          APP_PATH="cmd/myclaw-desktop/build/bin/myclaw-desktop.app"
+          DMG_PATH="$(find dist -maxdepth 1 -name 'myclaw-desktop-macos-*.dmg' | head -n 1)"
+          if [ ! -d "${APP_PATH}" ]; then
             ls -R cmd/myclaw-desktop/build
             echo "Error: .app bundle was not generated."
             exit 1
           fi
-          ls -lh cmd/myclaw-desktop/build/bin/
-
-      - name: Create DMG
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "myclaw Desktop" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --app-drop-link 450 185 \
-            "cmd/myclaw-desktop/build/bin/myclaw-desktop.dmg" \
-            "cmd/myclaw-desktop/build/bin/myclaw-desktop.app" || true
+          if [ -z "${DMG_PATH}" ] || [ ! -f "${DMG_PATH}" ]; then
+            ls -R dist
+            echo "Error: DMG was not generated."
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+          xcrun stapler validate "${APP_PATH}"
+          xcrun stapler validate "${DMG_PATH}"
+          ls -lh "${APP_PATH}" "${DMG_PATH}"
 
       - name: Upload app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: myclaw-desktop-macos-universal
+          name: myclaw-desktop-macos-arm64
           path: |
             cmd/myclaw-desktop/build/bin/myclaw-desktop.app
-            cmd/myclaw-desktop/build/bin/*.dmg
+            dist/myclaw-desktop-macos-*.dmg
           if-no-files-found: error
           retention-days: 14
