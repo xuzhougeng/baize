@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>myclaw - Your Personal AI Memory</title>
   <meta name="description" content="myclaw is a minimalist, local-first AI memory and knowledge management daemon. Remember everything, forget nothing.">
-  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/xzg/myclaw/main/cmd/myclaw-desktop/build/appicon.png">
+  <link rel="icon" type="image/png" href="appicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -648,7 +648,7 @@
   <!-- Navigation -->
   <nav id="nav">
     <a href="#" class="nav-brand">
-      <img src="https://raw.githubusercontent.com/xzg/myclaw/main/cmd/myclaw-desktop/build/appicon.png" alt="myclaw" class="nav-logo">
+      <img src="appicon.png" alt="myclaw" class="nav-logo">
       <span class="nav-name">myclaw</span>
     </a>
     <ul class="nav-links">
@@ -664,11 +664,11 @@
   <section class="hero">
     <div class="hero-glow hero-glow--sage"></div>
     <div class="hero-glow hero-glow--coral"></div>
-    <img src="https://raw.githubusercontent.com/xzg/myclaw/main/cmd/myclaw-desktop/build/appicon.png" alt="myclaw icon" class="hero-icon">
+    <img src="appicon.png" alt="myclaw icon" class="hero-icon">
     <h1>Your Personal<br>AI <em>Memory</em></h1>
     <p class="hero-tagline">
-      A minimalist, local-first AI daemon for knowledge management.<br>
-      Remember everything. Forget nothing.
+      A minimalist, local-first AI daemon for knowledge management and intelligent assistance.<br>
+      Remember everything. Forget nothing. Act autonomously.
     </p>
     <div class="hero-actions">
       <a href="https://github.com/xzg/myclaw" class="btn btn-primary">
@@ -691,7 +691,7 @@
       <div class="reveal">
         <p class="section-label">Capabilities</p>
         <h2 class="section-title">Everything you need,<br>nothing you don't</h2>
-        <p class="section-desc">Pure Go. No database required. No cloud dependency. Just a single binary that turns your local machine into a personal AI knowledge hub.</p>
+        <p class="section-desc">Pure Go. No cloud dependency. Just a single binary that turns your local machine into a personal AI knowledge hub with streaming chat, agent tools, and multi-session management.</p>
         <div class="divider"></div>
       </div>
       <div class="features-grid">
@@ -700,42 +700,42 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
           </div>
           <h3>Knowledge Base</h3>
-          <p>Store and retrieve information using natural language. Supports text, images (with vision), and PDF documents. Auto-generated keywords for intelligent search.</p>
+          <p>Store and retrieve information using natural language. Supports text, images (with vision), and PDF documents. Auto-generated keywords with intelligent search scoring, per-project scoping, and debug tools to inspect retrieval plans.</p>
         </div>
         <div class="feature-card reveal reveal-delay-2">
           <div class="feature-icon feature-icon--coral">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           </div>
           <h3>Smart Reminders</h3>
-          <p>Natural language scheduling: one-time, daily recurring, or specific date/time. Delivered across terminal, WeChat, and desktop interfaces.</p>
+          <p>Natural language scheduling: relative time ("2小时后")、daily recurring ("每天 09:00")、or absolute date/time. Multi-channel delivery across terminal, WeChat, and desktop with per-user targeting.</p>
         </div>
         <div class="feature-card reveal reveal-delay-3">
           <div class="feature-icon feature-icon--sage">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           </div>
           <h3>Multi-Interface</h3>
-          <p>Terminal REPL for power users, native desktop app via Wails, and WeChat bridge for mobile access. Same brain, every surface.</p>
+          <p>Terminal REPL for power users, native desktop app (Wails) with tray icon and session management, WeChat bridge with QR login and voice support. Streaming responses, chat export to Markdown, and multi-session switching across all surfaces.</p>
         </div>
         <div class="feature-card reveal reveal-delay-4">
           <div class="feature-icon feature-icon--coral">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </div>
           <h3>AI-Powered Chat</h3>
-          <p>Powered by OpenAI and Anthropic models with hot-swappable profiles. Intent recognition routes your queries to the right handler automatically.</p>
+          <p>Powered by OpenAI and Anthropic models with multi-profile management, encrypted API keys, and fine-grained tuning (temperature, top-p, penalties). Intent recognition auto-routes queries, with streaming output and structured option prompts.</p>
         </div>
         <div class="feature-card reveal reveal-delay-5">
           <div class="feature-icon feature-icon--cream">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           </div>
-          <h3>Skills System</h3>
-          <p>Extensible prompt-based skill packs loaded on demand. Influence routing, translation, search behavior, and response style.</p>
+          <h3>Skills & Prompt Profiles</h3>
+          <p>Extensible prompt-based skill packs with hot-loading and .zip import. Per-session skill activation influences routing and response style. Prompt profiles let you switch AI personas on the fly.</p>
         </div>
         <div class="feature-card reveal reveal-delay-5">
           <div class="feature-icon feature-icon--cream">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           </div>
           <h3>Local-First & Private</h3>
-          <p>All data stays on your machine. JSON file storage, encrypted API keys, no telemetry. Your memories belong to you.</p>
+          <p>All data stays on your machine in local JSON/SQLite files. AES-encrypted API key storage, per-project data isolation, no cloud dependency, no telemetry. Your memories belong to you.</p>
         </div>
       </div>
     </div>
@@ -755,21 +755,21 @@
           <span class="mode-badge mode-badge--direct">direct</span>
           <div class="mode-content">
             <h3>Direct Mode</h3>
-            <p>Questions go straight to the AI model without consulting the knowledge base. Best for general conversation, brainstorming, and quick questions that don't need your personal context.</p>
+            <p>Questions go straight to the AI model without consulting the knowledge base. Best for general conversation, brainstorming, translation, and quick questions that don't need your personal context. Supports per-message override via <code style="color:var(--sage-light);font-size:0.85em;">@ai</code> prefix.</p>
           </div>
         </div>
         <div class="mode-item reveal reveal-delay-2">
           <span class="mode-badge mode-badge--knowledge">knowledge</span>
           <div class="mode-content">
             <h3>Knowledge Mode</h3>
-            <p>Every query is enriched with relevant entries from your local knowledge base. The AI reviews and synthesizes your stored information before responding. Perfect for recall and research.</p>
+            <p>Every query is enriched with relevant entries from your local knowledge base. The AI reviews, scores, and synthesizes your stored information before responding. Use <code style="color:var(--sage-light);font-size:0.85em;">@kb</code> to trigger per-message, or <code style="color:var(--sage-light);font-size:0.85em;">/debug-search</code> to inspect the retrieval plan.</p>
           </div>
         </div>
         <div class="mode-item reveal reveal-delay-3">
           <span class="mode-badge mode-badge--agent">agent</span>
           <div class="mode-content">
             <h3>Agent Mode</h3>
-            <p>Full tool-calling capability: search the web, read/write memory, manage reminders, and integrate with external services via MCP/NCP/ACP protocols. The AI acts, not just answers.</p>
+            <p>Full tool-calling capability with 7 built-in tools (knowledge CRUD, reminder management) plus extensible external providers via MCP/NCP/ACP protocols. The AI autonomously decides next steps, calls tools, and synthesizes results.</p>
           </div>
         </div>
       </div>
@@ -822,7 +822,12 @@
           <span class="comment"># Ask from your knowledge base</span><br>
           <span class="str">What's the office WiFi password?</span><br><br>
           <span class="comment"># Set a reminder</span><br>
-          <span class="cmd">/notice</span> <span class="flag">每天 09:00</span> <span class="str">Stand-up meeting</span><br><br>
+          <span class="cmd">/notice</span> <span class="flag">每天 09:00</span> <span class="str">Stand-up meeting</span><br>
+          <span class="cmd">/notice</span> <span class="flag">2小时后</span> <span class="str">喝水</span><br><br>
+          <span class="comment"># Switch modes &amp; profiles</span><br>
+          <span class="cmd">/mode</span> <span class="flag">agent</span>      <span class="comment"># Enable tool-calling</span><br>
+          <span class="cmd">/prompt</span> <span class="flag">use 1</span>    <span class="comment"># Switch AI persona</span><br>
+          <span class="cmd">/load-skill</span> <span class="flag">translate</span> <span class="comment"># Activate a skill</span><br><br>
           <span class="comment"># Manage knowledge</span><br>
           <span class="cmd">/list</span>   <span class="comment"># List all entries</span><br>
           <span class="cmd">/forget</span> <span class="comment"># Remove an entry</span><br>
@@ -844,35 +849,43 @@
       <div class="arch-grid">
         <div class="arch-item reveal reveal-delay-1">
           <div class="arch-path">internal/ai/</div>
-          <div class="arch-desc">OpenAI & Anthropic integration, intent routing, search planning</div>
+          <div class="arch-desc">OpenAI & Anthropic integration, intent routing, search planning, agent step orchestration</div>
         </div>
         <div class="arch-item reveal reveal-delay-1">
+          <div class="arch-path">internal/app/</div>
+          <div class="arch-desc">Core service layer, conversation modes, tool provider registry (local/MCP/NCP/ACP), streaming</div>
+        </div>
+        <div class="arch-item reveal reveal-delay-2">
           <div class="arch-path">internal/knowledge/</div>
-          <div class="arch-desc">Local knowledge base: JSON storage, keyword search, entry management</div>
+          <div class="arch-desc">Local JSON knowledge base with per-project scoping, keyword generation, search scoring</div>
         </div>
         <div class="arch-item reveal reveal-delay-2">
           <div class="arch-path">internal/reminder/</div>
-          <div class="arch-desc">Cron-like scheduling, multi-channel delivery, natural language parsing</div>
-        </div>
-        <div class="arch-item reveal reveal-delay-2">
-          <div class="arch-path">internal/app/</div>
-          <div class="arch-desc">Core service layer, conversation modes, tool provider orchestration</div>
+          <div class="arch-desc">Cron-like scheduling, multi-channel delivery, natural language parsing (relative/absolute/recurring)</div>
         </div>
         <div class="arch-item reveal reveal-delay-3">
-          <div class="arch-path">internal/weixin/</div>
-          <div class="arch-desc">WeChat bridge: QR login, message polling, text & voice handling</div>
+          <div class="arch-path">internal/modelconfig/</div>
+          <div class="arch-desc">Multi-profile model management, AES-encrypted secrets, connection testing</div>
         </div>
         <div class="arch-item reveal reveal-delay-3">
-          <div class="arch-path">internal/terminal/</div>
-          <div class="arch-desc">Interactive REPL for CLI usage with rich command support</div>
+          <div class="arch-path">internal/sessionstate/</div>
+          <div class="arch-desc">Chat session snapshots: history, loaded skills, mode, prompt profile persistence</div>
         </div>
         <div class="arch-item reveal reveal-delay-4">
           <div class="arch-path">internal/skilllib/</div>
-          <div class="arch-desc">Skill/prompt pack system with hot-loading and routing influence</div>
+          <div class="arch-desc">Skill/prompt pack discovery, frontmatter parsing, hot-loading, .zip import</div>
         </div>
         <div class="arch-item reveal reveal-delay-4">
+          <div class="arch-path">internal/weixin/</div>
+          <div class="arch-desc">WeChat bridge: QR login, long-polling sync, text & voice handling, history scoping</div>
+        </div>
+        <div class="arch-item reveal reveal-delay-5">
           <div class="arch-path">internal/fileingest/</div>
-          <div class="arch-desc">File processing pipeline: image vision, PDF text extraction</div>
+          <div class="arch-desc">File processing pipeline: image vision (base64), PDF text extraction (go-fitz)</div>
+        </div>
+        <div class="arch-item reveal reveal-delay-5">
+          <div class="arch-path">internal/promptlib/</div>
+          <div class="arch-desc">Prompt profile storage, per-session persona switching, context injection</div>
         </div>
       </div>
     </div>
@@ -906,7 +919,7 @@
   <footer>
     <div class="footer-inner">
       <div class="footer-brand">myclaw</div>
-      <p class="footer-text">A personal AI memory daemon.<br>Built with Go & Wails. Designed for simplicity.</p>
+      <p class="footer-text">A personal AI memory & assistant daemon.<br>Built with Go & Wails. Designed for simplicity.</p>
       <div class="footer-links">
         <a href="https://github.com/xzg/myclaw">Source Code</a>
         <a href="https://github.com/xzg/myclaw/releases">Releases</a>
