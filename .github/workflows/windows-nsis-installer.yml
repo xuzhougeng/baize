@@ -90,17 +90,27 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $title = $tag
+          $releaseReady = $false
 
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title $title --generate-notes *> $null
-            if ($LASTEXITCODE -ne 0) {
+          try {
+            gh release create $tag --title $title --generate-notes | Out-Null
+          } catch {
+            Write-Host "Release $tag may already exist; continuing."
+          }
+
+          for ($attempt = 0; $attempt -lt 6; $attempt++) {
+            try {
+              gh release view $tag --json url | Out-Null
+              $releaseReady = $true
+              break
+            } catch {
               Start-Sleep -Seconds 5
-              gh release view $tag *> $null
-              if ($LASTEXITCODE -ne 0) {
-                throw "GitHub release $tag is not available."
-              }
+              Write-Host "Waiting for GitHub release $tag to become available..."
             }
+          }
+
+          if (-not $releaseReady) {
+            throw "GitHub release $tag is not available."
           }
 
           gh release upload $tag $env:INSTALLER_PATH --clobber
