@@ -11,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
+	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/modelconfig"
 )
@@ -34,8 +36,16 @@ type SearchPlan struct {
 }
 
 type FileSearchIntent struct {
-	Enabled bool   `json:"enabled"`
-	Query   string `json:"query"`
+	Enabled   bool                 `json:"enabled"`
+	ToolName  string               `json:"tool_name,omitempty"`
+	ToolInput filesearch.ToolInput `json:"tool_input,omitempty"`
+	Query     string               `json:"query"`
+}
+
+type fileSearchIntentDraft struct {
+	Enabled   bool                 `json:"enabled"`
+	ToolName  string               `json:"tool_name"`
+	ToolInput filesearch.ToolInput `json:"tool_input"`
 }
 
 type ConversationMessage struct {
@@ -402,39 +412,109 @@ func (s *Service) BuildFileSearchIntent(ctx context.Context, input string) (File
 			"enabled": map[string]any{
 				"type": "boolean",
 			},
-			"query": map[string]any{
+			"tool_name": map[string]any{
 				"type": "string",
+				"enum": []string{"", filesearch.ToolName},
+			},
+			"tool_input": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type": "string",
+					},
+					"keywords": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+					},
+					"drives": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+					},
+					"known_folders": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+							"enum": []string{"downloads", "desktop", "documents", "pictures", "music", "videos"},
+						},
+					},
+					"paths": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+					},
+					"extensions": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+					},
+					"date_field": map[string]any{
+						"type": "string",
+						"enum": []string{"", "modified", "created", "recentchange"},
+					},
+					"date_value": map[string]any{
+						"type": "string",
+					},
+					"limit": map[string]any{
+						"type": "integer",
+					},
+				},
+				"required": []string{"query", "keywords", "drives", "known_folders", "paths", "extensions", "date_field", "date_value", "limit"},
 			},
 		},
-		"required": []string{"enabled", "query"},
+		"required": []string{"enabled", "tool_name", "tool_input"},
 	}
 
 	instructions := strings.TrimSpace(`
 You are deciding whether the user is asking to find existing files on disk via Everything on Windows.
 
+The reusable tool module is documented below:
+` + filesearch.UsageText() + `
+
 If the user is asking to find files:
 - set enabled=true
-- query must be a concise Everything search query only, not an explanation
-- preserve the user's real search target and strip filler words
-- use drive filters like d: when the user specifies D盘/C盘/E盘
-- use ext:pdf / ext:doc;docx / ext:xls;xlsx / ext:ppt;pptx when file types are mentioned
-- use dm:today when the user asks for files created or updated today
-- keep only retrieval-essential terms
+- set tool_name=` + filesearch.ToolName + `
+- fill tool_input for the tool call
+- prefer semantic fields in tool_input; do not use tool_input.query unless the user already gave a native Everything query
+- keep only retrieval-essential constraints
+- preserve only literal Windows paths the user explicitly mentioned
+- set tool_input.limit=` + strconv.Itoa(filesearch.DefaultLimit) + `
 
 If the user is not asking to find files on disk:
 - set enabled=false
-- set query=""
+- set tool_name=""
+- set tool_input to empty values
 
 Return only JSON that matches the schema.
 `)
 
-	var intent FileSearchIntent
-	if err := s.generateJSON(ctx, cfg, instructions, strings.TrimSpace(input), "file_search_intent", schema, &intent); err != nil {
+	var draft fileSearchIntentDraft
+	if err := s.generateJSON(ctx, cfg, instructions, strings.TrimSpace(input), "file_search_intent", schema, &draft); err != nil {
 		return FileSearchIntent{}, err
 	}
-	intent.Query = strings.Join(strings.Fields(strings.TrimSpace(intent.Query)), " ")
-	if !intent.Enabled {
-		intent.Query = ""
+	draft.ToolInput = filesearch.NormalizeInput(draft.ToolInput)
+	intent := FileSearchIntent{
+		Enabled:   draft.Enabled,
+		ToolName:  strings.TrimSpace(draft.ToolName),
+		ToolInput: draft.ToolInput,
+	}
+	if !draft.Enabled {
+		return intent, nil
+	}
+	if intent.ToolName == "" {
+		intent.ToolName = filesearch.ToolName
+	}
+	intent.Query = filesearch.CompileQuery(intent.ToolInput)
+	if intent.Query == "" {
+		intent.Enabled = false
+		intent.ToolName = ""
+		intent.ToolInput = filesearch.ToolInput{}
 	}
 	return intent, nil
 }

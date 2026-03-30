@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"myclaw/internal/app"
+	"myclaw/internal/filesearch"
 )
 
 const (
@@ -20,8 +19,9 @@ const (
 )
 
 var (
-	errEverythingUnsupported  = errors.New("当前仅 Windows 支持 /find，macOS/Linux 暂未实现")
-	errEverythingUnconfigured = errors.New("请先在设置里配置 es.exe 路径")
+	errEverythingUnsupported       = filesearch.ErrUnsupported
+	errEverythingUnconfigured      = filesearch.ErrUnconfigured
+	explicitEverythingQueryPattern = regexp.MustCompile(`(?i)(^|[\s<|])(?:[a-z]:|dm:|dc:|rc:|recentchange:|shell:|parent:|infolder:|nosubfolders:|folder:|file:|size:|regex:|case:|type:|path:|ext:)`)
 )
 
 type pendingFileSelection struct {
@@ -48,33 +48,23 @@ func (b *Bridge) maybeHandleFileFind(ctx context.Context, msg WeixinMessage, tex
 	}
 
 	command := normalizeSlashCommand(text)
-	query := ""
-	var err error
 	if strings.HasPrefix(strings.ToLower(command), "/find") {
-		query = strings.TrimSpace(strings.TrimPrefix(command, "/find"))
-		if query == "" {
+		arg := strings.TrimSpace(strings.TrimPrefix(command, "/find"))
+		if arg == "" {
 			return "用法: /find <关键词>\n例如: /find 单细胞*.pdf", true, nil
 		}
-	} else {
-		if b.service == nil {
-			return "", false, nil
-		}
-		var ok bool
-		query, ok, err = b.service.BuildWeixinFileSearchQuery(ctx, app.MessageContext{
-			UserID:    msg.FromUserID,
-			Interface: "weixin",
-			SessionID: weixinSessionID(msg),
-		}, text)
-		if err != nil {
-			return "", false, err
-		}
-		if !ok {
-			return "", false, nil
+		if strings.EqualFold(arg, "help") || arg == "帮助" {
+			return filesearch.CommandHelpText(), true, nil
 		}
 	}
 
+	input, handled, err := b.buildFileSearchToolInput(ctx, msg, text)
+	if err != nil || !handled {
+		return "", handled, err
+	}
+
 	everythingPath := b.EverythingPath()
-	paths, err := b.searchFiles(ctx, everythingPath, query, findResultLimit)
+	result, err := b.searchFiles(ctx, everythingPath, input)
 	if err != nil {
 		switch {
 		case errors.Is(err, errEverythingUnsupported):
@@ -85,17 +75,18 @@ func (b *Bridge) maybeHandleFileFind(ctx context.Context, msg WeixinMessage, tex
 			return "", true, err
 		}
 	}
-	if len(paths) == 0 {
+	if len(result.Items) == 0 {
 		b.clearPendingFileSelection(weixinSessionID(msg))
-		return fmt.Sprintf("没有找到匹配文件：%s", query), true, nil
+		return fmt.Sprintf("没有找到匹配文件：%s", result.Query), true, nil
 	}
 
+	paths := resultItemPaths(result.Items)
 	b.savePendingFileSelection(weixinSessionID(msg), pendingFileSelection{
-		Query:     query,
+		Query:     result.Query,
 		Paths:     append([]string(nil), paths...),
 		CreatedAt: time.Now(),
 	})
-	return formatPendingFileSelection(query, paths), true, nil
+	return formatPendingFileSelection(result.Query, paths), true, nil
 }
 
 func (b *Bridge) tryHandlePendingFileSelection(ctx context.Context, msg WeixinMessage, text string) (string, bool, error) {
@@ -202,52 +193,67 @@ func normalizeSlashCommand(text string) string {
 	return text
 }
 
-func searchFilesWithEverything(ctx context.Context, everythingPath, query string, limit int) ([]string, error) {
-	if runtime.GOOS != "windows" {
-		return nil, errEverythingUnsupported
+func (b *Bridge) buildFileSearchToolInput(ctx context.Context, msg WeixinMessage, text string) (filesearch.ToolInput, bool, error) {
+	command := normalizeSlashCommand(text)
+	messageContext := app.MessageContext{
+		UserID:    msg.FromUserID,
+		Interface: "weixin",
+		SessionID: weixinSessionID(msg),
 	}
 
-	commandPath := strings.Trim(strings.TrimSpace(everythingPath), "\"")
-	if commandPath == "" {
-		return nil, errEverythingUnconfigured
+	if strings.HasPrefix(strings.ToLower(command), "/find") {
+		rawQuery := strings.TrimSpace(strings.TrimPrefix(command, "/find"))
+		if rawQuery == "" {
+			return filesearch.ToolInput{}, true, nil
+		}
+		if b.service != nil && !looksLikeExplicitEverythingQuery(rawQuery) {
+			intent, ok, err := b.service.BuildWeixinFileSearchIntent(ctx, messageContext, rawQuery)
+			if err != nil {
+				return filesearch.ToolInput{}, true, err
+			}
+			if ok {
+				intent.ToolInput.Limit = findResultLimit
+				return intent.ToolInput, true, nil
+			}
+		}
+		return filesearch.ToolInput{
+			Query: rawQuery,
+			Limit: findResultLimit,
+		}, true, nil
 	}
 
-	searchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	args := []string{strings.TrimSpace(query)}
-	if limit > 0 {
-		args = []string{"-n", strconv.Itoa(limit), strings.TrimSpace(query)}
+	if b.service == nil {
+		return filesearch.ToolInput{}, false, nil
 	}
-	output, err := exec.CommandContext(searchCtx, commandPath, args...).Output()
+	intent, ok, err := b.service.BuildWeixinFileSearchIntent(ctx, messageContext, text)
 	if err != nil {
-		if errors.Is(err, exec.ErrNotFound) {
-			return nil, fmt.Errorf("%w: %s", errEverythingUnconfigured, commandPath)
-		}
-		return nil, fmt.Errorf("执行 es.exe 失败: %w", err)
+		return filesearch.ToolInput{}, false, err
 	}
+	if !ok {
+		return filesearch.ToolInput{}, false, nil
+	}
+	intent.ToolInput.Limit = findResultLimit
+	return intent.ToolInput, true, nil
+}
 
-	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
-	results := make([]string, 0, limit)
-	seen := make(map[string]struct{})
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		key := strings.ToLower(line)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		info, statErr := os.Stat(line)
-		if statErr != nil || info.IsDir() {
-			continue
-		}
-		seen[key] = struct{}{}
-		results = append(results, line)
-		if limit > 0 && len(results) >= limit {
-			break
-		}
+func looksLikeExplicitEverythingQuery(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
 	}
-	return results, nil
+	if explicitEverythingQueryPattern.MatchString(trimmed) {
+		return true
+	}
+	return strings.ContainsAny(trimmed, `*?|!"`)
+}
+
+func resultItemPaths(items []filesearch.ResultItem) []string {
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Path) == "" {
+			continue
+		}
+		paths = append(paths, item.Path)
+	}
+	return paths
 }

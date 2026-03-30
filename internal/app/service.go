@@ -13,6 +13,7 @@ import (
 
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
+	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/sessionstate"
@@ -145,26 +146,47 @@ func (s *Service) SetWeixinHistoryLimits(messages int, runes int) {
 }
 
 func (s *Service) BuildWeixinFileSearchQuery(ctx context.Context, mc MessageContext, input string) (string, bool, error) {
+	intent, ok, err := s.BuildWeixinFileSearchIntent(ctx, mc, input)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	return strings.TrimSpace(intent.Query), true, nil
+}
+
+func (s *Service) BuildWeixinFileSearchIntent(ctx context.Context, mc MessageContext, input string) (ai.FileSearchIntent, bool, error) {
 	if s.aiService == nil {
-		return "", false, nil
+		return ai.FileSearchIntent{}, false, nil
 	}
 
 	configured, err := s.aiService.IsConfigured(ctx)
 	if err != nil {
-		return "", false, err
+		return ai.FileSearchIntent{}, false, err
 	}
 	if !configured {
-		return "", false, nil
+		return ai.FileSearchIntent{}, false, nil
 	}
 
 	intent, err := s.aiService.BuildFileSearchIntent(s.withSkillContext(ctx, mc), input)
 	if err != nil {
-		return "", false, err
+		return ai.FileSearchIntent{}, false, err
 	}
-	if !intent.Enabled || strings.TrimSpace(intent.Query) == "" {
-		return "", false, nil
+	if !intent.Enabled {
+		return ai.FileSearchIntent{}, false, nil
 	}
-	return strings.TrimSpace(intent.Query), true, nil
+	if strings.TrimSpace(intent.ToolName) == "" {
+		intent.ToolName = filesearch.ToolName
+	}
+	intent.ToolInput = filesearch.NormalizeInput(intent.ToolInput)
+	if strings.TrimSpace(intent.ToolInput.Query) == "" && strings.TrimSpace(intent.Query) != "" {
+		intent.ToolInput.Query = strings.TrimSpace(intent.Query)
+	}
+	if strings.TrimSpace(intent.Query) == "" {
+		intent.Query = filesearch.CompileQuery(intent.ToolInput)
+	}
+	if strings.TrimSpace(intent.Query) == "" {
+		return ai.FileSearchIntent{}, false, nil
+	}
+	return intent, true, nil
 }
 
 func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input string) (string, error) {

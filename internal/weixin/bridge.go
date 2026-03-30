@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"myclaw/internal/app"
+	"myclaw/internal/filesearch"
 	"myclaw/internal/reminder"
 )
 
@@ -42,7 +43,7 @@ type Bridge struct {
 	findMu         sync.Mutex
 	pendingFind    map[string]pendingFileSelection
 	everythingPath string
-	searchFiles    func(context.Context, string, string, int) ([]string, error)
+	searchFiles    func(context.Context, string, filesearch.ToolInput) (filesearch.ToolResult, error)
 	sendFile       func(context.Context, string, string, string) error
 }
 
@@ -55,7 +56,7 @@ func NewBridge(client *Client, service *app.Service, reminders *reminder.Manager
 		pendingFind:    make(map[string]pendingFileSelection),
 		everythingPath: strings.TrimSpace(config.EverythingPath),
 	}
-	bridge.searchFiles = searchFilesWithEverything
+	bridge.searchFiles = filesearch.ExecuteWithEverything
 	bridge.sendFile = func(ctx context.Context, toUserID, contextToken, filePath string) error {
 		return bridge.client.SendFileMessage(ctx, toUserID, contextToken, filePath)
 	}

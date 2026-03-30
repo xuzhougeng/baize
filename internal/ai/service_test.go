@@ -641,14 +641,37 @@ func TestBuildFileSearchIntent(t *testing.T) {
 		if req.Text == nil || req.Text.Format.Name != "file_search_intent" {
 			t.Fatalf("unexpected schema request: %#v", req.Text)
 		}
-		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"enabled\":true,\"query\":\"d: ext:pdf 单细胞\"}"}]}]}`), nil
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"enabled\":true,\"tool_name\":\"everything_file_search\",\"tool_input\":{\"query\":\"\",\"keywords\":[\"单细胞\",\"相关\"],\"drives\":[\"D盘\"],\"known_folders\":[],\"paths\":[],\"extensions\":[\"pdf\"],\"date_field\":\"\",\"date_value\":\"\",\"limit\":10}}"}]}]}`), nil
 	})
 
 	intent, err := service.BuildFileSearchIntent(context.Background(), "查找 D 盘单细胞相关的PDF文件")
 	if err != nil {
 		t.Fatalf("build file search intent: %v", err)
 	}
-	if !intent.Enabled || intent.Query != "d: ext:pdf 单细胞" {
+	if !intent.Enabled || intent.Query != "file: d: *.pdf 单细胞" {
+		t.Fatalf("unexpected intent: %#v", intent)
+	}
+}
+
+func TestBuildFileSearchIntentNormalizesFolderAndRecentDateFilters(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider: modelconfig.ProviderOpenAI,
+		APIType:  modelconfig.APITypeResponses,
+		BaseURL:  "http://example.invalid/v1",
+		APIKey:   "secret",
+		Model:    "gpt-test",
+	})
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"enabled\":true,\"tool_name\":\"everything_file_search\",\"tool_input\":{\"query\":\"\",\"keywords\":[\"下载目录\"],\"drives\":[],\"known_folders\":[],\"paths\":[\"Downloads\"],\"extensions\":[],\"date_field\":\"created\",\"date_value\":\"last2days\",\"limit\":10}}"}]}]}`), nil
+	})
+
+	intent, err := service.BuildFileSearchIntent(context.Background(), "查找下载目录下这两天下载的文件")
+	if err != nil {
+		t.Fatalf("build file search intent: %v", err)
+	}
+	if !intent.Enabled || intent.Query != "file: shell:Downloads dc:last48hours" {
 		t.Fatalf("unexpected intent: %#v", intent)
 	}
 }

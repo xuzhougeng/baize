@@ -9,6 +9,7 @@ import (
 
 	aicore "myclaw/internal/ai"
 	appsvc "myclaw/internal/app"
+	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/reminder"
 	"myclaw/internal/sessionstate"
@@ -125,17 +126,26 @@ func TestMaybeHandleFileFindSearchAndSelection(t *testing.T) {
 		`E:\xwechat_files\a.pdf`,
 		`E:\xwechat_files\b.pdf`,
 	}
-	bridge.searchFiles = func(_ context.Context, everythingPath, query string, limit int) ([]string, error) {
+	bridge.searchFiles = func(_ context.Context, everythingPath string, input filesearch.ToolInput) (filesearch.ToolResult, error) {
 		if everythingPath != "es.exe" {
 			t.Fatalf("unexpected everything path: %q", everythingPath)
 		}
-		if query != "单细胞" {
-			t.Fatalf("unexpected query: %q", query)
+		if input.Query != "单细胞" {
+			t.Fatalf("unexpected query: %q", input.Query)
 		}
-		if limit != findResultLimit {
-			t.Fatalf("unexpected limit: %d", limit)
+		if input.Limit != findResultLimit {
+			t.Fatalf("unexpected limit: %d", input.Limit)
 		}
-		return paths, nil
+		return filesearch.ToolResult{
+			Tool:  filesearch.ToolName,
+			Query: input.Query,
+			Limit: input.Limit,
+			Count: len(paths),
+			Items: []filesearch.ResultItem{
+				{Index: 1, Name: "a.pdf", Path: paths[0]},
+				{Index: 2, Name: "b.pdf", Path: paths[1]},
+			},
+		}, nil
 	}
 
 	var sentTo, sentToken, sentPath string
@@ -193,17 +203,25 @@ func TestMaybeHandleNaturalFileFindUsesAIIntent(t *testing.T) {
 		DataDir:        root,
 		EverythingPath: "es.exe",
 	})
-	bridge.searchFiles = func(_ context.Context, everythingPath, query string, limit int) ([]string, error) {
+	bridge.searchFiles = func(_ context.Context, everythingPath string, input filesearch.ToolInput) (filesearch.ToolResult, error) {
 		if everythingPath != "es.exe" {
 			t.Fatalf("unexpected everything path: %q", everythingPath)
 		}
-		if query != "d: ext:pdf 单细胞" {
-			t.Fatalf("unexpected query: %q", query)
+		if input.Query != "d: ext:pdf 单细胞" {
+			t.Fatalf("unexpected query: %q", input.Query)
 		}
-		if limit != findResultLimit {
-			t.Fatalf("unexpected limit: %d", limit)
+		if input.Limit != findResultLimit {
+			t.Fatalf("unexpected limit: %d", input.Limit)
 		}
-		return []string{`D:\docs\单细胞报告.pdf`}, nil
+		return filesearch.ToolResult{
+			Tool:  filesearch.ToolName,
+			Query: input.Query,
+			Limit: input.Limit,
+			Count: 1,
+			Items: []filesearch.ResultItem{
+				{Index: 1, Name: "单细胞报告.pdf", Path: `D:\docs\单细胞报告.pdf`},
+			},
+		}, nil
 	}
 	msg := WeixinMessage{FromUserID: "user-1", ContextToken: "ctx-1"}
 
@@ -215,6 +233,72 @@ func TestMaybeHandleNaturalFileFindUsesAIIntent(t *testing.T) {
 		t.Fatal("expected natural language file find to be handled")
 	}
 	if !strings.Contains(reply, "检索式: d: ext:pdf 单细胞") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
+func TestMaybeHandleFindHelpReturnsModuleHelp(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewBridge(NewClient("https://unit.test", ""), nil, nil, BridgeConfig{
+		DataDir:        t.TempDir(),
+		EverythingPath: "es.exe",
+	})
+	msg := WeixinMessage{FromUserID: "user-1", ContextToken: "ctx-1"}
+
+	reply, handled, err := bridge.maybeHandleFileFind(context.Background(), msg, "/find help")
+	if err != nil {
+		t.Fatalf("find help: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected /find help to be handled")
+	}
+	if !strings.Contains(reply, filesearch.ToolName) || !strings.Contains(reply, "/find help") {
+		t.Fatalf("unexpected help reply: %q", reply)
+	}
+}
+
+func TestMaybeHandleSlashFindUsesAIIntentForNaturalLanguageQuery(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	service := appsvc.NewService(store, bridgeTestAI{
+		intent: aicore.FileSearchIntent{
+			Enabled: true,
+			Query:   "file: shell:Downloads *.pdf",
+		},
+	}, reminders)
+
+	bridge := NewBridge(NewClient("https://unit.test", ""), service, reminders, BridgeConfig{
+		DataDir:        root,
+		EverythingPath: "es.exe",
+	})
+	bridge.searchFiles = func(_ context.Context, everythingPath string, input filesearch.ToolInput) (filesearch.ToolResult, error) {
+		if input.Query != "file: shell:Downloads *.pdf" {
+			t.Fatalf("unexpected query: %q", input.Query)
+		}
+		return filesearch.ToolResult{
+			Tool:  filesearch.ToolName,
+			Query: input.Query,
+			Limit: input.Limit,
+			Count: 1,
+			Items: []filesearch.ResultItem{
+				{Index: 1, Name: "单细胞.pdf", Path: `C:\Users\demo\Downloads\单细胞.pdf`},
+			},
+		}, nil
+	}
+	msg := WeixinMessage{FromUserID: "user-1", ContextToken: "ctx-1"}
+
+	reply, handled, err := bridge.maybeHandleFileFind(context.Background(), msg, "/find 查找下载目录下的pdf文件")
+	if err != nil {
+		t.Fatalf("slash natural search: %v", err)
+	}
+	if !handled {
+		t.Fatal("expected /find natural language file find to be handled")
+	}
+	if !strings.Contains(reply, "检索式: file: shell:Downloads *.pdf") {
 		t.Fatalf("unexpected reply: %q", reply)
 	}
 }
@@ -238,8 +322,16 @@ func TestHandleMessageRecordsFileFindConversation(t *testing.T) {
 		DataDir:        root,
 		EverythingPath: "es.exe",
 	})
-	bridge.searchFiles = func(_ context.Context, everythingPath, query string, limit int) ([]string, error) {
-		return []string{`D:\docs\单细胞报告.pdf`}, nil
+	bridge.searchFiles = func(_ context.Context, everythingPath string, input filesearch.ToolInput) (filesearch.ToolResult, error) {
+		return filesearch.ToolResult{
+			Tool:  filesearch.ToolName,
+			Query: input.Query,
+			Limit: input.Limit,
+			Count: 1,
+			Items: []filesearch.ResultItem{
+				{Index: 1, Name: "单细胞报告.pdf", Path: `D:\docs\单细胞报告.pdf`},
+			},
+		}, nil
 	}
 	bridge.sendFile = func(context.Context, string, string, string) error { return nil }
 

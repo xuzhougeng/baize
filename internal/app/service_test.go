@@ -13,6 +13,7 @@ import (
 
 	"myclaw/internal/ai"
 	"myclaw/internal/fileingest"
+	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
@@ -1576,6 +1577,45 @@ func TestBuildWeixinFileSearchQueryUsesAIIntent(t *testing.T) {
 	}
 	if query != "d: ext:pdf 单细胞" {
 		t.Fatalf("unexpected query: %q", query)
+	}
+}
+
+func TestBuildWeixinFileSearchIntentBuildsToolCall(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		fileSearchIntent: ai.FileSearchIntent{
+			Enabled:  true,
+			ToolName: filesearch.ToolName,
+			ToolInput: filesearch.ToolInput{
+				KnownFolders: []string{"downloads"},
+				Extensions:   []string{"pdf"},
+			},
+		},
+	}, reminders)
+
+	intent, ok, err := service.BuildWeixinFileSearchIntent(context.Background(), MessageContext{
+		UserID:    "u1",
+		Interface: "weixin",
+		SessionID: "s1",
+	}, "查找下载目录下的pdf文件")
+	if err != nil {
+		t.Fatalf("build file search intent: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected file search intent to be recognized")
+	}
+	if intent.ToolName != filesearch.ToolName {
+		t.Fatalf("unexpected tool name: %#v", intent)
+	}
+	if intent.Query != "file: shell:Downloads *.pdf" {
+		t.Fatalf("unexpected query: %#v", intent)
+	}
+	if intent.ToolInput.Limit != filesearch.DefaultLimit {
+		t.Fatalf("expected default limit, got %#v", intent.ToolInput)
 	}
 }
 
