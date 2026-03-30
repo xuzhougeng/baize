@@ -342,7 +342,7 @@ func TestBuildCurrentChatMarkdownExportFormatsAskUserInputPayload(t *testing.T) 
 	if _, err := sessionStore.Save(context.Background(), sessionstate.Snapshot{
 		Key: desktopConversationSnapshotKey("default", state.SessionID),
 		History: []sessionstate.Message{
-			{Role: "user", Content: "导出/测试 askuserinput 选项"},
+			{Role: "user", Content: "导出/测试 ask_user_input 选项"},
 			{Role: "assistant", Content: `<details>
 <summary>📚 讨论控制面板</summary>
 
@@ -350,7 +350,7 @@ func TestBuildCurrentChatMarkdownExportFormatsAskUserInputPayload(t *testing.T) 
 
 </details>
 
-{askuserinput: single_select, question: "接下来您想怎么走？", options: ["继续探讨（进入下一轮：HVG数量对哪个下游环节影响最大）", "深挖这个问题（继续讨论HVG的定义与目的）", "切换讨论模式", "结束讨论"]}`},
+{ask_user_input: single_select, question: "接下来您想怎么走？", options: ["继续探讨（进入下一轮：HVG数量对哪个下游环节影响最大）", "深挖这个问题（继续讨论HVG的定义与目的）", "切换讨论模式", "结束讨论"]}`},
 		},
 	}); err != nil {
 		t.Fatalf("save chat snapshot: %v", err)
@@ -361,7 +361,7 @@ func TestBuildCurrentChatMarkdownExportFormatsAskUserInputPayload(t *testing.T) 
 		t.Fatalf("build markdown export: %v", err)
 	}
 	for _, want := range []string{
-		"# 导出/测试 askuserinput 选项",
+		"# 导出/测试 ask_user_input 选项",
 		"**📚 讨论控制面板**",
 		"您可以随时输入自己的观点加入讨论，也可以选择以下操作：",
 		"接下来您想怎么走？",
@@ -374,8 +374,8 @@ func TestBuildCurrentChatMarkdownExportFormatsAskUserInputPayload(t *testing.T) 
 			t.Fatalf("expected export markdown to contain %q, got:\n%s", want, export.Markdown)
 		}
 	}
-	if strings.Contains(export.Markdown, "{askuserinput:") {
-		t.Fatalf("expected askuserinput payload to be rendered, got:\n%s", export.Markdown)
+	if strings.Contains(export.Markdown, "{ask_user_input:") {
+		t.Fatalf("expected ask_user_input payload to be rendered, got:\n%s", export.Markdown)
 	}
 }
 

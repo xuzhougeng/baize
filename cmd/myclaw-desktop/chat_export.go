@@ -442,7 +442,7 @@ func parseChatOptionPayloadFromEmbeddedObject(content string) (chatOptionPayload
 }
 
 func parseAskUserInputChatOptionPayload(content string) (chatOptionPayload, bool) {
-	inputTypeMatch := regexp.MustCompile(`(?i)\baskuserinput\s*:\s*([A-Za-z_][\w-]*)`).FindStringSubmatch(content)
+	inputTypeMatch := regexp.MustCompile(`(?i)\bask_user_input\s*:\s*([A-Za-z_][\w-]*)`).FindStringSubmatch(content)
 	if len(inputTypeMatch) < 2 {
 		return chatOptionPayload{}, false
 	}
