@@ -35,6 +35,7 @@ var (
 	chatOptionQuestionPattern = regexp.MustCompile(`:question\s+"((?:\\.|[^"])*)"`)
 	chatOptionOptionsPattern  = regexp.MustCompile(`(?s):options\s+\[(.*)\]`)
 	chatOptionStringPattern   = regexp.MustCompile(`"((?:\\.|[^"])*)"`)
+	chatOptionFencePattern    = regexp.MustCompile("(?s)```(?:[\\w+-]+)?\\s*\\n(.*?)\\n```")
 )
 
 func (a *DesktopApp) ExportChatMarkdown() (MessageResult, error) {
@@ -260,14 +261,90 @@ func renderChatOptionMarkdown(payload chatOptionPayload) string {
 
 func parseChatOptionPayload(content string) (chatOptionPayload, bool) {
 	text := strings.TrimSpace(content)
+	if payload, ok := parseChatOptionPayloadCandidate(text); ok {
+		return payload, true
+	}
+
+	if payload, ok := parseChatOptionPayloadFromFencedBlocks(content); ok {
+		return payload, true
+	}
+	return parseChatOptionPayloadFromEmbeddedObject(content)
+}
+
+func parseChatOptionPayloadCandidate(content string) (chatOptionPayload, bool) {
+	text := strings.TrimSpace(content)
 	if !strings.HasPrefix(text, "{") || !strings.HasSuffix(text, "}") {
 		return chatOptionPayload{}, false
 	}
-
 	if payload, ok := parseJSONChatOptionPayload(text); ok {
 		return payload, true
 	}
 	return parseEDNChatOptionPayload(text)
+}
+
+func parseChatOptionPayloadFromFencedBlocks(content string) (chatOptionPayload, bool) {
+	for _, match := range chatOptionFencePattern.FindAllStringSubmatch(content, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		if payload, ok := parseChatOptionPayloadCandidate(match[1]); ok {
+			return payload, true
+		}
+	}
+	return chatOptionPayload{}, false
+}
+
+func parseChatOptionPayloadFromEmbeddedObject(content string) (chatOptionPayload, bool) {
+	for _, segment := range findBraceDelimitedSegments(content) {
+		if payload, ok := parseChatOptionPayloadCandidate(segment); ok {
+			return payload, true
+		}
+	}
+	return chatOptionPayload{}, false
+}
+
+func findBraceDelimitedSegments(content string) []string {
+	segments := make([]string, 0, 2)
+	depth := 0
+	start := -1
+	inString := false
+	escape := false
+
+	for i := 0; i < len(content); i++ {
+		ch := content[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if ch == '\\' {
+			escape = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if ch == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+			continue
+		}
+		if ch != '}' || depth == 0 {
+			continue
+		}
+		depth--
+		if depth == 0 && start >= 0 {
+			segments = append(segments, content[start:i+1])
+			start = -1
+		}
+	}
+
+	return segments
 }
 
 func parseJSONChatOptionPayload(content string) (chatOptionPayload, bool) {

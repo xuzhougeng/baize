@@ -1944,6 +1944,11 @@ select {
   gap: 10px;
 }
 
+.chat-option-message {
+  display: grid;
+  gap: 12px;
+}
+
 .chat-option-question {
   font-size: 13px;
   font-weight: 600;

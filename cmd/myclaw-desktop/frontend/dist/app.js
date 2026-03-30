@@ -2914,11 +2914,23 @@ function renderChatMeta(message) {
 }
 
 function renderChatMessageContent(message) {
-  const payload = message.role === 'assistant' ? parseChatOptionsPayload(message.text) : null;
-  if (payload) {
-    return renderChatOptions(payload);
+  const optionContent = message.role === 'assistant' ? extractChatOptionContent(message.text) : null;
+  if (optionContent) {
+    return renderChatOptionMessage(optionContent);
   }
   return `<div class="chat-markdown">${renderMarkdown(message.text || (message.streaming ? '思考中…' : ''))}</div>`;
+}
+
+function renderChatOptionMessage(content) {
+  const blocks = [];
+  if (content.beforeText) {
+    blocks.push(`<div class="chat-markdown">${renderMarkdown(content.beforeText)}</div>`);
+  }
+  blocks.push(renderChatOptions(content.payload));
+  if (content.afterText) {
+    blocks.push(`<div class="chat-markdown">${renderMarkdown(content.afterText)}</div>`);
+  }
+  return `<div class="chat-option-message">${blocks.join('')}</div>`;
 }
 
 function renderChatOptions(payload) {
@@ -2946,13 +2958,106 @@ function renderChatOptions(payload) {
 }
 
 function parseChatOptionsPayload(source) {
-  const text = String(source ?? '').trim();
-  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+  const optionContent = extractChatOptionContent(source);
+  return optionContent ? optionContent.payload : null;
+}
 
-  const jsonPayload = parseJSONChatOptionsPayload(text);
+function extractChatOptionContent(source) {
+  const text = String(source ?? '').replace(/\r\n?/g, '\n');
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const directPayload = parseChatOptionsPayloadCandidate(trimmed);
+  if (directPayload) {
+    return { payload: directPayload, beforeText: '', afterText: '' };
+  }
+
+  const fencedPayload = extractChatOptionContentFromFencedBlocks(text);
+  if (fencedPayload) return fencedPayload;
+
+  return extractChatOptionContentFromEmbeddedObject(text);
+}
+
+function parseChatOptionsPayloadCandidate(text) {
+  const candidate = String(text ?? '').trim();
+  if (!candidate.startsWith('{') || !candidate.endsWith('}')) return null;
+
+  const jsonPayload = parseJSONChatOptionsPayload(candidate);
   if (jsonPayload) return jsonPayload;
 
-  return parseEDNChatOptionsPayload(text);
+  return parseEDNChatOptionsPayload(candidate);
+}
+
+function extractChatOptionContentFromFencedBlocks(text) {
+  const fencePattern = /```(?:[\w+-]+)?\s*\n([\s\S]*?)\n```/g;
+  for (const match of text.matchAll(fencePattern)) {
+    const candidate = parseChatOptionsPayloadCandidate(match[1]);
+    if (!candidate) continue;
+    return {
+      payload: candidate,
+      beforeText: text.slice(0, match.index).trim(),
+      afterText: text.slice((match.index || 0) + match[0].length).trim(),
+    };
+  }
+  return null;
+}
+
+function extractChatOptionContentFromEmbeddedObject(text) {
+  const segments = findBraceDelimitedSegments(text);
+  for (const segment of segments) {
+    const candidate = parseChatOptionsPayloadCandidate(segment.text);
+    if (!candidate) continue;
+    return {
+      payload: candidate,
+      beforeText: text.slice(0, segment.start).trim(),
+      afterText: text.slice(segment.end).trim(),
+    };
+  }
+  return null;
+}
+
+function findBraceDelimitedSegments(text) {
+  const segments = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escape = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === '}') {
+      if (depth === 0) continue;
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        segments.push({
+          start,
+          end: index + 1,
+          text: text.slice(start, index + 1),
+        });
+        start = -1;
+      }
+    }
+  }
+
+  return segments;
 }
 
 function parseJSONChatOptionsPayload(text) {
@@ -3152,8 +3257,14 @@ function summarizeChatTitle(messages) {
 function summarizeChatPreview(messages) {
   for (let index = (messages || []).length - 1; index >= 0; index -= 1) {
     const message = messages[index] || {};
-    const payload = parseChatOptionsPayload(message.text);
-    const text = (payload?.question || message.text || '').trim();
+    const optionContent = extractChatOptionContent(message.text);
+    const text = (
+      optionContent?.beforeText
+      || optionContent?.payload?.question
+      || optionContent?.afterText
+      || message.text
+      || ''
+    ).trim();
     if (text) return truncateText(text, 72);
   }
   return '还没有消息';

@@ -278,6 +278,51 @@ func TestBuildCurrentChatMarkdownExportFormatsConversation(t *testing.T) {
 	}
 }
 
+func TestBuildCurrentChatMarkdownExportFormatsWrappedOptionPayload(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	state, err := app.GetChatState()
+	if err != nil {
+		t.Fatalf("get chat state: %v", err)
+	}
+	if _, err := sessionStore.Save(context.Background(), sessionstate.Snapshot{
+		Key: desktopConversationSnapshotKey("default", state.SessionID),
+		History: []sessionstate.Message{
+			{Role: "user", Content: "导出/测试包裹选项"},
+			{Role: "assistant", Content: "先看下面这个选择题：\n\n```json\n{\"question\":\"接下来您想怎么走？\",\"questiontype\":\"singleselect\",\"options\":[{\"value\":\"continue\",\"label\":\"继续探讨\"},{\"value\":\"mode\",\"label\":\"切换讨论模式\"}]}\n```\n\n你也可以直接输入自己的想法。"},
+		},
+	}); err != nil {
+		t.Fatalf("save chat snapshot: %v", err)
+	}
+
+	export, err := app.buildCurrentChatMarkdownExport(context.Background())
+	if err != nil {
+		t.Fatalf("build markdown export: %v", err)
+	}
+	for _, want := range []string{
+		"# 导出/测试包裹选项",
+		"接下来您想怎么走？",
+		"- 继续探讨 (`continue`)",
+		"- 切换讨论模式 (`mode`)",
+	} {
+		if !strings.Contains(export.Markdown, want) {
+			t.Fatalf("expected export markdown to contain %q, got:\n%s", want, export.Markdown)
+		}
+	}
+	if strings.Contains(export.Markdown, "\"questiontype\":\"singleselect\"") {
+		t.Fatalf("expected wrapped option payload to be rendered, got:\n%s", export.Markdown)
+	}
+}
+
 func TestBuildCurrentChatMarkdownExportRejectsEmptyConversation(t *testing.T) {
 	t.Parallel()
 
