@@ -52,8 +52,8 @@ jobs:
 
       - name: Verify notarized output
         run: |
-          APP_PATH="cmd/myclaw-desktop/build/bin/myclaw-desktop.app"
-          DMG_PATH="dist/myclaw-desktop-macos-${BUILD_VERSION}.dmg"
+          APP_PATH="cmd/myclaw-desktop/build/bin/myclaw.app"
+          DMG_PATH="dist/myclaw-macos-${BUILD_VERSION}.dmg"
           if [ ! -d "${APP_PATH}" ]; then
             ls -R cmd/myclaw-desktop/build
             echo "Error: .app bundle was not generated."
@@ -75,8 +75,8 @@ jobs:
         with:
           name: myclaw-desktop-macos-arm64
           path: |
-            cmd/myclaw-desktop/build/bin/myclaw-desktop.app
-            dist/myclaw-desktop-macos-*.dmg
+            cmd/myclaw-desktop/build/bin/myclaw.app
+            dist/myclaw-macos-*.dmg
           if-no-files-found: error
           retention-days: 14
 
