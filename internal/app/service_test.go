@@ -1405,6 +1405,62 @@ func TestDirectModeConversationHistoryPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
+func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
+
+	service := NewServiceWithSkillsAndSessions(store, fakeStreamingAI{
+		fakeAI: fakeAI{
+			configured: true,
+			route: ai.RouteDecision{
+				Command:  "answer",
+				Question: "给我结果",
+			},
+		},
+		chatStreamFunc: func(_ context.Context, input string, history []ai.ConversationMessage, onDelta func(string)) string {
+			if input != "给我结果" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
+			onDelta("分")
+			onDelta("段")
+			return "分段"
+		},
+	}, reminders, nil, stateStore)
+
+	var chunks []string
+	reply, err := service.HandleMessageStream(context.Background(), mc, "给我结果", func(delta string) {
+		chunks = append(chunks, delta)
+	})
+	if err != nil {
+		t.Fatalf("handle message stream: %v", err)
+	}
+	if reply != "分段" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+	if strings.Join(chunks, "") != "分段" {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok || len(snapshot.History) != 2 {
+		t.Fatalf("unexpected history snapshot: %#v / ok=%v", snapshot, ok)
+	}
+	if snapshot.History[1].Content != "分段" {
+		t.Fatalf("expected streamed reply in history, got %#v", snapshot.History)
+	}
+}
+
 type fakeAI struct {
 	configured      bool
 	route           ai.RouteDecision
@@ -1472,6 +1528,26 @@ func (f fakeAI) SummarizePDFText(context.Context, string, string) (string, error
 
 func (f fakeAI) SummarizeImageFile(context.Context, string, string) (string, error) {
 	return f.imageSummary, nil
+}
+
+type fakeStreamingAI struct {
+	fakeAI
+	chatStreamFunc   func(context.Context, string, []ai.ConversationMessage, func(string)) string
+	answerStreamFunc func(context.Context, string, []knowledge.Entry, func(string)) string
+}
+
+func (f fakeStreamingAI) ChatStream(ctx context.Context, input string, history []ai.ConversationMessage, onDelta func(string)) (string, error) {
+	if f.chatStreamFunc != nil {
+		return f.chatStreamFunc(ctx, input, history, onDelta), nil
+	}
+	return f.fakeAI.Chat(ctx, input, history)
+}
+
+func (f fakeStreamingAI) AnswerStream(ctx context.Context, question string, entries []knowledge.Entry, onDelta func(string)) (string, error) {
+	if f.answerStreamFunc != nil {
+		return f.answerStreamFunc(ctx, question, entries, onDelta), nil
+	}
+	return f.fakeAI.Answer(ctx, question, entries)
 }
 
 type fakeProtocolToolClient struct {

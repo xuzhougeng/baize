@@ -64,6 +64,8 @@ const state = {
   model: defaultModelState(),
   weixin: defaultWeixinState(),
   chat: [],
+  chatStreaming: false,
+  chatStreamHandlers: {},
 };
 
 let devPollTimer = 0;
@@ -382,6 +384,17 @@ function bindStaticEvents() {
     });
   }
 
+  const chatList = document.getElementById('chat-list');
+  if (chatList) {
+    chatList.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-chat-option]');
+      if (!target) return;
+      const value = target.dataset.chatOption || '';
+      if (!value) return;
+      void sendChatOption(value);
+    });
+  }
+
   const chatInput = document.getElementById('chat-input');
   if (chatInput) {
     autoResizeChatInput();
@@ -596,6 +609,19 @@ function bindRuntimeEvents() {
     const next = normalizeWeixinStatus(payload);
     applyWeixinStatus(next, true);
   });
+
+  window.runtime.EventsOn('chat:stream', (payload) => {
+    const event = Array.isArray(payload) ? payload[0] : payload;
+    dispatchChatStreamEvent(event);
+  });
+}
+
+function dispatchChatStreamEvent(event) {
+  if (!event || !event.requestId) return;
+  const handler = state.chatStreamHandlers[event.requestId];
+  if (typeof handler === 'function') {
+    handler(event);
+  }
 }
 
 function renderChatShortcuts() {
@@ -684,6 +710,27 @@ function createWailsBackend(backend) {
     ImportFile: (path) => backend.ImportFile(path),
     UploadImportFile: () => Promise.reject(new Error('Wails 模式不使用浏览器上传。')),
     SendMessage: (input) => backend.SendMessage(input),
+    SendMessageStream: async (input, handlers = {}) => {
+      if (typeof backend.SendMessageStream !== 'function' || !window.runtime || typeof window.runtime.EventsOn !== 'function') {
+        const result = await backend.SendMessage(input);
+        if (typeof handlers.onDelta === 'function' && result?.reply) {
+          handlers.onDelta(result.reply);
+        }
+        return result;
+      }
+
+      const requestId = newChatStreamRequestID();
+      state.chatStreamHandlers[requestId] = (event) => {
+        if ((event?.delta || '') && typeof handlers.onDelta === 'function') {
+          handlers.onDelta(event.delta);
+        }
+      };
+      try {
+        return await backend.SendMessageStream(requestId, input);
+      } finally {
+        delete state.chatStreamHandlers[requestId];
+      }
+    },
     GetChatState: () => backend.GetChatState(),
     NewChatSession: () => backend.NewChatSession(),
     SwitchChatSession: (sessionId) => backend.SwitchChatSession(sessionId),
@@ -733,6 +780,7 @@ function createHTTPBackend() {
     },
     UploadImportFile: (file) => uploadFile('/api/import/upload', file),
     SendMessage: (input) => requestJSON('POST', '/api/chat', { input }),
+    SendMessageStream: (input, handlers = {}) => streamJSON('POST', '/api/chat/stream', { input }, handlers),
     GetChatState: () => requestJSON('GET', '/api/chat/state'),
     NewChatSession: () => requestJSON('POST', '/api/chat/session/new'),
     SwitchChatSession: (sessionId) => requestJSON('POST', '/api/chat/session/switch', { sessionId }),
@@ -765,6 +813,72 @@ async function requestJSON(method, url, body) {
     throw new Error((payload && payload.error) || `HTTP ${response.status}`);
   }
   return payload;
+}
+
+async function streamJSON(method, url, body, handlers = {}) {
+  const options = { method, headers: {} };
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : null;
+    throw new Error((payload && payload.error) || `HTTP ${response.status}`);
+  }
+  if (!response.body) {
+    throw new Error('浏览器不支持流式响应。');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    let newlineIndex = buffer.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        const event = JSON.parse(line);
+        if (event.type === 'delta') {
+          if (typeof handlers.onDelta === 'function' && event.delta) {
+            handlers.onDelta(event.delta);
+          }
+        } else if (event.type === 'done') {
+          result = event;
+        } else if (event.type === 'error') {
+          throw new Error(event.message || '流式请求失败');
+        }
+      }
+      newlineIndex = buffer.indexOf('\n');
+    }
+
+    if (done) break;
+  }
+
+  const tail = buffer.trim();
+  if (tail) {
+    const event = JSON.parse(tail);
+    if (event.type === 'done') {
+      result = event;
+    } else if (event.type === 'error') {
+      throw new Error(event.message || '流式请求失败');
+    } else if (event.type === 'delta' && typeof handlers.onDelta === 'function' && event.delta) {
+      handlers.onDelta(event.delta);
+    }
+  }
+
+  if (!result) {
+    throw new Error('流式响应提前结束。');
+  }
+  return result;
 }
 
 async function uploadFile(url, file) {
@@ -1170,6 +1284,8 @@ async function clearPromptsLibrary() {
 }
 
 async function sendMessage() {
+  if (state.chatStreaming) return;
+
   const input = document.getElementById('chat-input');
   const text = input?.value.trim();
   if (!text) return;
@@ -1184,6 +1300,7 @@ async function sendMessage() {
   }
 
   state.chat.push({ role: 'user', text, time: nowLabel() });
+  syncCurrentChatConversationFromMessages();
   renderChat();
   closeChatAutocomplete();
   if (input) {
@@ -1191,35 +1308,69 @@ async function sendMessage() {
     autoResizeChatInput();
   }
 
+  const placeholder = {
+    role: 'assistant',
+    text: '',
+    time: '',
+    streaming: true,
+  };
+  state.chat.push(placeholder);
+  renderChat();
+
+  state.chatStreaming = true;
   try {
-    const result = await state.backend.SendMessage(text);
+    const send = typeof state.backend.SendMessageStream === 'function'
+      ? state.backend.SendMessageStream(text, {
+          onDelta: (delta) => {
+            if (!delta) return;
+            placeholder.text += delta;
+            syncCurrentChatConversationFromMessages();
+            renderChat();
+          },
+        })
+      : state.backend.SendMessage(text);
+    const result = await send;
     if (result.sessionChanged) {
+      state.chat.pop();
       await refreshChatState();
       await Promise.all([refreshSkills(), refreshChatPrompt()]);
       showBanner(result.reply || '已开启新对话。', false);
       return;
     }
-    state.chat.push({
-      role: 'assistant',
-      text: result.reply,
-      time: result.timestamp || nowLabel(),
-    });
+    placeholder.text = result.reply || placeholder.text;
+    placeholder.time = result.timestamp || nowLabel();
+    placeholder.streaming = false;
     syncCurrentChatConversationFromMessages();
     renderChat();
     await refreshAll();
   } catch (error) {
-    state.chat.push({
-      role: 'system',
-      text: asMessage(error),
-      time: nowLabel(),
-    });
+    if ((placeholder.text || '').trim()) {
+      placeholder.time = nowLabel();
+      placeholder.streaming = false;
+      state.chat.push({
+        role: 'system',
+        text: asMessage(error),
+        time: nowLabel(),
+      });
+    } else {
+      placeholder.role = 'system';
+      placeholder.text = asMessage(error);
+      placeholder.time = nowLabel();
+      placeholder.streaming = false;
+    }
     syncCurrentChatConversationFromMessages();
     renderChat();
     showBanner(asMessage(error), true);
+  } finally {
+    state.chatStreaming = false;
   }
 }
 
 async function startNewConversation() {
+  if (state.chatStreaming) {
+    showBanner('当前回复尚未完成。', true);
+    return;
+  }
   try {
     applyChatState(normalizeChatState(await state.backend.NewChatSession()));
     await Promise.all([refreshSkills(), refreshChatPrompt()]);
@@ -1231,7 +1382,24 @@ async function startNewConversation() {
   }
 }
 
+async function sendChatOption(value) {
+  if (state.chatStreaming) {
+    showBanner('当前回复尚未完成。', true);
+    return;
+  }
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  input.value = value;
+  autoResizeChatInput();
+  updateChatAutocomplete();
+  await sendMessage();
+}
+
 async function switchChatSession(sessionId) {
+  if (state.chatStreaming) {
+    showBanner('当前回复尚未完成。', true);
+    return;
+  }
   const nextSessionId = (sessionId || '').trim();
   if (!nextSessionId || nextSessionId === state.chatState.sessionId) return;
 
@@ -2332,7 +2500,7 @@ function renderChat() {
         <div class="chat-message ${escapeAttribute(message.role)}">
           <div class="chat-avatar">${message.role === 'user' ? '◐' : message.role === 'system' ? '◇' : '○'}</div>
           <div class="chat-bubble">
-            <div class="chat-markdown">${renderMarkdown(message.text)}</div>
+            ${renderChatMessageContent(message)}
             ${message.time ? `<span class="chat-time">${escapeHTML(message.time)}</span>` : ''}
           </div>
         </div>
@@ -2340,6 +2508,60 @@ function renderChat() {
     )
     .join('');
   container.scrollTop = container.scrollHeight;
+}
+
+function renderChatMessageContent(message) {
+  const payload = message.role === 'assistant' ? parseChatOptionsPayload(message.text) : null;
+  if (payload) {
+    return renderChatOptions(payload);
+  }
+  return `<div class="chat-markdown">${renderMarkdown(message.text || (message.streaming ? '思考中…' : ''))}</div>`;
+}
+
+function renderChatOptions(payload) {
+  return `
+    <div class="chat-option-card">
+      <div class="chat-option-question">${escapeHTML(payload.question)}</div>
+      <div class="chat-option-list">
+        ${payload.options
+          .map((option) => `
+            <button
+              type="button"
+              class="chat-option-button"
+              data-chat-option="${escapeAttribute(option)}"
+            >
+              ${escapeHTML(option)}
+            </button>
+          `)
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function parseChatOptionsPayload(source) {
+  const text = String(source ?? '').trim();
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+
+  const questionMatch = text.match(/:question\s+"((?:\\.|[^"])*)"/s);
+  const optionsMatch = text.match(/:options\s+\[((?:.|\n)*)\]/s);
+  if (!questionMatch || !optionsMatch) return null;
+
+  const question = unescapeChatOptionText(questionMatch[1]).trim();
+  const options = Array.from(optionsMatch[1].matchAll(/"((?:\\.|[^"])*)"/g))
+    .map((item) => unescapeChatOptionText(item[1]).trim())
+    .filter(Boolean);
+  if (!question || options.length === 0) return null;
+
+  return { question, options };
+}
+
+function unescapeChatOptionText(value) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch (_error) {
+    return value;
+  }
 }
 
 function renderChatSessions() {
@@ -2433,7 +2655,9 @@ function summarizeChatTitle(messages) {
 
 function summarizeChatPreview(messages) {
   for (let index = (messages || []).length - 1; index >= 0; index -= 1) {
-    const text = (messages[index].text || '').trim();
+    const message = messages[index] || {};
+    const payload = parseChatOptionsPayload(message.text);
+    const text = (payload?.question || message.text || '').trim();
     if (text) return truncateText(text, 72);
   }
   return '还没有消息';
@@ -2445,6 +2669,13 @@ function truncateText(value, maxRunes) {
   const chars = Array.from(text);
   if (chars.length <= maxRunes) return text;
   return `${chars.slice(0, Math.max(1, maxRunes - 1)).join('')}…`;
+}
+
+function newChatStreamRequestID() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  return `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 let bannerTimer = 0;

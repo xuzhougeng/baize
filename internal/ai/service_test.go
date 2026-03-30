@@ -37,6 +37,16 @@ func jsonResponse(status int, body string) *http.Response {
 	}
 }
 
+func streamResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+}
+
 func newConfiguredStore(t *testing.T, cfg modelconfig.Config) *modelconfig.Store {
 	t.Helper()
 
@@ -215,6 +225,141 @@ func TestAnthropicMessagesStructuredRequestFallsBackWithoutTools(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("expected 2 anthropic requests, got %d", requests)
+	}
+}
+
+func TestOpenAIResponsesChatStream(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider: modelconfig.ProviderOpenAI,
+		APIType:  modelconfig.APITypeResponses,
+		BaseURL:  "http://example.invalid/v1",
+		APIKey:   "secret",
+		Model:    "gpt-test",
+	})
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if !req.Stream {
+			t.Fatalf("expected streaming request, got %#v", req)
+		}
+		return streamResponse(strings.Join([]string{
+			`data: {"type":"response.output_text.delta","delta":"你好"}`,
+			``,
+			`data: {"type":"response.output_text.delta","delta":"，世界"}`,
+			``,
+			`data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"你好，世界"}]}]}}`,
+			``,
+		}, "\n")), nil
+	})
+
+	var deltas []string
+	reply, err := service.ChatStream(context.Background(), "hi", nil, func(delta string) {
+		deltas = append(deltas, delta)
+	})
+	if err != nil {
+		t.Fatalf("stream chat: %v", err)
+	}
+	if reply != "你好，世界" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+	if strings.Join(deltas, "") != "你好，世界" {
+		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+}
+
+func TestOpenAIChatCompletionsStream(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider: modelconfig.ProviderOpenAI,
+		APIType:  modelconfig.APITypeChatCompletions,
+		BaseURL:  "http://example.invalid/v1",
+		APIKey:   "secret",
+		Model:    "gpt-4o-mini",
+	})
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req chatCompletionsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if !req.Stream {
+			t.Fatalf("expected streaming request, got %#v", req)
+		}
+		return streamResponse(strings.Join([]string{
+			`data: {"choices":[{"delta":{"content":"分"}}]}`,
+			``,
+			`data: {"choices":[{"delta":{"content":"段输出"}}]}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n")), nil
+	})
+
+	var deltas []string
+	reply, err := service.ChatStream(context.Background(), "hi", nil, func(delta string) {
+		deltas = append(deltas, delta)
+	})
+	if err != nil {
+		t.Fatalf("stream chat completions: %v", err)
+	}
+	if reply != "分段输出" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+	if strings.Join(deltas, "") != "分段输出" {
+		t.Fatalf("unexpected deltas: %#v", deltas)
+	}
+}
+
+func TestAnthropicMessagesStream(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider: modelconfig.ProviderAnthropic,
+		APIType:  modelconfig.APITypeMessages,
+		BaseURL:  "http://example.invalid/v1",
+		APIKey:   "anthropic-secret",
+		Model:    "claude-3-7-sonnet-latest",
+	})
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req anthropicMessagesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if !req.Stream {
+			t.Fatalf("expected streaming request, got %#v", req)
+		}
+		return streamResponse(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"content":[]}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Claude "}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"stream"}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n")), nil
+	})
+
+	var deltas []string
+	reply, err := service.ChatStream(context.Background(), "hi", nil, func(delta string) {
+		deltas = append(deltas, delta)
+	})
+	if err != nil {
+		t.Fatalf("stream anthropic: %v", err)
+	}
+	if reply != "Claude stream" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+	if strings.Join(deltas, "") != "Claude stream" {
+		t.Fatalf("unexpected deltas: %#v", deltas)
 	}
 }
 

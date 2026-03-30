@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -218,6 +219,45 @@ Keep the answer concise but useful.
 	return s.generateText(ctx, cfg, instructions, prompt.String())
 }
 
+func (s *Service) AnswerStream(ctx context.Context, question string, entries []knowledge.Entry, onDelta func(string)) (string, error) {
+	cfg, err := s.requireConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	var prompt strings.Builder
+	prompt.WriteString("用户问题：\n")
+	prompt.WriteString(strings.TrimSpace(question))
+	prompt.WriteString("\n\n知识库内容：\n")
+	if len(entries) == 0 {
+		prompt.WriteString("(空)\n")
+	} else {
+		for index, entry := range entries {
+			source := strings.TrimSpace(entry.Source)
+			if source == "" {
+				source = "unknown"
+			}
+			prompt.WriteString(fmt.Sprintf("%d. [%s] [%s] %s\n",
+				index+1,
+				entry.RecordedAt.Local().Format("2006-01-02 15:04:05"),
+				source,
+				entry.Text,
+			))
+		}
+	}
+
+	instructions := strings.TrimSpace(`
+You are myclaw, a private knowledge-base assistant.
+Answer in Chinese unless the user clearly asks otherwise.
+Use only the provided knowledge base content.
+If the knowledge base is insufficient, say so directly.
+When helpful, cite the relevant memory item numbers.
+Keep the answer concise but useful.
+`)
+
+	return s.generateTextStream(ctx, cfg, instructions, prompt.String(), onDelta)
+}
+
 func (s *Service) Chat(ctx context.Context, input string, history []ConversationMessage) (string, error) {
 	cfg, err := s.requireConfig(ctx)
 	if err != nil {
@@ -243,6 +283,33 @@ Do not claim to have consulted a knowledge base unless one was explicitly provid
 		MaxOutputTokens: 1500,
 	}
 	return s.generate(ctx, cfg, req)
+}
+
+func (s *Service) ChatStream(ctx context.Context, input string, history []ConversationMessage, onDelta func(string)) (string, error) {
+	cfg, err := s.requireConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	instructions := strings.TrimSpace(`
+You are myclaw, a private AI workspace assistant.
+Answer in Chinese unless the user clearly asks otherwise.
+Be concise, practical, and direct.
+Do not claim to have consulted a knowledge base unless one was explicitly provided.
+`)
+
+	messages := make([]responseInputMessage, 0, len(history)+1)
+	for _, item := range normalizeConversationMessages(history) {
+		messages = append(messages, newTextMessage(item.Role, item.Content))
+	}
+	messages = append(messages, newTextMessage("user", strings.TrimSpace(input)))
+
+	req := generationRequest{
+		Instructions:    mergeInstructionsWithSkillContext(ctx, instructions),
+		Input:           messages,
+		MaxOutputTokens: 1500,
+	}
+	return s.generateStream(ctx, cfg, req, onDelta)
 }
 
 func (s *Service) BuildSearchPlan(ctx context.Context, question string) (SearchPlan, error) {
@@ -524,7 +591,69 @@ func (s *Service) generateTextFromContent(ctx context.Context, cfg modelconfig.C
 	return s.generate(ctx, cfg, req)
 }
 
+func (s *Service) generateTextStream(ctx context.Context, cfg modelconfig.Config, instructions, input string, onDelta func(string)) (string, error) {
+	return s.generateTextFromContentStream(ctx, cfg, instructions, []responseContentInput{
+		{
+			Type: "input_text",
+			Text: input,
+		},
+	}, onDelta)
+}
+
+func (s *Service) generateTextFromContentStream(ctx context.Context, cfg modelconfig.Config, instructions string, content []responseContentInput, onDelta func(string)) (string, error) {
+	req := generationRequest{
+		Instructions: mergeInstructionsWithSkillContext(ctx, instructions),
+		Input: []responseInputMessage{
+			{
+				Role:    "user",
+				Content: content,
+			},
+		},
+		MaxOutputTokens: 1500,
+	}
+	return s.generateStream(ctx, cfg, req, onDelta)
+}
+
 func (s *Service) generate(ctx context.Context, cfg modelconfig.Config, req generationRequest) (string, error) {
+	req = applyConfigToGenerationRequest(cfg, req)
+	switch cfg.Provider {
+	case modelconfig.ProviderOpenAI:
+		switch cfg.APIType {
+		case modelconfig.APITypeResponses:
+			return s.createOpenAIResponse(ctx, cfg, req)
+		case modelconfig.APITypeChatCompletions:
+			return s.createOpenAIChatCompletion(ctx, cfg, req)
+		}
+	case modelconfig.ProviderAnthropic:
+		if cfg.APIType == modelconfig.APITypeMessages {
+			return s.createAnthropicMessage(ctx, cfg, req)
+		}
+	}
+	return "", fmt.Errorf("unsupported provider/api combination %q/%q", cfg.Provider, cfg.APIType)
+}
+
+func (s *Service) generateStream(ctx context.Context, cfg modelconfig.Config, req generationRequest, onDelta func(string)) (string, error) {
+	if req.WantsJSON() {
+		return s.generate(ctx, cfg, req)
+	}
+	req = applyConfigToGenerationRequest(cfg, req)
+	switch cfg.Provider {
+	case modelconfig.ProviderOpenAI:
+		switch cfg.APIType {
+		case modelconfig.APITypeResponses:
+			return s.createOpenAIResponseStream(ctx, cfg, req, onDelta)
+		case modelconfig.APITypeChatCompletions:
+			return s.createOpenAIChatCompletionStream(ctx, cfg, req, onDelta)
+		}
+	case modelconfig.ProviderAnthropic:
+		if cfg.APIType == modelconfig.APITypeMessages {
+			return s.createAnthropicMessageStream(ctx, cfg, req, onDelta)
+		}
+	}
+	return s.generate(ctx, cfg, req)
+}
+
+func applyConfigToGenerationRequest(cfg modelconfig.Config, req generationRequest) generationRequest {
 	if cfg.MaxOutputTokens != nil && *cfg.MaxOutputTokens > 0 {
 		req.MaxOutputTokens = *cfg.MaxOutputTokens
 	}
@@ -540,20 +669,7 @@ func (s *Service) generate(ctx context.Context, cfg modelconfig.Config, req gene
 	if cfg.PresencePenalty != nil && req.PresencePenalty == nil {
 		req.PresencePenalty = cfg.PresencePenalty
 	}
-	switch cfg.Provider {
-	case modelconfig.ProviderOpenAI:
-		switch cfg.APIType {
-		case modelconfig.APITypeResponses:
-			return s.createOpenAIResponse(ctx, cfg, req)
-		case modelconfig.APITypeChatCompletions:
-			return s.createOpenAIChatCompletion(ctx, cfg, req)
-		}
-	case modelconfig.ProviderAnthropic:
-		if cfg.APIType == modelconfig.APITypeMessages {
-			return s.createAnthropicMessage(ctx, cfg, req)
-		}
-	}
-	return "", fmt.Errorf("unsupported provider/api combination %q/%q", cfg.Provider, cfg.APIType)
+	return req
 }
 
 func (s *Service) createOpenAIResponse(ctx context.Context, cfg modelconfig.Config, req generationRequest) (string, error) {
@@ -683,6 +799,184 @@ func (s *Service) createOpenAIChatCompletion(ctx context.Context, cfg modelconfi
 	return text, nil
 }
 
+func (s *Service) createOpenAIResponseStream(ctx context.Context, cfg modelconfig.Config, req generationRequest, onDelta func(string)) (string, error) {
+	reqBody := responsesRequest{
+		Model:           cfg.Model,
+		Instructions:    req.Instructions,
+		Input:           req.Input,
+		MaxOutputTokens: req.MaxOutputTokens,
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		Stream:          true,
+	}
+	reqBody.Text = &responseTextOptions{
+		Format: responseFormat{
+			Type: "text",
+		},
+		Verbosity: "low",
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	endpoint := strings.TrimRight(cfg.BaseURL, "/") + path.Join("/", "responses")
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		var apiErr openAIErrorResponse
+		if err := json.Unmarshal(body, &apiErr); err == nil && strings.TrimSpace(apiErr.Error.Message) != "" {
+			return "", fmt.Errorf("openai responses api returned %d: %s", resp.StatusCode, apiErr.Error.Message)
+		}
+		return "", fmt.Errorf("openai responses api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var builder strings.Builder
+	var completedText string
+	err = consumeServerSentEvents(resp.Body, func(_ string, data []byte) error {
+		payload := bytes.TrimSpace(data)
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+			return nil
+		}
+
+		var event struct {
+			Type     string            `json:"type"`
+			Delta    string            `json:"delta"`
+			Response responsesResponse `json:"response"`
+		}
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return err
+		}
+		switch event.Type {
+		case "response.output_text.delta", "response.refusal.delta":
+			if event.Delta != "" {
+				builder.WriteString(event.Delta)
+				if onDelta != nil {
+					onDelta(event.Delta)
+				}
+			}
+		case "response.completed":
+			completedText = strings.TrimSpace(event.Response.OutputText())
+		case "error":
+			return parseStreamError(payload)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	text := strings.TrimSpace(builder.String())
+	if text == "" {
+		text = completedText
+	}
+	if text == "" {
+		return "", fmt.Errorf("model returned empty output")
+	}
+	return text, nil
+}
+
+func (s *Service) createOpenAIChatCompletionStream(ctx context.Context, cfg modelconfig.Config, req generationRequest, onDelta func(string)) (string, error) {
+	reqBody := chatCompletionsRequest{
+		Model:            cfg.Model,
+		Messages:         buildChatCompletionMessages(req),
+		MaxTokens:        req.MaxOutputTokens,
+		Temperature:      req.Temperature,
+		TopP:             req.TopP,
+		FrequencyPenalty: req.FrequencyPenalty,
+		PresencePenalty:  req.PresencePenalty,
+		Stream:           true,
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	endpoint := strings.TrimRight(cfg.BaseURL, "/") + path.Join("/", "chat", "completions")
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		var apiErr openAIErrorResponse
+		if err := json.Unmarshal(body, &apiErr); err == nil && strings.TrimSpace(apiErr.Error.Message) != "" {
+			return "", fmt.Errorf("openai chat completions api returned %d: %s", resp.StatusCode, apiErr.Error.Message)
+		}
+		return "", fmt.Errorf("openai chat completions api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var builder strings.Builder
+	err = consumeServerSentEvents(resp.Body, func(_ string, data []byte) error {
+		payload := bytes.TrimSpace(data)
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+			return nil
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+					Refusal string `json:"refusal"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			return err
+		}
+		if chunk.Error != nil && strings.TrimSpace(chunk.Error.Message) != "" {
+			return fmt.Errorf("openai chat completions api stream error: %s", strings.TrimSpace(chunk.Error.Message))
+		}
+		for _, choice := range chunk.Choices {
+			for _, delta := range []string{choice.Delta.Content, choice.Delta.Refusal} {
+				if delta == "" {
+					continue
+				}
+				builder.WriteString(delta)
+				if onDelta != nil {
+					onDelta(delta)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	text := strings.TrimSpace(builder.String())
+	if text == "" {
+		return "", fmt.Errorf("model returned empty output")
+	}
+	return text, nil
+}
+
 func (s *Service) createAnthropicMessage(ctx context.Context, cfg modelconfig.Config, req generationRequest) (string, error) {
 	reqBody, err := buildAnthropicRequest(cfg.Model, req)
 	if err != nil {
@@ -715,6 +1009,89 @@ func (s *Service) createAnthropicMessage(ctx context.Context, cfg modelconfig.Co
 		}
 	}
 	text := strings.TrimSpace(result.OutputText())
+	if text == "" {
+		return "", fmt.Errorf("model returned empty output")
+	}
+	return text, nil
+}
+
+func (s *Service) createAnthropicMessageStream(ctx context.Context, cfg modelconfig.Config, req generationRequest, onDelta func(string)) (string, error) {
+	reqBody, err := buildAnthropicRequest(cfg.Model, req)
+	if err != nil {
+		return "", err
+	}
+	reqBody.Stream = true
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	endpoint := strings.TrimRight(cfg.BaseURL, "/") + path.Join("/", "messages")
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Api-Key", cfg.APIKey)
+	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		var apiErr anthropicErrorResponse
+		if err := json.Unmarshal(body, &apiErr); err == nil && strings.TrimSpace(apiErr.Error.Message) != "" {
+			return "", &anthropicAPIError{
+				StatusCode: resp.StatusCode,
+				Message:    strings.TrimSpace(apiErr.Error.Message),
+			}
+		}
+		return "", &anthropicAPIError{
+			StatusCode: resp.StatusCode,
+			Message:    strings.TrimSpace(string(body)),
+		}
+	}
+
+	var builder strings.Builder
+	err = consumeServerSentEvents(resp.Body, func(_ string, data []byte) error {
+		payload := bytes.TrimSpace(data)
+		if len(payload) == 0 {
+			return nil
+		}
+
+		var event struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return err
+		}
+		switch event.Type {
+		case "content_block_delta":
+			if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
+				builder.WriteString(event.Delta.Text)
+				if onDelta != nil {
+					onDelta(event.Delta.Text)
+				}
+			}
+		case "error":
+			return parseStreamError(payload)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	text := strings.TrimSpace(builder.String())
 	if text == "" {
 		return "", fmt.Errorf("model returned empty output")
 	}
@@ -792,6 +1169,7 @@ type responsesRequest struct {
 	MaxOutputTokens int                    `json:"max_output_tokens,omitempty"`
 	Temperature     *float64               `json:"temperature,omitempty"`
 	TopP            *float64               `json:"top_p,omitempty"`
+	Stream          bool                   `json:"stream,omitempty"`
 }
 
 type responseInputMessage struct {
@@ -955,6 +1333,7 @@ type chatCompletionsRequest struct {
 	TopP             *float64                       `json:"top_p,omitempty"`
 	FrequencyPenalty *float64                       `json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float64                       `json:"presence_penalty,omitempty"`
+	Stream           bool                           `json:"stream,omitempty"`
 }
 
 type chatCompletionsMessage struct {
@@ -1012,6 +1391,7 @@ type anthropicMessagesRequest struct {
 	ToolChoice  *anthropicToolChoice      `json:"tool_choice,omitempty"`
 	Temperature *float64                  `json:"temperature,omitempty"`
 	TopP        *float64                  `json:"top_p,omitempty"`
+	Stream      bool                      `json:"stream,omitempty"`
 }
 
 type anthropicMessageRequest struct {
@@ -1251,6 +1631,68 @@ func parseDataURL(value string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid base64 image content: %w", err)
 	}
 	return mediaType, data, nil
+}
+
+func consumeServerSentEvents(r io.Reader, handle func(eventName string, data []byte) error) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var eventName string
+	var dataLines []string
+	dispatch := func() error {
+		if len(dataLines) == 0 {
+			eventName = ""
+			return nil
+		}
+		data := strings.Join(dataLines, "\n")
+		currentEvent := eventName
+		eventName, dataLines = "", nil
+		return handle(currentEvent, []byte(data))
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if err := dispatch(); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return dispatch()
+}
+
+func parseStreamError(payload []byte) error {
+	var event struct {
+		Type    string `json:"type"`
+		Message string `json:"message"`
+		Error   *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return err
+	}
+	if event.Error != nil && strings.TrimSpace(event.Error.Message) != "" {
+		return errors.New(strings.TrimSpace(event.Error.Message))
+	}
+	if strings.TrimSpace(event.Message) != "" {
+		return errors.New(strings.TrimSpace(event.Message))
+	}
+	return fmt.Errorf("stream error: %s", strings.TrimSpace(string(payload)))
 }
 
 func decodeStructuredResponse(text string, out any) error {

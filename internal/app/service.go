@@ -78,6 +78,11 @@ type aiBackend interface {
 	SummarizeImageFile(ctx context.Context, fileName, imageURL string) (string, error)
 }
 
+type streamingAIBackend interface {
+	AnswerStream(ctx context.Context, question string, entries []knowledge.Entry, onDelta func(string)) (string, error)
+	ChatStream(ctx context.Context, input string, history []ai.ConversationMessage, onDelta func(string)) (string, error)
+}
+
 type promptBackend interface {
 	List(ctx context.Context) ([]promptlib.Prompt, error)
 	Resolve(ctx context.Context, idOrPrefix string) (promptlib.Prompt, bool, error)
@@ -154,6 +159,72 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 	}
 
 	return s.handleConversationMessage(ctx, mc, text)
+}
+
+func (s *Service) HandleMessageStream(ctx context.Context, mc MessageContext, input string, onDelta func(string)) (string, error) {
+	ctx = withKnowledgeContext(ctx, mc)
+	text := strings.TrimSpace(input)
+	if text == "" {
+		reply := "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。"
+		if onDelta != nil {
+			onDelta(reply)
+		}
+		return reply, nil
+	}
+
+	if normalized := normalizeSlash(text); isSlashCommand(normalized) {
+		reply, err := s.handleCommand(ctx, mc, normalized)
+		if err == nil && onDelta != nil && reply != "" {
+			onDelta(reply)
+		}
+		return reply, err
+	}
+
+	if reply, ok, err := s.tryHandleNaturalAppend(ctx, mc, text); ok || err != nil {
+		if err == nil && onDelta != nil && reply != "" {
+			onDelta(reply)
+		}
+		return reply, err
+	}
+
+	if reply, ok, err := s.tryHandleNaturalReminder(ctx, mc, text); ok || err != nil {
+		if err == nil && onDelta != nil && reply != "" {
+			onDelta(reply)
+		}
+		return reply, err
+	}
+
+	if reply, ok, err := s.tryHandleNaturalForget(ctx, text); ok || err != nil {
+		if err == nil && onDelta != nil && reply != "" {
+			onDelta(reply)
+		}
+		return reply, err
+	}
+
+	if memoryText, ok := parseRememberIntent(text); ok {
+		entry, err := s.store.Add(ctx, knowledge.Entry{
+			Text:       memoryText,
+			Source:     sourceLabel(mc),
+			RecordedAt: time.Now(),
+		})
+		if err != nil {
+			return "", err
+		}
+		reply := fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes))
+		if onDelta != nil {
+			onDelta(reply)
+		}
+		return reply, nil
+	}
+
+	if reply, ok, err := s.tryHandleDirectFileIngest(ctx, mc, text); ok || err != nil {
+		if err == nil && onDelta != nil && reply != "" {
+			onDelta(reply)
+		}
+		return reply, err
+	}
+
+	return s.handleConversationMessageStream(ctx, mc, text, onDelta)
 }
 
 func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input string) (string, error) {

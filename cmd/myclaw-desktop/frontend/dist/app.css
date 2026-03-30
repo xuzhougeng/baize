@@ -1779,6 +1779,46 @@ select {
   background: rgba(26, 24, 22, 0.08);
 }
 
+.chat-option-card {
+  display: grid;
+  gap: 10px;
+}
+
+.chat-option-question {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: inherit;
+}
+
+.chat-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-option-button {
+  border: 1px solid rgba(196, 122, 92, 0.22);
+  background: rgba(196, 122, 92, 0.1);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.chat-option-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(196, 122, 92, 0.4);
+  background: rgba(196, 122, 92, 0.16);
+}
+
+.chat-option-button:active {
+  transform: translateY(0);
+}
+
 .chat-time {
   display: block;
   margin-top: 6px;

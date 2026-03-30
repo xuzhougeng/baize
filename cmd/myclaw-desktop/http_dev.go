@@ -257,6 +257,21 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		s.writeResult(w, result, err)
 	})
 
+	mux.HandleFunc("/api/chat/stream", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		var body struct {
+			Input string `json:"input"`
+		}
+		if err := decodeJSONBody(r, &body); err != nil {
+			s.writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		s.streamChat(w, r, body.Input)
+	})
+
 	mux.HandleFunc("/api/chat/state", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			s.writeMethodNotAllowed(w, http.MethodGet)
@@ -557,6 +572,59 @@ func (s desktopHTTPDevServer) writeMethodNotAllowed(w http.ResponseWriter, allow
 		w.Header().Set("Allow", strings.Join(allowed, ", "))
 	}
 	s.writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+}
+
+func (s desktopHTTPDevServer) streamChat(w http.ResponseWriter, r *http.Request, input string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.writeError(w, http.StatusInternalServerError, fmt.Errorf("streaming is not supported by the current response writer"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	encoder := json.NewEncoder(w)
+	writeEvent := func(payload any) error {
+		if err := encoder.Encode(payload); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	result, err := s.app.sendMessage(r.Context(), input, func(delta string) {
+		if delta == "" {
+			return
+		}
+		if err := writeEvent(map[string]any{
+			"type":  "delta",
+			"delta": delta,
+		}); err != nil {
+			log.Printf("write chat stream delta: %v", err)
+		}
+	})
+	if err != nil {
+		if writeErr := writeEvent(map[string]any{
+			"type":    "error",
+			"message": err.Error(),
+		}); writeErr != nil {
+			log.Printf("write chat stream error: %v", writeErr)
+		}
+		return
+	}
+
+	if err := writeEvent(map[string]any{
+		"type":           "done",
+		"reply":          result.Reply,
+		"timestamp":      result.Timestamp,
+		"sessionId":      result.SessionID,
+		"sessionChanged": result.SessionChanged,
+	}); err != nil {
+		log.Printf("write chat stream done: %v", err)
+	}
 }
 
 func decodeJSONBody(r *http.Request, out any) error {

@@ -186,6 +186,11 @@ type ChatResponse struct {
 	SessionChanged bool   `json:"sessionChanged,omitempty"`
 }
 
+type ChatStreamEvent struct {
+	RequestID string `json:"requestId"`
+	Delta     string `json:"delta"`
+}
+
 type ReminderItem struct {
 	ID             string `json:"id"`
 	ShortID        string `json:"shortId"`
@@ -971,7 +976,24 @@ func (a *DesktopApp) ImportSkillArchive(path string) (SkillMutation, error) {
 }
 
 func (a *DesktopApp) SendMessage(input string) (ChatResponse, error) {
-	project, err := a.currentProject(context.Background())
+	return a.sendMessage(context.Background(), input, nil)
+}
+
+func (a *DesktopApp) SendMessageStream(requestID, input string) (ChatResponse, error) {
+	requestID = strings.TrimSpace(requestID)
+	return a.sendMessage(context.Background(), input, func(delta string) {
+		if requestID == "" || delta == "" || a.ctx == nil {
+			return
+		}
+		runtime.EventsEmit(a.ctx, "chat:stream", ChatStreamEvent{
+			RequestID: requestID,
+			Delta:     delta,
+		})
+	})
+}
+
+func (a *DesktopApp) sendMessage(ctx context.Context, input string, onDelta func(string)) (ChatResponse, error) {
+	project, err := a.currentProject(ctx)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -987,12 +1009,17 @@ func (a *DesktopApp) SendMessage(input string) (ChatResponse, error) {
 			SessionChanged: true,
 		}, nil
 	}
-	mc, err := a.chatMessageContext(context.Background(), project)
+	mc, err := a.chatMessageContext(ctx, project)
 	if err != nil {
 		return ChatResponse{}, err
 	}
 
-	reply, err := a.service.HandleMessage(context.Background(), mc, input)
+	var reply string
+	if onDelta != nil {
+		reply, err = a.service.HandleMessageStream(ctx, mc, input, onDelta)
+	} else {
+		reply, err = a.service.HandleMessage(ctx, mc, input)
+	}
 	if err != nil {
 		return ChatResponse{}, err
 	}
