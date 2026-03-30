@@ -1225,13 +1225,6 @@ select {
   gap: 12px;
 }
 
-.chat-sidebar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 .chat-sidebar-header h3 {
   font-size: 14px;
   margin-bottom: 4px;
@@ -1365,6 +1358,14 @@ select {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.chat-content-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 8px 14px 0;
 }
 
 /* Model View */
@@ -1983,7 +1984,7 @@ select {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-top: 8px;
+  min-width: 0;
 }
 
 .chat-time {
@@ -1997,6 +1998,62 @@ select {
   opacity: 0.72;
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
+}
+
+.chat-bubble-footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.chat-bubble-footer.copy-only {
+  justify-content: flex-end;
+}
+
+.chat-copy-button {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.chat-copy-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  opacity: 0.78;
+}
+
+.chat-copy-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-focus);
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.chat-copy-button:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.chat-message.user .chat-copy-button {
+  border-color: rgba(26, 24, 22, 0.18);
+  background: rgba(26, 24, 22, 0.08);
+}
+
+.chat-message.user .chat-copy-button:hover {
+  border-color: rgba(26, 24, 22, 0.28);
+  background: rgba(26, 24, 22, 0.14);
 }
 
 .chat-input-area {
@@ -2597,8 +2654,8 @@ select {
     align-items: stretch;
   }
 
-  .chat-sidebar-actions {
-    justify-content: flex-start;
+  .chat-content-actions {
+    margin-right: 0;
   }
 
   .chat-sidebar-toggle {
@@ -2614,6 +2671,14 @@ select {
   }
 
   .dialog-actions .btn {
+    width: 100%;
+  }
+
+  .chat-content-actions {
+    flex-direction: column;
+  }
+
+  .chat-content-actions .btn {
     width: 100%;
   }
 }

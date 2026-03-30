@@ -836,6 +836,14 @@ function bindStaticEvents() {
   const chatList = document.getElementById('chat-list');
   if (chatList) {
     chatList.addEventListener('click', (event) => {
+      const copyButton = event.target.closest('[data-chat-copy-index]');
+      if (copyButton) {
+        const messageIndex = Number(copyButton.dataset.chatCopyIndex || '-1');
+        if (!Number.isInteger(messageIndex) || messageIndex < 0) return;
+        void copyChatMessage(messageIndex);
+        return;
+      }
+
       const target = event.target.closest('[data-chat-option]');
       if (!target) return;
       const value = target.dataset.chatOptionValue || target.dataset.chatOption || '';
@@ -1877,6 +1885,62 @@ async function exportChatMarkdown() {
     }
   } catch (error) {
     showBanner(asMessage(error), true);
+  }
+}
+
+async function copyChatMessage(messageIndex) {
+  const message = state.chat[messageIndex];
+  if (!message) {
+    showBanner('没有找到要复制的对话内容。', true);
+    return;
+  }
+
+  const text = buildChatCopyText(message);
+  if (!text) {
+    showBanner('当前这条对话没有可复制的内容。', true);
+    return;
+  }
+
+  try {
+    await copyTextToClipboard(text);
+    showBanner('已复制当前对话。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  }
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? '');
+  if (!value) {
+    throw new Error('当前没有可复制的内容。');
+  }
+
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (_error) {
+      // Fall back to execCommand for desktop shells that do not expose clipboard permissions.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.left = '-9999px';
+  document.body.append(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  const copied = typeof document.execCommand === 'function' && document.execCommand('copy');
+  textarea.remove();
+
+  if (!copied) {
+    throw new Error('复制失败，请手动选择内容后复制。');
   }
 }
 
@@ -3070,7 +3134,10 @@ function renderSettings() {
 
 function renderChat() {
   const container = document.getElementById('chat-list');
-  if (!container) return;
+  if (!container) {
+    renderChatContentActions();
+    return;
+  }
 
   if (state.chat.length === 0) {
     container.innerHTML = `
@@ -3080,23 +3147,44 @@ function renderChat() {
         <p>输入问题或使用命令如 /remember、/notice、/forget</p>
       </div>
     `;
+    renderChatContentActions();
     return;
   }
 
   container.innerHTML = state.chat
     .map(
-      (message) => `
+      (message, index) => `
         <div class="chat-message ${escapeAttribute(message.role)}">
           <div class="chat-avatar">${message.role === 'user' ? '◐' : message.role === 'system' ? '◇' : '○'}</div>
           <div class="chat-bubble">
             ${renderChatMessageContent(message)}
-            ${renderChatMeta(message)}
+            ${renderChatMessageFooter(message, index)}
           </div>
         </div>
       `,
     )
     .join('');
   container.scrollTop = container.scrollHeight;
+  renderChatContentActions();
+}
+
+function renderChatContentActions() {
+  const exportButton = document.getElementById('chat-export-markdown');
+  if (exportButton) {
+    const disabled = state.chatStreaming || state.chat.length === 0;
+    exportButton.disabled = disabled;
+    exportButton.title = state.chatStreaming
+      ? '当前回复尚未完成。'
+      : state.chat.length === 0
+        ? '当前对话还没有消息可导出。'
+        : '导出当前对话';
+  }
+
+  const newButton = document.getElementById('chat-new-session');
+  if (newButton) {
+    newButton.disabled = Boolean(state.chatStreaming);
+    newButton.title = state.chatStreaming ? '当前回复尚未完成。' : '开启新对话';
+  }
 }
 
 function renderChatMeta(message) {
@@ -3112,6 +3200,33 @@ function renderChatMeta(message) {
   }
   if (parts.length === 0) return '';
   return `<div class="chat-meta">${parts.join('')}</div>`;
+}
+
+function renderChatMessageFooter(message, index) {
+  const meta = renderChatMeta(message);
+  return `
+    <div class="chat-bubble-footer${meta ? '' : ' copy-only'}">
+      ${meta || ''}
+      ${renderChatCopyButton(index)}
+    </div>
+  `;
+}
+
+function renderChatCopyButton(index) {
+  return `
+    <button
+      type="button"
+      class="chat-copy-button"
+      data-chat-copy-index="${escapeAttribute(index)}"
+      aria-label="复制此条对话"
+      title="复制此条对话"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M5.5 2.25A1.25 1.25 0 0 0 4.25 3.5v7A1.25 1.25 0 0 0 5.5 11.75h6A1.25 1.25 0 0 0 12.75 10.5v-7A1.25 1.25 0 0 0 11.5 2.25z"></path>
+        <path d="M2.75 5.5A1.25 1.25 0 0 1 4 4.25h.75v1H4A.25.25 0 0 0 3.75 5.5v6A1.25 1.25 0 0 0 5 12.75h5.25a.25.25 0 0 0 .25-.25v-.75h1v.75A1.25 1.25 0 0 1 10.25 13.75H5A2.25 2.25 0 0 1 2.75 11.5z"></path>
+      </svg>
+    </button>
+  `;
 }
 
 function renderChatMessageContent(message) {
@@ -3392,6 +3507,24 @@ function buildChatOptionSubmission(question, optionValue, optionLabel = optionVa
   ].join('\n');
 }
 
+function buildChatCopyText(message) {
+  const optionContent = message.role === 'assistant' ? extractChatOptionContent(message.text) : null;
+  if (!optionContent) {
+    return String(message.text || (message.streaming ? '思考中…' : '')).trim();
+  }
+
+  const parts = [];
+  if (optionContent.beforeText) {
+    parts.push(optionContent.beforeText.trim());
+  }
+  parts.push(optionContent.payload.question.trim());
+  parts.push(optionContent.payload.options.map((option) => `- ${option.label}`).join('\n'));
+  if (optionContent.afterText) {
+    parts.push(optionContent.afterText.trim());
+  }
+  return parts.filter(Boolean).join('\n\n').trim();
+}
+
 function renderChatSessions() {
   const container = document.getElementById('chat-session-list');
   if (!container) return;
@@ -3402,7 +3535,7 @@ function renderChatSessions() {
       <div class="empty-state compact">
         <div class="empty-state-icon">◌</div>
         <h3>还没有对话</h3>
-        <p>点击右上角新建，或输入 <code>/new</code></p>
+        <p>点击下方新建，或输入 <code>/new</code></p>
       </div>
     `;
     return;
