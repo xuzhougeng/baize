@@ -511,11 +511,17 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 
 	input.WeixinEverythingPath = strings.TrimSpace(input.WeixinEverythingPath)
 	if a.settingsStore != nil {
-		if err := a.settingsStore.Save(desktopSettingsFile{
-			WeixinHistoryMessages: input.WeixinHistoryMessages,
-			WeixinHistoryRunes:    input.WeixinHistoryRunes,
-			WeixinEverythingPath:  input.WeixinEverythingPath,
-		}); err != nil {
+		cfg, _, err := a.settingsStore.Load()
+		if err != nil {
+			return AppSettings{}, err
+		}
+		cfg.WeixinHistoryMessages = input.WeixinHistoryMessages
+		cfg.WeixinHistoryRunes = input.WeixinHistoryRunes
+		cfg.WeixinEverythingPath = input.WeixinEverythingPath
+		if sessions := a.persistedDesktopChatSessions(); len(sessions) > 0 {
+			cfg.DesktopChatSessions = sessions
+		}
+		if err := a.settingsStore.Save(cfg); err != nil {
 			return AppSettings{}, err
 		}
 	}
@@ -1159,6 +1165,43 @@ func (a *DesktopApp) applyPersistedSettings() {
 	if a.weixinBridge != nil {
 		a.weixinBridge.SetEverythingPath(cfg.WeixinEverythingPath)
 	}
+	a.applyPersistedChatSessions(cfg.DesktopChatSessions)
+}
+
+func (a *DesktopApp) applyPersistedChatSessions(raw map[string]string) {
+	normalized := normalizeDesktopChatSessions(raw)
+	if len(normalized) == 0 {
+		return
+	}
+	a.chatSessionMu.Lock()
+	if a.chatSessionMap == nil {
+		a.chatSessionMap = make(map[string]string)
+	}
+	for project, sessionID := range normalized {
+		a.chatSessionMap[project] = sessionID
+	}
+	a.chatSessionMu.Unlock()
+}
+
+func (a *DesktopApp) persistedDesktopChatSessions() map[string]string {
+	a.chatSessionMu.RLock()
+	defer a.chatSessionMu.RUnlock()
+	out := make(map[string]string)
+	for project, sessionID := range a.chatSessionMap {
+		project = knowledge.CanonicalProjectName(project)
+		sessionID = strings.TrimSpace(sessionID)
+		if project == "" || sessionID == "" {
+			continue
+		}
+		if !isDesktopChatSessionForProject(sessionID, project) {
+			continue
+		}
+		out[strings.ToLower(project)] = sessionID
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (a *DesktopApp) ingestFile(ctx context.Context, rawPath string) (knowledge.Entry, error) {

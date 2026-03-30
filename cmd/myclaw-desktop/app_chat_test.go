@@ -153,6 +153,127 @@ func TestDesktopSendMessageReturnsAndPersistsUsage(t *testing.T) {
 	}
 }
 
+func TestDesktopSendMessageReusesCurrentSession(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	var histories [][]ai.ConversationMessage
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route: ai.RouteDecision{Command: "answer"},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			histories = append(histories, append([]ai.ConversationMessage(nil), history...))
+			return "reply:" + input
+		},
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	first, err := app.SendMessage("first")
+	if err != nil {
+		t.Fatalf("send first message: %v", err)
+	}
+	second, err := app.SendMessage("second")
+	if err != nil {
+		t.Fatalf("send second message: %v", err)
+	}
+
+	if first.SessionID == "" || second.SessionID == "" {
+		t.Fatalf("expected session ids, got first=%#v second=%#v", first, second)
+	}
+	if first.SessionID != second.SessionID {
+		t.Fatalf("expected same session, got first=%q second=%q", first.SessionID, second.SessionID)
+	}
+	if len(histories) != 2 {
+		t.Fatalf("expected 2 chat calls, got %d", len(histories))
+	}
+	if len(histories[0]) != 0 {
+		t.Fatalf("expected empty history for first message, got %#v", histories[0])
+	}
+	if len(histories[1]) != 2 || histories[1][0].Content != "first" || histories[1][1].Content != "reply:first" {
+		t.Fatalf("expected second message to reuse prior conversation, got %#v", histories[1])
+	}
+}
+
+func TestDesktopChatStatePersistsAcrossAppRestart(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route: ai.RouteDecision{Command: "answer"},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			return "reply:" + input
+		},
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	first, err := app.SendMessage("first")
+	if err != nil {
+		t.Fatalf("send first message: %v", err)
+	}
+
+	reloadedService := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	reloadedApp := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, reloadedService, sessionStore, reminders, nil)
+	state, err := reloadedApp.GetChatState()
+	if err != nil {
+		t.Fatalf("reload chat state: %v", err)
+	}
+
+	if state.SessionID != first.SessionID {
+		t.Fatalf("expected reload to reuse session %q, got %#v", first.SessionID, state)
+	}
+	if len(state.Messages) != 2 || state.Messages[0].Text != "first" || state.Messages[1].Text != "reply:first" {
+		t.Fatalf("expected reloaded chat history, got %#v", state.Messages)
+	}
+}
+
+func TestDesktopAppRestartRestoresLastSelectedDesktopSession(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	first, err := app.GetChatState()
+	if err != nil {
+		t.Fatalf("get first state: %v", err)
+	}
+	second, err := app.NewChatSession()
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	if _, err := app.SwitchChatSession(first.SessionID); err != nil {
+		t.Fatalf("switch back to first session: %v", err)
+	}
+
+	reloadedService := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	reloadedApp := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, reloadedService, sessionStore, reminders, nil)
+	state, err := reloadedApp.GetChatState()
+	if err != nil {
+		t.Fatalf("reload chat state: %v", err)
+	}
+
+	if state.SessionID != first.SessionID {
+		t.Fatalf("expected restart to restore selected session %q, got %#v", first.SessionID, state)
+	}
+	if state.SessionID == second.SessionID {
+		t.Fatalf("expected restart not to jump to newer session %q", second.SessionID)
+	}
+}
+
 func TestDesktopChatStateIncludesWeixinConversation(t *testing.T) {
 	t.Parallel()
 

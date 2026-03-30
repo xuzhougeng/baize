@@ -341,11 +341,30 @@ func (a *DesktopApp) rememberChatSession(project, sessionID string) {
 	}
 
 	a.chatSessionMu.Lock()
-	defer a.chatSessionMu.Unlock()
 	if a.chatSessionMap == nil {
 		a.chatSessionMap = make(map[string]string)
 	}
 	a.chatSessionMap[project] = sessionID
+	a.chatSessionMu.Unlock()
+
+	if isDesktopChatSessionForProject(sessionID, project) {
+		a.persistChatSessionSelection(project, sessionID)
+	}
+}
+
+func (a *DesktopApp) persistChatSessionSelection(project, sessionID string) {
+	if a.settingsStore == nil {
+		return
+	}
+	cfg, _, err := a.settingsStore.Load()
+	if err != nil {
+		return
+	}
+	if cfg.DesktopChatSessions == nil {
+		cfg.DesktopChatSessions = make(map[string]string)
+	}
+	cfg.DesktopChatSessions[strings.ToLower(knowledge.CanonicalProjectName(project))] = strings.TrimSpace(sessionID)
+	_ = a.settingsStore.Save(cfg)
 }
 
 func (a *DesktopApp) ensureChatSession(ctx context.Context, project, sessionID string) error {

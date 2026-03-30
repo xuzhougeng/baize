@@ -12,9 +12,10 @@ type desktopSettingsStore struct {
 }
 
 type desktopSettingsFile struct {
-	WeixinHistoryMessages int    `json:"weixin_history_messages"`
-	WeixinHistoryRunes    int    `json:"weixin_history_runes"`
-	WeixinEverythingPath  string `json:"weixin_everything_path"`
+	WeixinHistoryMessages int               `json:"weixin_history_messages"`
+	WeixinHistoryRunes    int               `json:"weixin_history_runes"`
+	WeixinEverythingPath  string            `json:"weixin_everything_path"`
+	DesktopChatSessions   map[string]string `json:"desktop_chat_sessions,omitempty"`
 }
 
 func newDesktopSettingsStore(dataDir string) *desktopSettingsStore {
@@ -50,6 +51,7 @@ func (s *desktopSettingsStore) Load() (desktopSettingsFile, bool, error) {
 	if cfg.WeixinEverythingPath == "." {
 		cfg.WeixinEverythingPath = ""
 	}
+	cfg.DesktopChatSessions = normalizeDesktopChatSessions(cfg.DesktopChatSessions)
 	return cfg, true, nil
 }
 
@@ -67,6 +69,7 @@ func (s *desktopSettingsStore) Save(cfg desktopSettingsFile) error {
 	if cfg.WeixinEverythingPath == "." {
 		cfg.WeixinEverythingPath = ""
 	}
+	cfg.DesktopChatSessions = normalizeDesktopChatSessions(cfg.DesktopChatSessions)
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
@@ -76,4 +79,23 @@ func (s *desktopSettingsStore) Save(cfg desktopSettingsFile) error {
 		return err
 	}
 	return os.WriteFile(s.path, data, 0o644)
+}
+
+func normalizeDesktopChatSessions(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for project, sessionID := range raw {
+		project = strings.ToLower(strings.TrimSpace(project))
+		sessionID = strings.TrimSpace(sessionID)
+		if project == "" || sessionID == "" {
+			continue
+		}
+		out[project] = sessionID
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

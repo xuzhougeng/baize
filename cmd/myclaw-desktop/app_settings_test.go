@@ -92,3 +92,38 @@ func TestDesktopSettingsRejectNegativeValues(t *testing.T) {
 		t.Fatalf("unexpected validation error: %v", err)
 	}
 }
+
+func TestDesktopSettingsSavePreservesPersistedChatSessionSelection(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	first, err := app.GetChatState()
+	if err != nil {
+		t.Fatalf("get chat state: %v", err)
+	}
+
+	if _, err := app.SaveSettings(AppSettingsInput{
+		WeixinHistoryMessages: 12,
+		WeixinHistoryRunes:    360,
+	}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	reloadedService := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	reloadedApp := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, reloadedService, sessionStore, reminders, nil)
+	state, err := reloadedApp.GetChatState()
+	if err != nil {
+		t.Fatalf("reloaded get chat state: %v", err)
+	}
+	if state.SessionID != first.SessionID {
+		t.Fatalf("expected settings save to preserve chat selection %q, got %#v", first.SessionID, state)
+	}
+}
