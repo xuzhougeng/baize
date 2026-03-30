@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1402,6 +1403,94 @@ func TestDirectModeConversationHistoryPersistsAcrossRestarts(t *testing.T) {
 	}
 	if reply != "你刚才说你叫小张。" {
 		t.Fatalf("unexpected second reply: %q", reply)
+	}
+}
+
+func TestWeixinConversationHistoryUsesEnvLimits(t *testing.T) {
+	t.Setenv(envWeixinHistoryMessages, "4")
+	t.Setenv(envWeixinHistoryRunes, "5")
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
+	mc := MessageContext{Interface: "weixin", UserID: "u1", SessionID: "s1"}
+
+	for index := 0; index < 3; index++ {
+		service.appendConversationHistory(context.Background(), mc,
+			fmt.Sprintf("user%d-abcdef", index),
+			fmt.Sprintf("assistant%d-uvwxyz", index),
+		)
+	}
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected saved session snapshot")
+	}
+	if len(snapshot.History) != 4 {
+		t.Fatalf("expected 4 saved messages, got %#v", snapshot.History)
+	}
+
+	expected := []string{
+		trimConversationHistoryText("user1-abcdef", 5),
+		trimConversationHistoryText("assistant1-uvwxyz", 5),
+		trimConversationHistoryText("user2-abcdef", 5),
+		trimConversationHistoryText("assistant2-uvwxyz", 5),
+	}
+	for index, item := range snapshot.History {
+		if item.Content != expected[index] {
+			t.Fatalf("unexpected saved message %d: %#v", index, snapshot.History)
+		}
+	}
+
+	history := service.conversationHistory(context.Background(), mc)
+	if len(history) != 4 {
+		t.Fatalf("expected 4 trimmed history messages, got %#v", history)
+	}
+}
+
+func TestDesktopConversationHistoryIgnoresWeixinEnvLimits(t *testing.T) {
+	t.Setenv(envWeixinHistoryMessages, "2")
+	t.Setenv(envWeixinHistoryRunes, "5")
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
+	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
+
+	for index := 0; index < 3; index++ {
+		service.appendConversationHistory(context.Background(), mc,
+			fmt.Sprintf("desktop-user-%d-abcdef", index),
+			fmt.Sprintf("desktop-assistant-%d-uvwxyz", index),
+		)
+	}
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected saved session snapshot")
+	}
+	if len(snapshot.History) != 6 {
+		t.Fatalf("expected full desktop history, got %#v", snapshot.History)
+	}
+	if snapshot.History[0].Content != "desktop-user-0-abcdef" {
+		t.Fatalf("expected desktop content to remain untrimmed, got %#v", snapshot.History)
+	}
+	if snapshot.History[5].Content != "desktop-assistant-2-uvwxyz" {
+		t.Fatalf("expected desktop content to remain untrimmed, got %#v", snapshot.History)
+	}
+
+	history := service.conversationHistory(context.Background(), mc)
+	if len(history) != 6 {
+		t.Fatalf("expected full desktop conversation history, got %#v", history)
 	}
 }
 

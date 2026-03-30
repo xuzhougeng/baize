@@ -390,8 +390,9 @@ function bindStaticEvents() {
       const target = event.target.closest('[data-chat-option]');
       if (!target) return;
       const value = target.dataset.chatOption || '';
-      if (!value) return;
-      void sendChatOption(value);
+      const question = target.dataset.chatOptionQuestion || '';
+      if (!value || !question) return;
+      void sendChatOption(question, value);
     });
   }
 
@@ -1283,15 +1284,16 @@ async function clearPromptsLibrary() {
   }
 }
 
-async function sendMessage() {
+async function sendMessage(rawText = null, displayText = null) {
   if (state.chatStreaming) return;
 
   const input = document.getElementById('chat-input');
-  const text = input?.value.trim();
+  const text = String(rawText ?? input?.value ?? '').trim();
   if (!text) return;
+  const visibleText = String(displayText ?? text).trim() || text;
   if (text === '/new') {
     closeChatAutocomplete();
-    if (input) {
+    if (input && rawText == null) {
       input.value = '';
       autoResizeChatInput();
     }
@@ -1299,11 +1301,11 @@ async function sendMessage() {
     return;
   }
 
-  state.chat.push({ role: 'user', text, time: nowLabel() });
+  state.chat.push({ role: 'user', text: visibleText, time: nowLabel() });
   syncCurrentChatConversationFromMessages();
   renderChat();
   closeChatAutocomplete();
-  if (input) {
+  if (input && rawText == null) {
     input.value = '';
     autoResizeChatInput();
   }
@@ -1382,17 +1384,12 @@ async function startNewConversation() {
   }
 }
 
-async function sendChatOption(value) {
+async function sendChatOption(question, value) {
   if (state.chatStreaming) {
     showBanner('当前回复尚未完成。', true);
     return;
   }
-  const input = document.getElementById('chat-input');
-  if (!input) return;
-  input.value = value;
-  autoResizeChatInput();
-  updateChatAutocomplete();
-  await sendMessage();
+  await sendMessage(buildChatOptionSubmission(question, value), value);
 }
 
 async function switchChatSession(sessionId) {
@@ -2529,6 +2526,7 @@ function renderChatOptions(payload) {
               type="button"
               class="chat-option-button"
               data-chat-option="${escapeAttribute(option)}"
+              data-chat-option-question="${escapeAttribute(payload.question)}"
             >
               ${escapeHTML(option)}
             </button>
@@ -2562,6 +2560,13 @@ function unescapeChatOptionText(value) {
   } catch (_error) {
     return value;
   }
+}
+
+function buildChatOptionSubmission(question, option) {
+  return [
+    `对于你刚才给出的选项题“${question}”，我选择“${option}”。`,
+    '请严格基于上一轮上下文执行这个选择，不要把它当成一个脱离上下文的新话题。',
+  ].join('\n');
 }
 
 function renderChatSessions() {

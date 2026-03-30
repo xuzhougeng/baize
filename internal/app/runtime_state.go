@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"myclaw/internal/ai"
@@ -10,9 +12,16 @@ import (
 )
 
 const (
-	maxConversationHistoryMessages = 12
-	maxConversationHistoryRunes    = 360
+	defaultWeixinConversationHistoryMessages = 12
+	defaultWeixinConversationHistoryRunes    = 360
+	envWeixinHistoryMessages                 = "MYCLAW_WEIXIN_HISTORY_MESSAGES"
+	envWeixinHistoryRunes                    = "MYCLAW_WEIXIN_HISTORY_RUNES"
 )
+
+type conversationHistoryLimits struct {
+	Messages int
+	Runes    int
+}
 
 func (s *Service) sessionSnapshot(ctx context.Context, mc MessageContext) (sessionstate.Snapshot, error) {
 	return s.sessionSnapshotByKey(ctx, conversationSessionKey(mc))
@@ -59,7 +68,7 @@ func (s *Service) conversationHistory(ctx context.Context, mc MessageContext) []
 			Content: item.Content,
 		})
 	}
-	return trimConversationHistory(history)
+	return trimConversationHistory(history, conversationHistoryLimitsFor(mc))
 }
 
 func (s *Service) appendConversationHistory(ctx context.Context, mc MessageContext, userInput, assistantReply string) {
@@ -68,18 +77,19 @@ func (s *Service) appendConversationHistory(ctx context.Context, mc MessageConte
 		return
 	}
 
+	limits := conversationHistoryLimitsFor(mc)
 	history := append([]sessionstate.Message(nil), snapshot.History...)
 	history = append(history,
 		sessionstate.Message{
 			Role:    "user",
-			Content: trimConversationHistoryText(userInput),
+			Content: trimConversationHistoryText(userInput, limits.Runes),
 		},
 		sessionstate.Message{
 			Role:    "assistant",
-			Content: trimConversationHistoryText(assistantReply),
+			Content: trimConversationHistoryText(assistantReply, limits.Runes),
 		},
 	)
-	snapshot.History = trimSessionHistory(history)
+	snapshot.History = trimSessionHistory(history, limits)
 	_ = s.saveSessionSnapshot(ctx, snapshot)
 }
 
@@ -119,22 +129,22 @@ func (s *Service) setSelectedPromptID(ctx context.Context, mc MessageContext, pr
 	return s.saveSessionSnapshot(ctx, snapshot)
 }
 
-func trimConversationHistory(history []ai.ConversationMessage) []ai.ConversationMessage {
+func trimConversationHistory(history []ai.ConversationMessage, limits conversationHistoryLimits) []ai.ConversationMessage {
 	history = ai.NormalizeConversationMessages(history)
-	if len(history) <= maxConversationHistoryMessages {
+	if limits.Messages <= 0 || len(history) <= limits.Messages {
 		return history
 	}
-	return history[len(history)-maxConversationHistoryMessages:]
+	return history[len(history)-limits.Messages:]
 }
 
-func trimSessionHistory(history []sessionstate.Message) []sessionstate.Message {
+func trimSessionHistory(history []sessionstate.Message, limits conversationHistoryLimits) []sessionstate.Message {
 	out := make([]sessionstate.Message, 0, len(history))
 	for _, item := range history {
 		role := strings.ToLower(strings.TrimSpace(item.Role))
 		if role != "user" && role != "assistant" {
 			continue
 		}
-		content := trimConversationHistoryText(item.Content)
+		content := trimConversationHistoryText(item.Content, limits.Runes)
 		if content == "" {
 			continue
 		}
@@ -143,14 +153,40 @@ func trimSessionHistory(history []sessionstate.Message) []sessionstate.Message {
 			Content: content,
 		})
 	}
-	if len(out) <= maxConversationHistoryMessages {
+	if limits.Messages <= 0 || len(out) <= limits.Messages {
 		return out
 	}
-	return out[len(out)-maxConversationHistoryMessages:]
+	return out[len(out)-limits.Messages:]
 }
 
-func trimConversationHistoryText(text string) string {
-	return preview(strings.TrimSpace(text), maxConversationHistoryRunes)
+func trimConversationHistoryText(text string, maxRunes int) string {
+	text = strings.TrimSpace(text)
+	if maxRunes <= 0 {
+		return text
+	}
+	return preview(text, maxRunes)
+}
+
+func conversationHistoryLimitsFor(mc MessageContext) conversationHistoryLimits {
+	if !strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
+		return conversationHistoryLimits{}
+	}
+	return conversationHistoryLimits{
+		Messages: envIntOrDefault(envWeixinHistoryMessages, defaultWeixinConversationHistoryMessages),
+		Runes:    envIntOrDefault(envWeixinHistoryRunes, defaultWeixinConversationHistoryRunes),
+	}
+}
+
+func envIntOrDefault(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func normalizeStringList(values []string) []string {
