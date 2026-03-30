@@ -63,6 +63,7 @@ const state = {
   openAppendId: "",
   model: defaultModelState(),
   weixin: defaultWeixinState(),
+  settings: defaultSettingsState(),
   chat: [],
   chatStreaming: false,
   chatStreamHandlers: {},
@@ -129,6 +130,7 @@ async function init() {
   renderSkills();
   renderModel();
   renderWeixin();
+  renderSettings();
 
   try {
     state.backend = await waitForBackend();
@@ -309,6 +311,11 @@ function bindStaticEvents() {
   const clearPrompts = document.getElementById('clear-prompts');
   if (clearPrompts) {
     clearPrompts.addEventListener('click', () => void clearPromptsLibrary());
+  }
+
+  const settingsSave = document.getElementById('settings-save');
+  if (settingsSave) {
+    settingsSave.addEventListener('click', () => void saveSettings());
   }
 
   const skillImportTrigger = document.getElementById('skill-import-trigger');
@@ -747,6 +754,8 @@ function createWailsBackend(backend) {
     StartWeixinLogin: () => backend.StartWeixinLogin(),
     CancelWeixinLogin: () => backend.CancelWeixinLogin(),
     LogoutWeixin: () => backend.LogoutWeixin(),
+    GetSettings: () => backend.GetSettings(),
+    SaveSettings: (payload) => backend.SaveSettings(payload),
   };
 }
 
@@ -797,6 +806,8 @@ function createHTTPBackend() {
     StartWeixinLogin: () => requestJSON('POST', '/api/weixin/login'),
     CancelWeixinLogin: () => requestJSON('POST', '/api/weixin/cancel'),
     LogoutWeixin: () => requestJSON('POST', '/api/weixin/logout'),
+    GetSettings: () => requestJSON('GET', '/api/settings'),
+    SaveSettings: (payload) => requestJSON('POST', '/api/settings', payload),
   };
 }
 
@@ -908,7 +919,7 @@ function startBackendPolling() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshChatPrompt(), refreshModel(), refreshWeixin()]);
+  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings()]);
 }
 
 async function refreshProjectState() {
@@ -990,6 +1001,11 @@ async function refreshModel() {
 async function refreshWeixin() {
   const next = await state.backend.GetWeixinStatus();
   applyWeixinStatus(next, false);
+}
+
+async function refreshSettings() {
+  state.settings = normalizeSettingsState(await state.backend.GetSettings());
+  renderSettings();
 }
 
 async function browseFile() {
@@ -2476,6 +2492,42 @@ function renderWeixin() {
   }
 }
 
+async function saveSettings() {
+  try {
+    const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || '0';
+    const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || '0';
+    const payload = {
+      weixinHistoryMessages: Number(messagesValue),
+      weixinHistoryRunes: Number(runesValue),
+    };
+
+    if (!Number.isInteger(payload.weixinHistoryMessages) || payload.weixinHistoryMessages < 0) {
+      throw new Error('最近消息条数必须是大于等于 0 的整数。');
+    }
+    if (!Number.isInteger(payload.weixinHistoryRunes) || payload.weixinHistoryRunes < 0) {
+      throw new Error('单条消息字符上限必须是大于等于 0 的整数。');
+    }
+
+    state.settings = normalizeSettingsState(await state.backend.SaveSettings(payload));
+    renderSettings();
+    showBanner('设置已保存。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  }
+}
+
+function renderSettings() {
+  const messages = document.getElementById('settings-weixin-history-messages');
+  const runes = document.getElementById('settings-weixin-history-runes');
+
+  if (messages) {
+    messages.value = String(state.settings.weixinHistoryMessages ?? 12);
+  }
+  if (runes) {
+    runes.value = String(state.settings.weixinHistoryRunes ?? 360);
+  }
+}
+
 function renderChat() {
   const container = document.getElementById('chat-list');
   if (!container) return;
@@ -2863,6 +2915,23 @@ function normalizeModelSettings(payload) {
       }))
     : [];
   return stateValue;
+}
+
+function defaultSettingsState() {
+  return {
+    weixinHistoryMessages: 12,
+    weixinHistoryRunes: 360,
+  };
+}
+
+function normalizeSettingsState(payload) {
+  const source = Array.isArray(payload) ? payload[0] : payload;
+  return {
+    ...defaultSettingsState(),
+    ...(source || {}),
+    weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
+    weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
+  };
 }
 
 function defaultWeixinState() {

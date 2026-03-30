@@ -68,7 +68,7 @@ func (s *Service) conversationHistory(ctx context.Context, mc MessageContext) []
 			Content: item.Content,
 		})
 	}
-	return trimConversationHistory(history, conversationHistoryLimitsFor(mc))
+	return trimConversationHistory(history, s.conversationHistoryLimitsFor(mc))
 }
 
 func (s *Service) appendConversationHistory(ctx context.Context, mc MessageContext, userInput, assistantReply string) {
@@ -77,7 +77,7 @@ func (s *Service) appendConversationHistory(ctx context.Context, mc MessageConte
 		return
 	}
 
-	limits := conversationHistoryLimitsFor(mc)
+	limits := s.conversationHistoryLimitsFor(mc)
 	history := append([]sessionstate.Message(nil), snapshot.History...)
 	history = append(history,
 		sessionstate.Message{
@@ -167,14 +167,19 @@ func trimConversationHistoryText(text string, maxRunes int) string {
 	return preview(text, maxRunes)
 }
 
-func conversationHistoryLimitsFor(mc MessageContext) conversationHistoryLimits {
-	if !strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
-		return conversationHistoryLimits{}
-	}
+func defaultWeixinConversationHistoryLimits() conversationHistoryLimits {
 	return conversationHistoryLimits{
 		Messages: envIntOrDefault(envWeixinHistoryMessages, defaultWeixinConversationHistoryMessages),
 		Runes:    envIntOrDefault(envWeixinHistoryRunes, defaultWeixinConversationHistoryRunes),
 	}
+}
+
+func (s *Service) conversationHistoryLimitsFor(mc MessageContext) conversationHistoryLimits {
+	if !strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
+		return conversationHistoryLimits{}
+	}
+	messages, runes := s.WeixinHistoryLimits()
+	return conversationHistoryLimits{Messages: messages, Runes: runes}
 }
 
 func envIntOrDefault(key string, fallback int) int {

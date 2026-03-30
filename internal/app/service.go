@@ -51,6 +51,8 @@ type Service struct {
 	promptStore     promptBackend
 	sessionStore    *sessionstate.Store
 	toolProviders   *agentToolProviders
+	settingsMu      sync.RWMutex
+	weixinHistory   conversationHistoryLimits
 	modeMu          sync.RWMutex
 	modeMap         map[string]Mode
 	loadedSkillsMu  sync.RWMutex
@@ -111,12 +113,34 @@ func NewServiceWithRuntime(store *knowledge.Store, aiService aiBackend, reminder
 		skillLoader:     skillLoader,
 		promptStore:     promptStore,
 		sessionStore:    sessionStore,
+		weixinHistory:   defaultWeixinConversationHistoryLimits(),
 		modeMap:         make(map[string]Mode),
 		loadedSkillsMap: make(map[string]map[string]skilllib.Skill),
 	}
 	service.toolProviders = newAgentToolProviders()
 	service.toolProviders.Register(newLocalAgentToolProvider(service))
 	return service
+}
+
+func (s *Service) WeixinHistoryLimits() (messages int, runes int) {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.weixinHistory.Messages, s.weixinHistory.Runes
+}
+
+func (s *Service) SetWeixinHistoryLimits(messages int, runes int) {
+	if messages < 0 {
+		messages = 0
+	}
+	if runes < 0 {
+		runes = 0
+	}
+	s.settingsMu.Lock()
+	s.weixinHistory = conversationHistoryLimits{
+		Messages: messages,
+		Runes:    runes,
+	}
+	s.settingsMu.Unlock()
 }
 
 func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input string) (string, error) {

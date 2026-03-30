@@ -22,6 +22,10 @@
             <span class="icon">◇</span>
             <span>概览</span>
           </a>
+          <a class="nav-item" data-view="chat">
+            <span class="icon">○</span>
+            <span>对话</span>
+          </a>
           <a class="nav-item" data-view="memory">
             <span class="icon">◈</span>
             <span>记忆库</span>
@@ -46,9 +50,9 @@
             <span class="icon">◎</span>
             <span>微信</span>
           </a>
-          <a class="nav-item" data-view="chat">
-            <span class="icon">○</span>
-            <span>对话</span>
+          <a class="nav-item" data-view="settings">
+            <span class="icon">⚙</span>
+            <span>设置</span>
           </a>
         </nav>
         <div class="sidebar-footer">
@@ -531,6 +535,46 @@
                   </div>
                 </div>
                 <p class="weixin-qr-caption" id="weixin-qr-caption">二维码会在本窗口内展示。</p>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <div id="view-settings" class="view">
+          <header class="content-header">
+            <h2>设置</h2>
+            <p class="subtitle">管理 desktop 内部运行参数。这里的微信上下文限制只影响微信后台消息，不影响本地对话 UI。</p>
+          </header>
+          <div class="content-body">
+            <div class="settings-layout">
+              <section class="model-card">
+                <div class="model-card-header">
+                  <div>
+                    <h3>微信上下文限制</h3>
+                    <p>等价于 `MYCLAW_WEIXIN_HISTORY_MESSAGES` 和 `MYCLAW_WEIXIN_HISTORY_RUNES`，保存后立即作用于当前 desktop 实例，并持久化到本地数据目录。</p>
+                  </div>
+                  <span class="status-pill on">微信专用</span>
+                </div>
+
+                <div class="form-grid">
+                  <label class="form-field">
+                    <span>最近消息条数</span>
+                    <input id="settings-weixin-history-messages" type="number" min="0" step="1" placeholder="12" />
+                  </label>
+                  <label class="form-field">
+                    <span>单条消息字符上限</span>
+                    <input id="settings-weixin-history-runes" type="number" min="0" step="1" placeholder="360" />
+                  </label>
+                </div>
+
+                <div class="settings-note">
+                  <p><code>0</code> 表示不限制。</p>
+                  <p>这些限制只作用于微信 bridge 的历史保留和后续对话上下文；本地 desktop / terminal 会话不受影响。</p>
+                </div>
+
+                <div class="model-actions">
+                  <button class="btn btn-primary" id="settings-save">保存设置</button>
+                </div>
               </section>
             </div>
           </div>

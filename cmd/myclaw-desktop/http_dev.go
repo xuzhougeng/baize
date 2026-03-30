@@ -358,6 +358,24 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		s.writeResult(w, result, err)
 	})
 
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			result, err := s.app.GetSettings()
+			s.writeResult(w, result, err)
+		case http.MethodPost:
+			var body AppSettingsInput
+			if err := decodeJSONBody(r, &body); err != nil {
+				s.writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			result, err := s.app.SaveSettings(body)
+			s.writeResult(w, result, err)
+		default:
+			s.writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
+		}
+	})
+
 	mux.HandleFunc("/api/model/save", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			s.writeMethodNotAllowed(w, http.MethodPost)

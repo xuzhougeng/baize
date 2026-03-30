@@ -45,6 +45,7 @@ type DesktopApp struct {
 	sessionStore      *sessionstate.Store
 	reminders         *reminder.Manager
 	weixinBridge      *weixin.Bridge
+	settingsStore     *desktopSettingsStore
 	reminderCancel    context.CancelFunc
 	dialogMu          sync.Mutex
 	chatSessionMu     sync.RWMutex
@@ -173,6 +174,16 @@ type ChatModeState struct {
 	Mode string `json:"mode"`
 }
 
+type AppSettings struct {
+	WeixinHistoryMessages int `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int `json:"weixinHistoryRunes"`
+}
+
+type AppSettingsInput struct {
+	WeixinHistoryMessages int `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int `json:"weixinHistoryRunes"`
+}
+
 type ChatPromptState struct {
 	PromptID string `json:"promptId"`
 	ShortID  string `json:"shortId"`
@@ -209,7 +220,7 @@ type reminderNotifier struct {
 }
 
 func NewDesktopApp(dataDir string, store *knowledge.Store, promptStore *promptlib.Store, projectStore *projectstate.Store, modelStore *modelconfig.Store, aiService *ai.Service, service *appsvc.Service, sessionStore *sessionstate.Store, reminders *reminder.Manager, weixinBridge *weixin.Bridge) *DesktopApp {
-	return &DesktopApp{
+	app := &DesktopApp{
 		dataDir:        dataDir,
 		store:          store,
 		promptStore:    promptStore,
@@ -220,9 +231,12 @@ func NewDesktopApp(dataDir string, store *knowledge.Store, promptStore *promptli
 		sessionStore:   sessionStore,
 		reminders:      reminders,
 		weixinBridge:   weixinBridge,
+		settingsStore:  newDesktopSettingsStore(dataDir),
 		chatSessionMap: make(map[string]string),
 		weixinStatus:   defaultWeixinStatus(),
 	}
+	app.applyPersistedSettings()
+	return app
 }
 
 func (a *DesktopApp) startup(ctx context.Context) {
@@ -440,6 +454,40 @@ func (a *DesktopApp) GetModelSettings() (ModelSettings, error) {
 		Message:                   desktopModelMessage(snapshot, missing),
 	}
 	return settings, nil
+}
+
+func (a *DesktopApp) GetSettings() (AppSettings, error) {
+	if a.service == nil {
+		return AppSettings{}, errors.New("设置服务尚未启用")
+	}
+	messages, runes := a.service.WeixinHistoryLimits()
+	return AppSettings{
+		WeixinHistoryMessages: messages,
+		WeixinHistoryRunes:    runes,
+	}, nil
+}
+
+func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
+	if a.service == nil {
+		return AppSettings{}, errors.New("设置服务尚未启用")
+	}
+	if input.WeixinHistoryMessages < 0 {
+		return AppSettings{}, errors.New("微信历史消息条数不能小于 0")
+	}
+	if input.WeixinHistoryRunes < 0 {
+		return AppSettings{}, errors.New("微信历史字符上限不能小于 0")
+	}
+
+	a.service.SetWeixinHistoryLimits(input.WeixinHistoryMessages, input.WeixinHistoryRunes)
+	if a.settingsStore != nil {
+		if err := a.settingsStore.Save(desktopSettingsFile{
+			WeixinHistoryMessages: input.WeixinHistoryMessages,
+			WeixinHistoryRunes:    input.WeixinHistoryRunes,
+		}); err != nil {
+			return AppSettings{}, err
+		}
+	}
+	return a.GetSettings()
 }
 
 func (a *DesktopApp) SaveModelConfig(input ModelConfigInput) (ModelSettings, error) {
@@ -1043,6 +1091,17 @@ func (a *DesktopApp) aiStatus(ctx context.Context) (bool, string, error) {
 		return false, "模型未配置。请在桌面端的模型页面填写 Provider、Base URL、API Key 和 Model，或设置对应环境变量。", nil
 	}
 	return true, "模型已配置，可直接做文件总结和对话检索。", nil
+}
+
+func (a *DesktopApp) applyPersistedSettings() {
+	if a.service == nil || a.settingsStore == nil {
+		return
+	}
+	cfg, ok, err := a.settingsStore.Load()
+	if err != nil || !ok {
+		return
+	}
+	a.service.SetWeixinHistoryLimits(cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes)
 }
 
 func (a *DesktopApp) ingestFile(ctx context.Context, rawPath string) (knowledge.Entry, error) {
