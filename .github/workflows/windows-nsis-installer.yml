@@ -6,6 +6,9 @@ on:
     tags:
       - "v*.*"
 
+permissions:
+  contents: write
+
 jobs:
   build-installer:
     runs-on: windows-latest
@@ -67,12 +70,37 @@ jobs:
             Get-ChildItem -Path cmd/myclaw-desktop/build -Recurse | Select-Object FullName
             throw "NSIS installer was not generated."
           }
-          $installers | Select-Object FullName, Length
+          $installer = $installers | Select-Object -First 1
+          $installer | Select-Object FullName, Length
+          "INSTALLER_PATH=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: myclaw-desktop-windows-amd64
-          path: cmd/myclaw-desktop/build/bin/*-installer.exe
+          path: ${{ env.INSTALLER_PATH }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish installer to GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $title = $tag
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title $title --generate-notes *> $null
+            if ($LASTEXITCODE -ne 0) {
+              Start-Sleep -Seconds 5
+              gh release view $tag *> $null
+              if ($LASTEXITCODE -ne 0) {
+                throw "GitHub release $tag is not available."
+              }
+            }
+          }
+
+          gh release upload $tag $env:INSTALLER_PATH --clobber

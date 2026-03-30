@@ -52,9 +52,9 @@ jobs:
 
       - name: Verify notarized output
         run: |
-          APP_PATH="cmd/myclaw-desktop/build/bin/myclaw.app"
+          APP_PATH="$(find cmd/myclaw-desktop/build/bin -maxdepth 1 -type d -name '*.app' | head -n 1)"
           DMG_PATH="dist/myclaw-macos-${BUILD_VERSION}.dmg"
-          if [ ! -d "${APP_PATH}" ]; then
+          if [ -z "${APP_PATH}" ] || [ ! -d "${APP_PATH}" ]; then
             ls -R cmd/myclaw-desktop/build
             echo "Error: .app bundle was not generated."
             exit 1
@@ -68,6 +68,7 @@ jobs:
           xcrun stapler validate "${APP_PATH}"
           xcrun stapler validate "${DMG_PATH}"
           ls -lh "${APP_PATH}" "${DMG_PATH}"
+          echo "APP_PATH=${APP_PATH}" >> "$GITHUB_ENV"
           echo "DMG_PATH=${DMG_PATH}" >> "$GITHUB_ENV"
 
       - name: Upload app artifact
@@ -75,8 +76,8 @@ jobs:
         with:
           name: myclaw-desktop-macos-arm64
           path: |
-            cmd/myclaw-desktop/build/bin/myclaw.app
-            dist/myclaw-macos-*.dmg
+            ${{ env.APP_PATH }}
+            ${{ env.DMG_PATH }}
           if-no-files-found: error
           retention-days: 14
 
@@ -87,8 +88,11 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           title="${tag}"
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            gh release upload "${tag}" "${DMG_PATH}" --clobber
-          else
-            gh release create "${tag}" "${DMG_PATH}" --title "${title}" --generate-notes
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" --title "${title}" --generate-notes >/dev/null 2>&1 || true
+            if ! gh release view "${tag}" >/dev/null 2>&1; then
+              sleep 5
+              gh release view "${tag}" >/dev/null 2>&1
+            fi
           fi
+          gh release upload "${tag}" "${DMG_PATH}" --clobber
