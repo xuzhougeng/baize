@@ -45,14 +45,15 @@ func TestStoreSaveLoadListAndSwitchActiveProfile(t *testing.T) {
 	ctx := context.Background()
 
 	first, err := store.Save(ctx, Config{
-		Name:                "OpenAI New API",
-		Provider:            ProviderOpenAI,
-		APIType:             APITypeResponses,
-		BaseURL:             "https://example.com/v1/",
-		APIKey:              "openai-secret",
-		Model:               "gpt-4.1-mini",
-		MaxOutputTokensText: intPtr(1600),
-		MaxOutputTokensJSON: intPtr(900),
+		Name:                  "OpenAI New API",
+		Provider:              ProviderOpenAI,
+		APIType:               APITypeResponses,
+		BaseURL:               "https://example.com/v1/",
+		APIKey:                "openai-secret",
+		Model:                 "gpt-4.1-mini",
+		RequestTimeoutSeconds: intPtr(210),
+		MaxOutputTokensText:   intPtr(1600),
+		MaxOutputTokensJSON:   intPtr(900),
 	}, SaveOptions{SetActive: true})
 	if err != nil {
 		t.Fatalf("save first profile: %v", err)
@@ -62,6 +63,9 @@ func TestStoreSaveLoadListAndSwitchActiveProfile(t *testing.T) {
 	}
 	if first.APIKey != "openai-secret" {
 		t.Fatalf("expected decrypted api key, got %q", first.APIKey)
+	}
+	if first.RequestTimeoutSeconds == nil || *first.RequestTimeoutSeconds != 210 {
+		t.Fatalf("expected request timeout to round-trip, got %#v", first.RequestTimeoutSeconds)
 	}
 	if first.MaxOutputTokensText == nil || *first.MaxOutputTokensText != 1600 {
 		t.Fatalf("expected text max tokens to round-trip, got %#v", first.MaxOutputTokensText)
@@ -106,6 +110,9 @@ func TestStoreSaveLoadListAndSwitchActiveProfile(t *testing.T) {
 	}
 	if snapshot.Profiles[0].APIKeyMasked != "********" {
 		t.Fatalf("expected masked api key, got %q", snapshot.Profiles[0].APIKeyMasked)
+	}
+	if snapshot.Profiles[0].RequestTimeoutSeconds == nil || *snapshot.Profiles[0].RequestTimeoutSeconds != 210 {
+		t.Fatalf("expected request timeout in summary, got %#v", snapshot.Profiles[0].RequestTimeoutSeconds)
 	}
 	if snapshot.Profiles[0].MaxOutputTokensText == nil || *snapshot.Profiles[0].MaxOutputTokensText != 1600 {
 		t.Fatalf("expected text token limit in summary, got %#v", snapshot.Profiles[0].MaxOutputTokensText)

@@ -422,6 +422,10 @@
                         <input id="model-max-output-tokens-json" type="number" min="1" max="128000" step="1" placeholder="默认：800" />
                       </label>
                       <label class="form-field">
+                        <span>请求超时（秒）</span>
+                        <input id="model-request-timeout-seconds" type="number" min="1" max="3600" step="1" placeholder="默认：90" />
+                      </label>
+                      <label class="form-field">
                         <span>Temperature</span>
                         <input id="model-temperature" type="number" min="0" max="2" step="0.1" placeholder="默认由模型决定" />
                       </label>
@@ -476,6 +480,10 @@
                     <div class="model-summary-row">
                       <span>Model</span>
                       <strong id="effective-model">—</strong>
+                    </div>
+                    <div class="model-summary-row">
+                      <span>请求超时</span>
+                      <strong id="effective-request-timeout-seconds">—</strong>
                     </div>
                     <div class="model-summary-row">
                       <span>文本最大输出 Tokens</span>

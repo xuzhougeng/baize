@@ -2683,6 +2683,7 @@ function populateModelForm(profile) {
   };
   setOptional('model-max-output-tokens-text', coalesceOptionalNumber(source.maxOutputTokensText, source.maxOutputTokens));
   setOptional('model-max-output-tokens-json', coalesceOptionalNumber(source.maxOutputTokensJSON, source.maxOutputTokens));
+  setOptional('model-request-timeout-seconds', source.requestTimeoutSeconds);
   setOptional('model-temperature', source.temperature);
   setOptional('model-top-p', source.topP);
   setOptional('model-frequency-penalty', source.frequencyPenalty);
@@ -2742,6 +2743,14 @@ function formatEffectiveMaxOutputTokens(value, defaultValue) {
   return `默认（${defaultValue}）`;
 }
 
+function formatEffectiveRequestTimeoutSeconds(value) {
+  const n = normalizeOptionalNumber(value);
+  if (n != null && n > 0) {
+    return `${n} 秒`;
+  }
+  return `默认（${DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS} 秒）`;
+}
+
 function readModelForm() {
   const selected = selectedModelProfile();
   const profileSelect = document.getElementById('model-profile-select');
@@ -2753,6 +2762,7 @@ function readModelForm() {
     baseUrl: document.getElementById('model-base-url')?.value.trim() || '',
     apiKey: document.getElementById('model-api-key')?.value.trim() || '',
     model: document.getElementById('model-name')?.value.trim() || '',
+    requestTimeoutSeconds: readOptionalNumber('model-request-timeout-seconds'),
     maxOutputTokensText: readOptionalNumber('model-max-output-tokens-text'),
     maxOutputTokensJSON: readOptionalNumber('model-max-output-tokens-json'),
     temperature: readOptionalNumber('model-temperature'),
@@ -2838,6 +2848,7 @@ function renderModel() {
   const effectiveAPIType = document.getElementById('effective-api-type');
   const effectiveBaseUrl = document.getElementById('effective-base-url');
   const effectiveModel = document.getElementById('effective-model');
+  const effectiveRequestTimeoutSeconds = document.getElementById('effective-request-timeout-seconds');
   const effectiveMaxOutputTokensText = document.getElementById('effective-max-output-tokens-text');
   const effectiveMaxOutputTokensJSON = document.getElementById('effective-max-output-tokens-json');
   const effectiveApiKey = document.getElementById('effective-api-key');
@@ -2875,6 +2886,7 @@ function renderModel() {
   if (effectiveAPIType) effectiveAPIType.textContent = state.model.effectiveApiType || '—';
   if (effectiveBaseUrl) effectiveBaseUrl.textContent = state.model.effectiveBaseUrl || '—';
   if (effectiveModel) effectiveModel.textContent = state.model.effectiveModel || '—';
+  if (effectiveRequestTimeoutSeconds) effectiveRequestTimeoutSeconds.textContent = formatEffectiveRequestTimeoutSeconds(state.model.effectiveRequestTimeoutSeconds);
   if (effectiveMaxOutputTokensText) effectiveMaxOutputTokensText.textContent = formatEffectiveMaxOutputTokens(state.model.effectiveMaxOutputTokensText, 1500);
   if (effectiveMaxOutputTokensJSON) effectiveMaxOutputTokensJSON.textContent = formatEffectiveMaxOutputTokens(state.model.effectiveMaxOutputTokensJSON, 800);
   if (effectiveApiKey) effectiveApiKey.textContent = state.model.effectiveApiKeyMasked || '—';
@@ -3874,6 +3886,8 @@ const MODEL_API_TYPE_OPTIONS = {
   ],
 };
 
+const DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS = 90;
+
 function defaultModelState() {
   return {
     profiles: [],
@@ -3886,6 +3900,7 @@ function defaultModelState() {
     effectiveBaseUrl: 'https://api.openai.com/v1',
     effectiveApiKeyMasked: '(empty)',
     effectiveModel: '',
+    effectiveRequestTimeoutSeconds: null,
     effectiveMaxOutputTokensText: null,
     effectiveMaxOutputTokensJSON: null,
     effectiveTemperature: null,
@@ -3912,6 +3927,7 @@ function normalizeModelSettings(payload) {
           apiType: item.apiType || 'responses',
           baseUrl: item.baseUrl || MODEL_PROVIDER_DEFAULTS[item.provider || 'openai']?.baseUrl || '',
           model: item.model || '',
+          requestTimeoutSeconds: normalizeOptionalNumber(item.requestTimeoutSeconds),
           hasApiKey: Boolean(item.hasApiKey),
           apiKeyMasked: item.apiKeyMasked || (item.hasApiKey ? '********' : '(empty)'),
           active: Boolean(item.active),
@@ -3927,6 +3943,7 @@ function normalizeModelSettings(payload) {
     : [];
   stateValue.effectiveMaxOutputTokensText = coalesceOptionalNumber(stateValue.effectiveMaxOutputTokensText, stateValue.effectiveMaxOutputTokens);
   stateValue.effectiveMaxOutputTokensJSON = coalesceOptionalNumber(stateValue.effectiveMaxOutputTokensJSON, stateValue.effectiveMaxOutputTokens);
+  stateValue.effectiveRequestTimeoutSeconds = normalizeOptionalNumber(stateValue.effectiveRequestTimeoutSeconds);
   stateValue.effectiveTemperature = normalizeOptionalNumber(stateValue.effectiveTemperature);
   stateValue.effectiveTopP = normalizeOptionalNumber(stateValue.effectiveTopP);
   stateValue.effectiveFrequencyPenalty = normalizeOptionalNumber(stateValue.effectiveFrequencyPenalty);

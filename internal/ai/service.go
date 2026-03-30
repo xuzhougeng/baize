@@ -49,9 +49,32 @@ func NewService(configStore *modelconfig.Store) *Service {
 	return &Service{
 		configStore: configStore,
 		httpClient: &http.Client{
-			Timeout: 90 * time.Second,
+			Timeout: time.Duration(modelconfig.DefaultRequestTimeoutSeconds) * time.Second,
 		},
 	}
+}
+
+func (s *Service) httpClientForConfig(cfg modelconfig.Config) *http.Client {
+	if s.httpClient == nil {
+		return &http.Client{
+			Timeout: configuredRequestTimeout(cfg),
+		}
+	}
+	client := *s.httpClient
+	client.Timeout = configuredRequestTimeout(cfg)
+	return &client
+}
+
+func configuredRequestTimeout(cfg modelconfig.Config) time.Duration {
+	seconds := modelconfig.DefaultRequestTimeoutSeconds
+	if cfg.RequestTimeoutSeconds != nil && *cfg.RequestTimeoutSeconds > 0 {
+		seconds = *cfg.RequestTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func (s *Service) doRequest(cfg modelconfig.Config, req *http.Request) (*http.Response, error) {
+	return s.httpClientForConfig(cfg).Do(req)
 }
 
 func (s *Service) CurrentConfig(ctx context.Context) (modelconfig.Config, error) {
@@ -726,7 +749,7 @@ func (s *Service) createOpenAIResponse(ctx context.Context, cfg modelconfig.Conf
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -787,7 +810,7 @@ func (s *Service) createOpenAIChatCompletion(ctx context.Context, cfg modelconfi
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -844,7 +867,7 @@ func (s *Service) createOpenAIResponseStream(ctx context.Context, cfg modelconfi
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -935,7 +958,7 @@ func (s *Service) createOpenAIChatCompletionStream(ctx context.Context, cfg mode
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -1064,7 +1087,7 @@ func (s *Service) createAnthropicMessageStream(ctx context.Context, cfg modelcon
 	httpReq.Header.Set("X-Api-Key", cfg.APIKey)
 	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -1151,7 +1174,7 @@ func (s *Service) doAnthropicMessage(ctx context.Context, cfg modelconfig.Config
 	httpReq.Header.Set("X-Api-Key", cfg.APIKey)
 	httpReq.Header.Set("Anthropic-Version", "2023-06-01")
 
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.doRequest(cfg, httpReq)
 	if err != nil {
 		return anthropicMessagesResponse{}, err
 	}

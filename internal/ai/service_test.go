@@ -137,6 +137,30 @@ func TestChatUsesTextMaxOutputTokensOverride(t *testing.T) {
 	}
 }
 
+func TestServiceUsesConfiguredRequestTimeout(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider:              modelconfig.ProviderOpenAI,
+		APIType:               modelconfig.APITypeResponses,
+		BaseURL:               "http://example.invalid/v1",
+		APIKey:                "secret",
+		Model:                 "gpt-test",
+		RequestTimeoutSeconds: intPtr(210),
+	})
+
+	service := NewService(store)
+	cfg, err := service.CurrentConfig(context.Background())
+	if err != nil {
+		t.Fatalf("current config: %v", err)
+	}
+
+	if got := service.httpClientForConfig(cfg).Timeout; got != 210*time.Second {
+		t.Fatalf("expected configured timeout, got %v", got)
+	}
+	if got := service.httpClientForConfig(modelconfig.DefaultConfig()).Timeout; got != time.Duration(modelconfig.DefaultRequestTimeoutSeconds)*time.Second {
+		t.Fatalf("expected default timeout, got %v", got)
+	}
+}
+
 func TestOpenAIChatCompletionsStructuredRequest(t *testing.T) {
 	store := newConfiguredStore(t, modelconfig.Config{
 		Provider: modelconfig.ProviderOpenAI,
