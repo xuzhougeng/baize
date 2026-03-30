@@ -50,6 +50,15 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		s.writeResult(w, result, err)
 	})
 
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		result, err := s.app.GetVersionInfo()
+		s.writeResult(w, result, err)
+	})
+
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			s.writeMethodNotAllowed(w, http.MethodGet)
@@ -288,6 +297,15 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 			return
 		}
 		result, err := s.app.buildCurrentChatMarkdownExport(context.Background())
+		s.writeResult(w, result, err)
+	})
+
+	mux.HandleFunc("/api/chat/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		result, err := s.app.RefreshChatResponse()
 		s.writeResult(w, result, err)
 	})
 

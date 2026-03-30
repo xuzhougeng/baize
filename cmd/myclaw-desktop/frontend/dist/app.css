@@ -252,6 +252,30 @@ select {
   color: var(--text-muted);
 }
 
+.status-compact-action {
+  width: calc(100% + 12px);
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.status-compact-action:hover {
+  background: rgba(196, 122, 92, 0.08);
+  color: var(--text-primary);
+}
+
+.status-compact-action:focus-visible {
+  outline: none;
+  background: rgba(196, 122, 92, 0.1);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
 .status-compact-row .value {
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -1235,6 +1259,11 @@ select {
   color: var(--text-muted);
 }
 
+.chat-sidebar-header .btn {
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
 .chat-session-list {
   flex: 1;
   min-height: 0;
@@ -2011,8 +2040,14 @@ select {
   justify-content: flex-end;
 }
 
-.chat-copy-button {
+.chat-message-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-action-button {
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -2027,31 +2062,31 @@ select {
   transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
 
-.chat-copy-button svg {
+.chat-action-button svg {
   width: 14px;
   height: 14px;
   fill: currentColor;
   opacity: 0.78;
 }
 
-.chat-copy-button:hover {
+.chat-action-button:hover {
   transform: translateY(-1px);
   border-color: var(--border-focus);
   background: rgba(0, 0, 0, 0.08);
 }
 
-.chat-copy-button:focus-visible {
+.chat-action-button:focus-visible {
   outline: none;
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-.chat-message.user .chat-copy-button {
+.chat-message.user .chat-action-button {
   border-color: rgba(26, 24, 22, 0.18);
   background: rgba(26, 24, 22, 0.08);
 }
 
-.chat-message.user .chat-copy-button:hover {
+.chat-message.user .chat-action-button:hover {
   border-color: rgba(26, 24, 22, 0.28);
   background: rgba(26, 24, 22, 0.14);
 }

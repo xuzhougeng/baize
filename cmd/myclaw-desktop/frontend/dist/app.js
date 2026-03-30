@@ -492,6 +492,22 @@ function openChatSessionDialog(mode, conversation) {
     confirm.classList.remove('btn-primary');
     confirm.classList.add('btn-danger');
     card.classList.add('danger');
+  } else if (mode === 'refresh') {
+    const previewText = truncateText(String(conversation?.preview || '').replace(/\s+/g, ' ').trim(), 48);
+    const displayTitle = previewText || '当前回复';
+    state.chatSessionDialog.initialTitle = displayTitle;
+    targetLabel.textContent = '当前回复';
+    targetValue.textContent = displayTitle;
+    eyebrow.textContent = '确认操作';
+    title.textContent = '刷新当前回复';
+    description.textContent = '是不是一定要刷新？刷新后会丢弃当前这条 AI 回复，并重新生成。';
+    field.hidden = true;
+    input.value = displayTitle;
+    input.placeholder = '';
+    confirm.textContent = '刷新';
+    confirm.classList.remove('btn-danger');
+    confirm.classList.add('btn-primary');
+    card.classList.remove('danger');
   } else {
     const displayTitle = (conversation?.title || '新对话').trim() || '新对话';
     state.chatSessionDialog.initialTitle = displayTitle;
@@ -525,7 +541,7 @@ function openChatSessionDialog(mode, conversation) {
 
   dialog.hidden = false;
   requestAnimationFrame(() => {
-    if (mode === 'delete' || mode === 'knowledge-delete' || mode === 'prompt-delete') {
+    if (mode === 'delete' || mode === 'knowledge-delete' || mode === 'prompt-delete' || mode === 'refresh') {
       confirm.focus();
     } else {
       input.focus();
@@ -602,6 +618,12 @@ async function submitChatSessionDialog() {
   confirm.disabled = true;
 
   try {
+    if (mode === 'refresh') {
+      closeChatSessionDialog();
+      await refreshCurrentChatResponse();
+      return;
+    }
+
     if (mode === 'delete') {
       applyChatState(normalizeChatState(await state.backend.DeleteChatSession(sessionId)));
       closeChatSessionDialog();
@@ -643,6 +665,11 @@ function bindStaticEvents() {
   const themeToggle = document.getElementById('theme-toggle');
   if (themeToggle) {
     themeToggle.addEventListener('click', toggleTheme);
+  }
+
+  const versionCheck = document.getElementById('version-check');
+  if (versionCheck) {
+    versionCheck.addEventListener('click', () => void checkLatestVersion());
   }
 
   const projectSwitch = document.getElementById('project-switch');
@@ -836,6 +863,14 @@ function bindStaticEvents() {
   const chatList = document.getElementById('chat-list');
   if (chatList) {
     chatList.addEventListener('click', (event) => {
+      const refreshButton = event.target.closest('[data-chat-refresh-index]');
+      if (refreshButton) {
+        const messageIndex = Number(refreshButton.dataset.chatRefreshIndex || '-1');
+        if (!Number.isInteger(messageIndex) || messageIndex < 0) return;
+        void confirmRefreshChatMessage(messageIndex);
+        return;
+      }
+
       const copyButton = event.target.closest('[data-chat-copy-index]');
       if (copyButton) {
         const messageIndex = Number(copyButton.dataset.chatCopyIndex || '-1');
@@ -1194,6 +1229,8 @@ function createWailsBackend(backend) {
       }
     },
     GetChatState: () => backend.GetChatState(),
+    GetVersionInfo: () => backend.GetVersionInfo(),
+    RefreshChatResponse: () => backend.RefreshChatResponse(),
     ExportChatMarkdown: () => backend.ExportChatMarkdown(),
     NewChatSession: () => backend.NewChatSession(),
     SwitchChatSession: (sessionId) => backend.SwitchChatSession(sessionId),
@@ -1249,6 +1286,8 @@ function createHTTPBackend() {
     SendMessage: (input) => requestJSON('POST', '/api/chat', { input }),
     SendMessageStream: (input, handlers = {}) => streamJSON('POST', '/api/chat/stream', { input }, handlers),
     GetChatState: () => requestJSON('GET', '/api/chat/state'),
+    GetVersionInfo: () => requestJSON('GET', '/api/version'),
+    RefreshChatResponse: () => requestJSON('POST', '/api/chat/refresh'),
     ExportChatMarkdown: async () => {
       const payload = await requestJSON('GET', '/api/chat/export-markdown');
       downloadTextFile(payload.filename || 'myclaw-chat.md', payload.markdown || '', 'text/markdown;charset=utf-8');
@@ -1433,10 +1472,41 @@ async function refreshOverview() {
   const aiStatusCompact = document.getElementById('ai-status-compact');
   const memoryCountCompact = document.getElementById('memory-count-compact');
   const promptCountCompact = document.getElementById('prompt-count-compact');
+  const versionCompact = document.getElementById('version-compact');
+  const versionCheck = document.getElementById('version-check');
 
   if (aiStatusCompact) aiStatusCompact.textContent = state.overview.aiAvailable ? 'OK' : '—';
   if (memoryCountCompact) memoryCountCompact.textContent = String(state.overview.knowledgeCount);
   if (promptCountCompact) promptCountCompact.textContent = String(state.overview.promptCount || 0);
+  if (versionCompact) versionCompact.textContent = state.overview.currentVersion || 'dev';
+  if (versionCheck) {
+    versionCheck.title = `当前版本 ${state.overview.currentVersion || 'dev'}，点击查看最新版本`;
+  }
+}
+
+async function checkLatestVersion() {
+  const trigger = document.getElementById('version-check');
+  if (trigger) {
+    trigger.disabled = true;
+  }
+
+  try {
+    const info = await state.backend.GetVersionInfo();
+    if (state.overview && info?.currentVersion) {
+      state.overview.currentVersion = info.currentVersion;
+      const versionCompact = document.getElementById('version-compact');
+      if (versionCompact) {
+        versionCompact.textContent = info.currentVersion;
+      }
+    }
+    showBanner(info?.message || '暂时无法获取版本信息。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  } finally {
+    if (trigger) {
+      trigger.disabled = false;
+    }
+  }
 }
 
 async function refreshReminders() {
@@ -1906,6 +1976,87 @@ async function copyChatMessage(messageIndex) {
     showBanner('已复制当前对话。', false);
   } catch (error) {
     showBanner(asMessage(error), true);
+  }
+}
+
+function findRefreshableChatMessageIndex() {
+  if (state.chatStreaming || state.chat.length === 0) return -1;
+  const messageIndex = state.chat.length - 1;
+  const message = state.chat[messageIndex];
+  if (!message || message.role !== 'assistant' || message.streaming) {
+    return -1;
+  }
+  return String(message.text || '').trim() ? messageIndex : -1;
+}
+
+async function confirmRefreshChatMessage(messageIndex) {
+  if (state.chatStreaming) {
+    showBanner('当前回复尚未完成。', true);
+    return;
+  }
+
+  const refreshableIndex = findRefreshableChatMessageIndex();
+  if (messageIndex !== refreshableIndex) {
+    showBanner('目前只能刷新当前最后一条回复。', true);
+    return;
+  }
+
+  const message = state.chat[messageIndex];
+  if (!message) {
+    showBanner('没有找到要刷新的回复。', true);
+    return;
+  }
+
+  openChatSessionDialog('refresh', {
+    sessionId: state.chatState.sessionId,
+    preview: buildChatCopyText(message),
+  });
+}
+
+async function refreshCurrentChatResponse() {
+  if (state.chatStreaming) {
+    showBanner('当前回复尚未完成。', true);
+    return;
+  }
+
+  const messageIndex = findRefreshableChatMessageIndex();
+  if (messageIndex < 0) {
+    showBanner('当前没有可刷新的回复。', true);
+    return;
+  }
+
+  const previousMessage = state.chat[messageIndex];
+  const placeholder = {
+    role: 'assistant',
+    text: '',
+    time: '',
+    streaming: true,
+  };
+
+  state.chat = [...state.chat.slice(0, messageIndex), placeholder];
+  syncCurrentChatConversationFromMessages();
+  renderChat();
+
+  state.chatStreaming = true;
+  try {
+    const result = await state.backend.RefreshChatResponse();
+    placeholder.text = result.reply || placeholder.text;
+    placeholder.time = result.timestamp || nowLabel();
+    placeholder.usage = normalizeTokenUsage(result.usage);
+    placeholder.streaming = false;
+    syncCurrentChatConversationFromMessages();
+    renderChat();
+    await refreshAll();
+    showBanner('已刷新当前回复。', false);
+  } catch (error) {
+    state.chat = [...state.chat.slice(0, messageIndex), previousMessage];
+    syncCurrentChatConversationFromMessages();
+    renderChat();
+    await refreshChatState().catch(() => {});
+    showBanner(asMessage(error), true);
+  } finally {
+    state.chatStreaming = false;
+    renderChatContentActions();
   }
 }
 
@@ -3207,8 +3358,37 @@ function renderChatMessageFooter(message, index) {
   return `
     <div class="chat-bubble-footer${meta ? '' : ' copy-only'}">
       ${meta || ''}
+      ${renderChatMessageActions(message, index)}
+    </div>
+  `;
+}
+
+function renderChatMessageActions(message, index) {
+  return `
+    <div class="chat-message-actions">
+      ${renderChatRefreshButton(message, index)}
       ${renderChatCopyButton(index)}
     </div>
+  `;
+}
+
+function renderChatRefreshButton(message, index) {
+  if (message.role !== 'assistant' || index !== findRefreshableChatMessageIndex()) {
+    return '';
+  }
+
+  return `
+    <button
+      type="button"
+      class="chat-action-button"
+      data-chat-refresh-index="${escapeAttribute(index)}"
+      aria-label="刷新当前回复"
+      title="刷新当前回复"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M8 2.5a5.5 5.5 0 1 0 5.19 7.32.5.5 0 0 1 .94.34A6.5 6.5 0 1 1 8 1.5V0l3 2.5-3 2.5z"></path>
+      </svg>
+    </button>
   `;
 }
 
@@ -3216,7 +3396,7 @@ function renderChatCopyButton(index) {
   return `
     <button
       type="button"
-      class="chat-copy-button"
+      class="chat-action-button"
       data-chat-copy-index="${escapeAttribute(index)}"
       aria-label="复制此条对话"
       title="复制此条对话"
@@ -3535,7 +3715,7 @@ function renderChatSessions() {
       <div class="empty-state compact">
         <div class="empty-state-icon">◌</div>
         <h3>还没有对话</h3>
-        <p>点击下方新建，或输入 <code>/new</code></p>
+        <p>点击上方新建对话，或输入 <code>/new</code></p>
       </div>
     `;
     return;

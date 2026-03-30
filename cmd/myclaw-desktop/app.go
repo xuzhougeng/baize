@@ -63,6 +63,7 @@ type DesktopApp struct {
 
 type Overview struct {
 	DataDir         string `json:"dataDir"`
+	CurrentVersion  string `json:"currentVersion"`
 	AIAvailable     bool   `json:"aiAvailable"`
 	AIMessage       string `json:"aiMessage"`
 	ActiveProject   string `json:"activeProject"`
@@ -380,6 +381,7 @@ func (a *DesktopApp) GetOverview() (Overview, error) {
 	weixinStatus := a.GetWeixinStatus()
 	return Overview{
 		DataDir:         a.dataDir,
+		CurrentVersion:  currentAppVersion(),
 		AIAvailable:     available,
 		AIMessage:       message,
 		ActiveProject:   project,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -222,6 +223,115 @@ func TestDesktopDeleteChatSessionFallsBackToRemainingConversation(t *testing.T) 
 	}
 }
 
+func TestDesktopRefreshChatResponseReplacesLatestAssistantReply(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	callCount := 0
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "重新生成这个回答",
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			callCount++
+			if input != "重新生成这个回答" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected refresh to replay from the previous turn, got history %#v", history)
+			}
+			if callCount == 1 {
+				return "第一次回答"
+			}
+			return "第二次回答"
+		},
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	if _, err := app.SendMessage("重新生成这个回答"); err != nil {
+		t.Fatalf("send initial message: %v", err)
+	}
+
+	result, err := app.RefreshChatResponse()
+	if err != nil {
+		t.Fatalf("refresh chat response: %v", err)
+	}
+	if result.Reply != "第二次回答" {
+		t.Fatalf("unexpected refreshed reply: %#v", result)
+	}
+
+	state, err := app.GetChatState()
+	if err != nil {
+		t.Fatalf("get chat state: %v", err)
+	}
+	if len(state.Messages) != 2 {
+		t.Fatalf("expected refreshed conversation to keep one user/assistant pair, got %#v", state.Messages)
+	}
+	if state.Messages[0].Role != "user" || state.Messages[0].Text != "重新生成这个回答" {
+		t.Fatalf("unexpected user message after refresh: %#v", state.Messages[0])
+	}
+	if state.Messages[1].Role != "assistant" || state.Messages[1].Text != "第二次回答" {
+		t.Fatalf("unexpected assistant message after refresh: %#v", state.Messages[1])
+	}
+}
+
+func TestDesktopRefreshChatResponseRestoresPreviousReplyOnFailure(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	callCount := 0
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "保留旧答案",
+		},
+		chatResultFunc: func(_ context.Context, input string, history []ai.ConversationMessage) (string, error) {
+			callCount++
+			if input != "保留旧答案" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected refresh to replay from the previous turn, got history %#v", history)
+			}
+			if callCount == 1 {
+				return "原始回答", nil
+			}
+			return "", errors.New("刷新失败")
+		},
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	if _, err := app.SendMessage("保留旧答案"); err != nil {
+		t.Fatalf("send initial message: %v", err)
+	}
+
+	if _, err := app.RefreshChatResponse(); err == nil || !strings.Contains(err.Error(), "刷新失败") {
+		t.Fatalf("expected refresh failure, got %v", err)
+	}
+
+	state, err := app.GetChatState()
+	if err != nil {
+		t.Fatalf("get chat state: %v", err)
+	}
+	if len(state.Messages) != 2 {
+		t.Fatalf("expected original conversation to be restored, got %#v", state.Messages)
+	}
+	if state.Messages[1].Role != "assistant" || state.Messages[1].Text != "原始回答" {
+		t.Fatalf("expected original assistant reply to be restored, got %#v", state.Messages[1])
+	}
+}
+
 func TestBuildCurrentChatMarkdownExportFormatsConversation(t *testing.T) {
 	t.Parallel()
 
@@ -397,8 +507,9 @@ func TestBuildCurrentChatMarkdownExportRejectsEmptyConversation(t *testing.T) {
 }
 
 type desktopTestAI struct {
-	route    ai.RouteDecision
-	chatFunc func(context.Context, string, []ai.ConversationMessage) string
+	route          ai.RouteDecision
+	chatFunc       func(context.Context, string, []ai.ConversationMessage) string
+	chatResultFunc func(context.Context, string, []ai.ConversationMessage) (string, error)
 }
 
 func (f desktopTestAI) IsConfigured(context.Context) (bool, error) {
@@ -422,6 +533,9 @@ func (f desktopTestAI) Answer(context.Context, string, []knowledge.Entry) (strin
 }
 
 func (f desktopTestAI) Chat(ctx context.Context, input string, history []ai.ConversationMessage) (string, error) {
+	if f.chatResultFunc != nil {
+		return f.chatResultFunc(ctx, input, history)
+	}
 	if f.chatFunc != nil {
 		return f.chatFunc(ctx, input, history), nil
 	}

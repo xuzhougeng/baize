@@ -181,6 +181,49 @@ func (a *DesktopApp) DeleteChatSession(sessionID string) (ChatState, error) {
 	return a.buildChatState(context.Background(), project)
 }
 
+func (a *DesktopApp) RefreshChatResponse() (ChatResponse, error) {
+	if a.sessionStore == nil {
+		return ChatResponse{}, errors.New("聊天会话存储尚未启用")
+	}
+
+	project, err := a.currentProject(context.Background())
+	if err != nil {
+		return ChatResponse{}, err
+	}
+
+	sessionID, err := a.currentChatSession(context.Background(), project)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+
+	snapshot, ok, err := a.loadChatSessionSnapshot(context.Background(), project, sessionID)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	if !ok {
+		return ChatResponse{}, errors.New("当前对话没有可刷新的回复")
+	}
+
+	trimmedSnapshot, input, err := trimmedChatSnapshotForRefresh(snapshot)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+
+	if _, err := a.sessionStore.Save(context.Background(), trimmedSnapshot); err != nil {
+		return ChatResponse{}, err
+	}
+	a.rememberChatSession(project, sessionID)
+
+	result, err := a.sendMessage(context.Background(), input, nil)
+	if err != nil {
+		if _, restoreErr := a.sessionStore.Save(context.Background(), snapshot); restoreErr != nil {
+			return ChatResponse{}, fmt.Errorf("%w；恢复原回复失败: %v", err, restoreErr)
+		}
+		return ChatResponse{}, err
+	}
+	return result, nil
+}
+
 func (a *DesktopApp) buildChatState(ctx context.Context, project string) (ChatState, error) {
 	project = knowledge.CanonicalProjectName(project)
 	sessionID, err := a.currentChatSession(ctx, project)
@@ -418,6 +461,33 @@ func toChatMessages(snapshot sessionstate.Snapshot) []ChatMessage {
 		})
 	}
 	return messages
+}
+
+func trimmedChatSnapshotForRefresh(snapshot sessionstate.Snapshot) (sessionstate.Snapshot, string, error) {
+	if len(snapshot.History) < 2 {
+		return sessionstate.Snapshot{}, "", errors.New("当前对话没有可刷新的回复")
+	}
+
+	assistantIndex := len(snapshot.History) - 1
+	assistant := snapshot.History[assistantIndex]
+	if !strings.EqualFold(strings.TrimSpace(assistant.Role), "assistant") || strings.TrimSpace(assistant.Content) == "" {
+		return sessionstate.Snapshot{}, "", errors.New("当前结果尚未生成完成，暂时不能刷新")
+	}
+
+	userIndex := assistantIndex - 1
+	user := snapshot.History[userIndex]
+	if !strings.EqualFold(strings.TrimSpace(user.Role), "user") {
+		return sessionstate.Snapshot{}, "", errors.New("没有找到当前回复对应的提问")
+	}
+
+	input := strings.TrimSpace(user.Content)
+	if input == "" {
+		return sessionstate.Snapshot{}, "", errors.New("没有找到当前回复对应的提问")
+	}
+
+	next := snapshot
+	next.History = append([]sessionstate.Message(nil), snapshot.History[:userIndex]...)
+	return next, input, nil
 }
 
 func chatConversationTitle(snapshot sessionstate.Snapshot) string {
