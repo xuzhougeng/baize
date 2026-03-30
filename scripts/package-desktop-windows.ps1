@@ -6,7 +6,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $binaryName = "myclaw"
-$installerPath = Join-Path "dist" "$binaryName-windows-$Version.exe"
+$versionedBaseName = "$binaryName-$Version"
+$versionedExeName = "$versionedBaseName.exe"
+$versionedInstallerName = "$versionedBaseName-amd64-installer.exe"
+$installerPath = Join-Path "dist" $versionedInstallerName
 
 if (Test-Path $installerPath) {
     Remove-Item $installerPath -Force
@@ -14,16 +17,28 @@ if (Test-Path $installerPath) {
 
 # Build with Wails
 Set-Location cmd/myclaw-desktop
-wails build -platform windows/amd64 -o myclaw.exe -nsis -webview2 download -m -s
+wails build -platform windows/amd64 -o $versionedExeName -nsis -webview2 download -m -s
 Set-Location ../..
 
-# Move installer to dist
-$builtInstaller = Get-ChildItem -Path "cmd/myclaw-desktop/build/bin" -Filter "*-installer.exe" | Select-Object -First 1
+# Normalize installer filename so build/bin and dist both carry the version.
+$buildBinDir = Join-Path "cmd/myclaw-desktop/build" "bin"
+$versionedBuiltInstallerPath = Join-Path $buildBinDir $versionedInstallerName
+$builtInstaller = Get-ChildItem -Path $buildBinDir -Filter "$versionedBaseName-*-installer.exe" | Select-Object -First 1
+if ($null -eq $builtInstaller) {
+    $builtInstaller = Get-ChildItem -Path $buildBinDir -Filter "*-installer.exe" | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+}
 if ($null -eq $builtInstaller) {
     throw "Installer not found in cmd/myclaw-desktop/build/bin"
 }
 
+if ($builtInstaller.Name -ne $versionedInstallerName) {
+    if (Test-Path $versionedBuiltInstallerPath) {
+        Remove-Item $versionedBuiltInstallerPath -Force
+    }
+    Move-Item $builtInstaller.FullName $versionedBuiltInstallerPath
+}
+
 New-Item -ItemType Directory -Path "dist" -Force | Out-Null
-Copy-Item $builtInstaller.FullName -Destination $installerPath
+Copy-Item $versionedBuiltInstallerPath -Destination $installerPath
 
 Write-Host "Created $installerPath"
