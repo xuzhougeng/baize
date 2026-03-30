@@ -83,6 +83,8 @@ const state = {
   weixin: defaultWeixinState(),
   settings: defaultSettingsState(),
   chat: [],
+  chatSidebarCollapsed: false,
+  chatSessionDialog: defaultChatSessionDialogState(),
   chatStreaming: false,
   chatStreamHandlers: {},
 };
@@ -136,6 +138,7 @@ async function init() {
   bindStaticEvents();
   bindNavigation();
   bindQuickAddModal();
+  bindChatSessionUI();
   renderChatShortcuts();
   renderChatContext();
   renderChatAutocomplete();
@@ -218,6 +221,220 @@ function bindQuickAddModal() {
         showBanner(asMessage(error), true);
       }
     });
+  }
+}
+
+function bindChatSessionUI() {
+  state.chatSidebarCollapsed = localStorage.getItem('myclaw-chat-sidebar-collapsed') === '1';
+  applyChatSidebarState();
+
+  const toggle = document.getElementById('chat-sidebar-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      setChatSidebarCollapsed(!state.chatSidebarCollapsed);
+    });
+  }
+
+  const dialog = document.getElementById('chat-session-dialog');
+  if (dialog) {
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) {
+        closeChatSessionDialog();
+      }
+    });
+  }
+
+  const cancel = document.getElementById('chat-session-dialog-cancel');
+  if (cancel) {
+    cancel.addEventListener('click', closeChatSessionDialog);
+  }
+
+  const confirm = document.getElementById('chat-session-dialog-confirm');
+  if (confirm) {
+    confirm.addEventListener('click', () => void submitChatSessionDialog());
+  }
+
+  const input = document.getElementById('chat-session-dialog-input');
+  if (input) {
+    input.addEventListener('keydown', (event) => {
+      if (event.isComposing) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        void submitChatSessionDialog();
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeChatSessionDialog();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.chatSessionDialog.open) {
+      event.preventDefault();
+      closeChatSessionDialog();
+    }
+  });
+}
+
+function setChatSidebarCollapsed(collapsed) {
+  state.chatSidebarCollapsed = Boolean(collapsed);
+  localStorage.setItem('myclaw-chat-sidebar-collapsed', state.chatSidebarCollapsed ? '1' : '0');
+  applyChatSidebarState();
+}
+
+function applyChatSidebarState() {
+  const container = document.getElementById('chat-container');
+  const toggle = document.getElementById('chat-sidebar-toggle');
+  const icon = document.getElementById('chat-sidebar-toggle-icon');
+  if (container) {
+    container.classList.toggle('chat-sidebar-collapsed', state.chatSidebarCollapsed);
+  }
+  if (toggle) {
+    const label = state.chatSidebarCollapsed ? '展开对话列表' : '收起对话列表';
+    toggle.setAttribute('aria-expanded', String(!state.chatSidebarCollapsed));
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+  }
+  if (icon) {
+    icon.textContent = state.chatSidebarCollapsed ? '>' : '<';
+  }
+}
+
+function openChatSessionDialog(mode, conversation) {
+  const dialog = document.getElementById('chat-session-dialog');
+  const card = dialog?.querySelector('.dialog-card');
+  const eyebrow = document.getElementById('chat-session-dialog-eyebrow');
+  const title = document.getElementById('chat-session-dialog-title');
+  const description = document.getElementById('chat-session-dialog-desc');
+  const targetValue = document.getElementById('chat-session-dialog-target-value');
+  const field = document.getElementById('chat-session-dialog-field');
+  const input = document.getElementById('chat-session-dialog-input');
+  const confirm = document.getElementById('chat-session-dialog-confirm');
+  if (!dialog || !card || !eyebrow || !title || !description || !targetValue || !field || !input || !confirm) {
+    return;
+  }
+
+  const displayTitle = (conversation?.title || '新对话').trim() || '新对话';
+  state.chatSessionDialog = {
+    ...defaultChatSessionDialogState(),
+    open: true,
+    mode,
+    sessionId: conversation?.sessionId || '',
+    initialTitle: displayTitle,
+    restoreFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  };
+
+  targetValue.textContent = displayTitle;
+
+  if (mode === 'delete') {
+    eyebrow.textContent = '危险操作';
+    title.textContent = '删除对话';
+    description.textContent = '删除后当前会话消息会一并移除，这个动作不能撤销。';
+    field.hidden = true;
+    input.value = displayTitle;
+    confirm.textContent = '删除';
+    confirm.classList.remove('btn-primary');
+    confirm.classList.add('btn-danger');
+    card.classList.add('danger');
+  } else {
+    eyebrow.textContent = '对话标题';
+    title.textContent = '重命名对话';
+    description.textContent = '只修改列表显示，不影响当前上下文和消息内容。';
+    field.hidden = false;
+    input.value = displayTitle;
+    confirm.textContent = '保存';
+    confirm.classList.remove('btn-danger');
+    confirm.classList.add('btn-primary');
+    card.classList.remove('danger');
+  }
+
+  dialog.hidden = false;
+  requestAnimationFrame(() => {
+    if (mode === 'delete') {
+      confirm.focus();
+    } else {
+      input.focus();
+      input.select();
+    }
+  });
+}
+
+function closeChatSessionDialog() {
+  const dialog = document.getElementById('chat-session-dialog');
+  const card = dialog?.querySelector('.dialog-card');
+  const field = document.getElementById('chat-session-dialog-field');
+  const input = document.getElementById('chat-session-dialog-input');
+  const confirm = document.getElementById('chat-session-dialog-confirm');
+  const restoreFocus = state.chatSessionDialog.restoreFocus;
+
+  state.chatSessionDialog = defaultChatSessionDialogState();
+
+  if (dialog) {
+    dialog.hidden = true;
+  }
+  if (card) {
+    card.classList.remove('danger');
+  }
+  if (field) {
+    field.hidden = false;
+  }
+  if (input) {
+    input.value = '';
+  }
+  if (confirm) {
+    confirm.disabled = false;
+    confirm.textContent = '保存';
+    confirm.classList.remove('btn-danger');
+    confirm.classList.add('btn-primary');
+  }
+  if (restoreFocus && typeof restoreFocus.focus === 'function') {
+    restoreFocus.focus();
+  }
+}
+
+async function submitChatSessionDialog() {
+  if (!state.chatSessionDialog.open) return;
+
+  const { mode, sessionId, initialTitle } = state.chatSessionDialog;
+  const input = document.getElementById('chat-session-dialog-input');
+  const confirm = document.getElementById('chat-session-dialog-confirm');
+  if (!sessionId || !confirm) return;
+
+  if (mode === 'rename') {
+    const nextTitle = (input?.value || '').trim();
+    if (!nextTitle) {
+      showBanner('对话标题不能为空。', true);
+      if (input) input.focus();
+      return;
+    }
+    if (nextTitle === (initialTitle || '').trim()) {
+      closeChatSessionDialog();
+      return;
+    }
+  }
+
+  confirm.disabled = true;
+
+  try {
+    if (mode === 'delete') {
+      applyChatState(normalizeChatState(await state.backend.DeleteChatSession(sessionId)));
+      closeChatSessionDialog();
+      await Promise.all([refreshSkills(), refreshChatPrompt()]);
+      showBanner('对话已删除。', false);
+      return;
+    }
+
+    applyChatState(normalizeChatState(await state.backend.RenameChatSession(sessionId, (input?.value || '').trim())));
+    closeChatSessionDialog();
+    showBanner('对话已重命名。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  } finally {
+    if (state.chatSessionDialog.open) {
+      confirm.disabled = false;
+    }
   }
 }
 
@@ -1505,29 +1722,7 @@ async function renameChatSession(sessionId) {
   }
   const conversation = (state.chatState.conversations || []).find((item) => item.sessionId === sessionId);
   if (!conversation) return;
-  if (typeof window.prompt !== 'function') {
-    showBanner('当前环境不支持输入弹窗。', true);
-    return;
-  }
-
-  const nextTitle = window.prompt('输入新的对话标题', conversation.title || '');
-  if (nextTitle == null) return;
-
-  const title = nextTitle.trim();
-  if (!title) {
-    showBanner('对话标题不能为空。', true);
-    return;
-  }
-  if (title === (conversation.title || '').trim()) {
-    return;
-  }
-
-  try {
-    applyChatState(normalizeChatState(await state.backend.RenameChatSession(sessionId, title)));
-    showBanner('对话已重命名。', false);
-  } catch (error) {
-    showBanner(asMessage(error), true);
-  }
+  openChatSessionDialog('rename', conversation);
 }
 
 async function deleteChatSession(sessionId) {
@@ -1537,17 +1732,7 @@ async function deleteChatSession(sessionId) {
   }
   const conversation = (state.chatState.conversations || []).find((item) => item.sessionId === sessionId);
   if (!conversation) return;
-
-  try {
-    const ok = await state.backend.ConfirmAction('删除对话', `确认删除「${conversation.title || '新对话'}」吗？这个动作不可撤销。`);
-    if (!ok) return;
-
-    applyChatState(normalizeChatState(await state.backend.DeleteChatSession(sessionId)));
-    await Promise.all([refreshSkills(), refreshChatPrompt()]);
-    showBanner('对话已删除。', false);
-  } catch (error) {
-    showBanner(asMessage(error), true);
-  }
+  openChatSessionDialog('delete', conversation);
 }
 
 function renderChatContext() {
@@ -2869,17 +3054,13 @@ function renderChatSessions() {
 
   container.innerHTML = conversations
     .map((conversation) => `
-      <div class="chat-session-row">
+      <div class="chat-session-row ${conversation.active ? 'active' : ''}">
         <button
           type="button"
           class="chat-session-item ${conversation.active ? 'active' : ''}"
           data-chat-session="${escapeAttribute(conversation.sessionId)}"
         >
-          <div class="chat-session-title-row">
-            <strong>${escapeHTML(conversation.title || '新对话')}</strong>
-            <span>${escapeHTML(conversation.updatedAt || '')}</span>
-          </div>
-          <div class="chat-session-preview">${escapeHTML(conversation.preview || '还没有消息')}</div>
+          <span class="chat-session-title">${escapeHTML(conversation.title || '新对话')}</span>
         </button>
         <div class="chat-session-actions">
           <button
@@ -3015,6 +3196,16 @@ function defaultChatState() {
     sessionId: '',
     conversations: [],
     messages: [],
+  };
+}
+
+function defaultChatSessionDialogState() {
+  return {
+    open: false,
+    mode: '',
+    sessionId: '',
+    initialTitle: '',
+    restoreFocus: null,
   };
 }
 
