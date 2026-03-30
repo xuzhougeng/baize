@@ -50,6 +50,9 @@ func main() {
 
 	store := knowledge.NewStore(filepath.Join(dataDir, "knowledge", "entries.json"))
 	promptStore := promptlib.NewStore(filepath.Join(dataDir, "prompts", "items.json"))
+	if err := promptlib.SeedDefaultPrompts(context.Background(), promptStore, promptlib.DefaultPromptSeedMarker(dataDir)); err != nil {
+		log.Fatalf("seed default prompts: %v", err)
+	}
 	modelStore := modelconfig.NewStore(filepath.Join(dataDir, "model", "profiles.db"))
 	aiService := ai.NewService(modelStore)
 	reminderStore := reminder.NewStore(filepath.Join(dataDir, "reminders", "items.json"))
