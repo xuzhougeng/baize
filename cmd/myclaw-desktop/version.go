@@ -169,5 +169,9 @@ func normalizedVersionBase(version string) string {
 	if cut := strings.IndexByte(value, '-'); cut >= 0 {
 		value = value[:cut]
 	}
-	return strings.TrimSpace(value)
+	value = strings.TrimSpace(value)
+	if len(value) > 1 && (value[0] == 'v' || value[0] == 'V') {
+		value = strings.TrimSpace(value[1:])
+	}
+	return value
 }

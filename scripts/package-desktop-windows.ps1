@@ -10,6 +10,7 @@ $versionedBaseName = "$binaryName-$Version"
 $versionedExeName = "$versionedBaseName.exe"
 $versionedInstallerName = "$versionedBaseName-amd64-installer.exe"
 $installerPath = Join-Path "dist" $versionedInstallerName
+$ldflags = "-X main.appVersion=$Version"
 
 if (Test-Path $installerPath) {
     Remove-Item $installerPath -Force
@@ -17,7 +18,7 @@ if (Test-Path $installerPath) {
 
 # Build with Wails
 Set-Location cmd/myclaw-desktop
-wails build -platform windows/amd64 -o $versionedExeName -nsis -webview2 download -m -s
+wails build -platform windows/amd64 -o $versionedExeName -nsis -webview2 download -ldflags $ldflags -m -s
 Set-Location ../..
 
 # Normalize installer filename so build/bin and dist both carry the version.

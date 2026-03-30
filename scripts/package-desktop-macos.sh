@@ -3,6 +3,7 @@
 set -euo pipefail
 
 VERSION="${1:-0.0.0}"
+PLIST_VERSION="${VERSION#v}"
 APP_NAME="myclaw"
 APP_DISPLAY_NAME="myclaw"
 BUNDLE_ID="${MACOS_BUNDLE_ID:-com.myclaw.desktop}"
@@ -22,6 +23,7 @@ GO_BIN="${GO_BIN:-$(command -v go)}"
 SDK_PATH="${SDK_PATH:-$(xcrun --sdk macosx --show-sdk-path)}"
 GO_TAGS="${GO_TAGS:-desktop,wv2runtime.download,production}"
 GO_LDFLAGS="${GO_LDFLAGS:--w -s -extldflags '-framework UniformTypeIdentifiers'}"
+APP_VERSION_LDFLAG="-X main.appVersion=${VERSION}"
 
 TMP_DIR=""
 ICON_TMP_DIR=""
@@ -125,7 +127,7 @@ compile_binary() {
         "${GO_BIN}" build \
             -buildvcs=false \
             -tags "${GO_TAGS}" \
-            -ldflags "${GO_LDFLAGS}" \
+            -ldflags "${GO_LDFLAGS} ${APP_VERSION_LDFLAG}" \
             -o "${output_path}" \
             ./cmd/myclaw-desktop
 }
@@ -227,9 +229,9 @@ write_info_plist() {
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
+    <string>${PLIST_VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>${VERSION}</string>
+    <string>${PLIST_VERSION}</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.13.0</string>
     <key>NSHighResolutionCapable</key>
