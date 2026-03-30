@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type desktopSettingsStore struct {
@@ -11,8 +12,9 @@ type desktopSettingsStore struct {
 }
 
 type desktopSettingsFile struct {
-	WeixinHistoryMessages int `json:"weixin_history_messages"`
-	WeixinHistoryRunes    int `json:"weixin_history_runes"`
+	WeixinHistoryMessages int    `json:"weixin_history_messages"`
+	WeixinHistoryRunes    int    `json:"weixin_history_runes"`
+	WeixinEverythingPath  string `json:"weixin_everything_path"`
 }
 
 func newDesktopSettingsStore(dataDir string) *desktopSettingsStore {
@@ -44,6 +46,10 @@ func (s *desktopSettingsStore) Load() (desktopSettingsFile, bool, error) {
 	if cfg.WeixinHistoryRunes < 0 {
 		cfg.WeixinHistoryRunes = 0
 	}
+	cfg.WeixinEverythingPath = filepath.Clean(strings.TrimSpace(cfg.WeixinEverythingPath))
+	if cfg.WeixinEverythingPath == "." {
+		cfg.WeixinEverythingPath = ""
+	}
 	return cfg, true, nil
 }
 
@@ -56,6 +62,10 @@ func (s *desktopSettingsStore) Save(cfg desktopSettingsFile) error {
 	}
 	if cfg.WeixinHistoryRunes < 0 {
 		cfg.WeixinHistoryRunes = 0
+	}
+	cfg.WeixinEverythingPath = filepath.Clean(strings.TrimSpace(cfg.WeixinEverythingPath))
+	if cfg.WeixinEverythingPath == "." {
+		cfg.WeixinEverythingPath = ""
 	}
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {

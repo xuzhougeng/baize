@@ -3251,9 +3251,11 @@ async function saveSettings() {
   try {
     const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || '0';
     const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || '0';
+    const everythingPathValue = document.getElementById('settings-weixin-everything-path')?.value.trim() || '';
     const payload = {
       weixinHistoryMessages: Number(messagesValue),
       weixinHistoryRunes: Number(runesValue),
+      weixinEverythingPath: everythingPathValue,
     };
 
     if (!Number.isInteger(payload.weixinHistoryMessages) || payload.weixinHistoryMessages < 0) {
@@ -3274,12 +3276,16 @@ async function saveSettings() {
 function renderSettings() {
   const messages = document.getElementById('settings-weixin-history-messages');
   const runes = document.getElementById('settings-weixin-history-runes');
+  const everythingPath = document.getElementById('settings-weixin-everything-path');
 
   if (messages) {
     messages.value = String(state.settings.weixinHistoryMessages ?? 12);
   }
   if (runes) {
     runes.value = String(state.settings.weixinHistoryRunes ?? 360);
+  }
+  if (everythingPath) {
+    everythingPath.value = String(state.settings.weixinEverythingPath ?? '');
   }
 }
 
@@ -4268,6 +4274,7 @@ function defaultSettingsState() {
   return {
     weixinHistoryMessages: 12,
     weixinHistoryRunes: 360,
+    weixinEverythingPath: '',
   };
 }
 
@@ -4278,6 +4285,7 @@ function normalizeSettingsState(payload) {
     ...(source || {}),
     weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
     weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
+    weixinEverythingPath: String(source?.weixinEverythingPath ?? ''),
   };
 }
 

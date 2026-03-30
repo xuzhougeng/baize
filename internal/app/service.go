@@ -263,6 +263,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 			"/new — 开启新对话（terminal / desktop）\n" +
 			"/remember <内容> 或 记住：<内容> — 保存一条知识\n" +
 			"/remember-file <路径> — 总结图片/PDF并存入知识库\n" +
+			"/find <关键词> — 微信里按关键词找文件并发送给自己\n" +
 			"/append <ID前缀> <内容> — 追加到已有知识\n" +
 			"/skills — 查看技能库和当前会话已加载技能\n" +
 			"/show-skill <技能名> — 查看某个技能内容\n" +
@@ -306,6 +307,11 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 		}
 		body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
 		return s.ingestFilePath(ctx, mc, body)
+	case "/find":
+		if !strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
+			return "当前只支持在微信中使用 /find。", nil
+		}
+		return "请直接发送 `/find <关键词>`，微信 bridge 会返回前 10 个候选文件供选择。", nil
 	case "/append":
 		if len(fields) < 3 {
 			return "用法: /append <知识ID前缀> <补充内容>", nil

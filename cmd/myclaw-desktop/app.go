@@ -182,13 +182,15 @@ type ChatModeState struct {
 }
 
 type AppSettings struct {
-	WeixinHistoryMessages int `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int `json:"weixinHistoryRunes"`
+	WeixinHistoryMessages int    `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int    `json:"weixinHistoryRunes"`
+	WeixinEverythingPath  string `json:"weixinEverythingPath"`
 }
 
 type AppSettingsInput struct {
-	WeixinHistoryMessages int `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int `json:"weixinHistoryRunes"`
+	WeixinHistoryMessages int    `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int    `json:"weixinHistoryRunes"`
+	WeixinEverythingPath  string `json:"weixinEverythingPath"`
 }
 
 type ChatPromptState struct {
@@ -473,9 +475,14 @@ func (a *DesktopApp) GetSettings() (AppSettings, error) {
 		return AppSettings{}, errors.New("设置服务尚未启用")
 	}
 	messages, runes := a.service.WeixinHistoryLimits()
+	everythingPath := ""
+	if a.weixinBridge != nil {
+		everythingPath = a.weixinBridge.EverythingPath()
+	}
 	return AppSettings{
 		WeixinHistoryMessages: messages,
 		WeixinHistoryRunes:    runes,
+		WeixinEverythingPath:  everythingPath,
 	}, nil
 }
 
@@ -490,14 +497,19 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 		return AppSettings{}, errors.New("微信历史字符上限不能小于 0")
 	}
 
-	a.service.SetWeixinHistoryLimits(input.WeixinHistoryMessages, input.WeixinHistoryRunes)
+	input.WeixinEverythingPath = strings.TrimSpace(input.WeixinEverythingPath)
 	if a.settingsStore != nil {
 		if err := a.settingsStore.Save(desktopSettingsFile{
 			WeixinHistoryMessages: input.WeixinHistoryMessages,
 			WeixinHistoryRunes:    input.WeixinHistoryRunes,
+			WeixinEverythingPath:  input.WeixinEverythingPath,
 		}); err != nil {
 			return AppSettings{}, err
 		}
+	}
+	a.service.SetWeixinHistoryLimits(input.WeixinHistoryMessages, input.WeixinHistoryRunes)
+	if a.weixinBridge != nil {
+		a.weixinBridge.SetEverythingPath(input.WeixinEverythingPath)
 	}
 	return a.GetSettings()
 }
@@ -1125,6 +1137,9 @@ func (a *DesktopApp) applyPersistedSettings() {
 		return
 	}
 	a.service.SetWeixinHistoryLimits(cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes)
+	if a.weixinBridge != nil {
+		a.weixinBridge.SetEverythingPath(cfg.WeixinEverythingPath)
+	}
 }
 
 func (a *DesktopApp) ingestFile(ctx context.Context, rawPath string) (knowledge.Entry, error) {

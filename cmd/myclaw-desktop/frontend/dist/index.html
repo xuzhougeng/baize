@@ -565,11 +565,17 @@
                     <span>单条消息字符上限</span>
                     <input id="settings-weixin-history-runes" type="number" min="0" step="1" placeholder="360" />
                   </label>
+                  <label class="form-field" style="grid-column: 1 / -1;">
+                    <span>Everything `es.exe` 路径</span>
+                    <input id="settings-weixin-everything-path" type="text" placeholder="例如: C:\\Program Files\\Everything\\es.exe 或 es.exe" />
+                  </label>
                 </div>
 
                 <div class="settings-note">
                   <p><code>0</code> 表示不限制。</p>
                   <p>这些限制只作用于微信 bridge 的历史保留和后续对话上下文；本地 desktop / terminal 会话不受影响。</p>
+                  <p>如果还没安装 ES，可以直接去 <a href="https://www.voidtools.com/zh-cn/downloads" target="_blank" rel="noopener noreferrer">Everything 下载页</a> 下载。</p>
+                  <p>`/find` 目前只在 Windows 下生效，依赖 Everything 的命令行工具 `es.exe`；macOS/Linux 暂时是 TODO。</p>
                 </div>
 
                 <div class="model-actions">

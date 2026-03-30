@@ -34,6 +34,26 @@ type GetUpdatesResponse struct {
 	ErrCode            int             `json:"errcode"`
 }
 
+type GetUploadURLRequest struct {
+	FileKey     string   `json:"filekey"`
+	MediaType   int      `json:"media_type"`
+	ToUserID    string   `json:"to_user_id"`
+	RawSize     int64    `json:"rawsize"`
+	RawFileMD5  string   `json:"rawfilemd5"`
+	FileSize    int64    `json:"filesize"`
+	NoNeedThumb bool     `json:"no_need_thumb"`
+	AESKey      string   `json:"aeskey"`
+	BaseInfo    BaseInfo `json:"base_info"`
+}
+
+type GetUploadURLResponse struct {
+	Ret           int    `json:"ret"`
+	ErrCode       int    `json:"errcode"`
+	Message       string `json:"message"`
+	UploadParam   string `json:"upload_param"`
+	UploadFullURL string `json:"upload_full_url"`
+}
+
 type WeixinMessage struct {
 	FromUserID   string        `json:"from_user_id"`
 	ToUserID     string        `json:"to_user_id"`
@@ -48,6 +68,7 @@ type MessageItem struct {
 	Type      int        `json:"type"`
 	TextItem  *TextItem  `json:"text_item,omitempty"`
 	VoiceItem *VoiceItem `json:"voice_item,omitempty"`
+	FileItem  *FileItem  `json:"file_item,omitempty"`
 }
 
 type TextItem struct {
@@ -56,6 +77,18 @@ type TextItem struct {
 
 type VoiceItem struct {
 	Text string `json:"text,omitempty"`
+}
+
+type CDNMedia struct {
+	EncryptQueryParam string `json:"encrypt_query_param,omitempty"`
+	AESKey            string `json:"aes_key,omitempty"`
+	EncryptType       int    `json:"encrypt_type,omitempty"`
+}
+
+type FileItem struct {
+	Media    *CDNMedia `json:"media,omitempty"`
+	FileName string    `json:"file_name,omitempty"`
+	Len      string    `json:"len,omitempty"`
 }
 
 type SendMessageRequest struct {

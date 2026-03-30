@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"myclaw/internal/app"
@@ -27,23 +28,36 @@ type Account struct {
 }
 
 type BridgeConfig struct {
-	DataDir string
+	DataDir        string
+	EverythingPath string
 }
 
 type Bridge struct {
-	client    *Client
-	service   *app.Service
-	reminders *reminder.Manager
-	config    BridgeConfig
+	client         *Client
+	service        *app.Service
+	reminders      *reminder.Manager
+	config         BridgeConfig
+	findMu         sync.Mutex
+	pendingFind    map[string]pendingFileSelection
+	everythingPath string
+	searchFiles    func(context.Context, string, string, int) ([]string, error)
+	sendFile       func(context.Context, string, string, string) error
 }
 
 func NewBridge(client *Client, service *app.Service, reminders *reminder.Manager, config BridgeConfig) *Bridge {
-	return &Bridge{
-		client:    client,
-		service:   service,
-		reminders: reminders,
-		config:    config,
+	bridge := &Bridge{
+		client:         client,
+		service:        service,
+		reminders:      reminders,
+		config:         config,
+		pendingFind:    make(map[string]pendingFileSelection),
+		everythingPath: strings.TrimSpace(config.EverythingPath),
 	}
+	bridge.searchFiles = searchFilesWithEverything
+	bridge.sendFile = func(ctx context.Context, toUserID, contextToken, filePath string) error {
+		return bridge.client.SendFileMessage(ctx, toUserID, contextToken, filePath)
+	}
+	return bridge
 }
 
 func (b *Bridge) StartLogin() (*QRCodeResponse, error) {
@@ -190,6 +204,19 @@ func (b *Bridge) handleMessage(ctx context.Context, msg WeixinMessage) {
 			text := fmt.Sprintf("提醒时间到了：%s", item.Message)
 			return b.sendChunkedReply(ctx, userID, contextToken, text)
 		}))
+	}
+
+	if reply, handled, err := b.maybeHandleFileFind(ctx, msg, text); handled {
+		if err != nil {
+			log.Printf("[weixin] handle /find failed: %v", err)
+			reply = "处理文件查找失败，请稍后重试。"
+		}
+		if strings.TrimSpace(reply) != "" {
+			if sendErr := b.sendChunkedReply(ctx, msg.FromUserID, msg.ContextToken, reply); sendErr != nil {
+				log.Printf("[weixin] send /find reply failed: %v", sendErr)
+			}
+		}
+		return
 	}
 
 	reply, err := b.service.HandleMessage(ctx, app.MessageContext{

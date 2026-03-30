@@ -61,7 +61,8 @@ func main() {
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
 	service := app.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
 	bridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{
-		DataDir: dataDir,
+		DataDir:        dataDir,
+		EverythingPath: envOrDefault("MYCLAW_WEIXIN_EVERYTHING_PATH", ""),
 	})
 	repl := terminal.NewREPL(service, os.Stdin, os.Stdout)
 
