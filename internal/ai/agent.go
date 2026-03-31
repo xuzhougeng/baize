@@ -7,11 +7,16 @@ import (
 )
 
 type AgentToolDefinition struct {
-	Name             string
-	Provider         string
-	ProviderKind     string
-	Description      string
-	InputJSONExample string
+	Name              string
+	Provider          string
+	ProviderKind      string
+	Purpose           string
+	Description       string
+	InputContract     string
+	OutputContract    string
+	Usage             string
+	InputJSONExample  string
+	OutputJSONExample string
 }
 
 type AgentToolResult struct {
@@ -86,8 +91,28 @@ func (s *Service) DecideAgentStep(ctx context.Context, task string, history []Co
 		}
 		prompt.WriteString(": ")
 		prompt.WriteString(strings.TrimSpace(tool.Description))
+		if purpose := strings.TrimSpace(tool.Purpose); purpose != "" && purpose != strings.TrimSpace(tool.Description) {
+			prompt.WriteString(" | purpose: ")
+			prompt.WriteString(purpose)
+		}
+		if inputContract := strings.TrimSpace(tool.InputContract); inputContract != "" {
+			prompt.WriteString(" | input contract: ")
+			prompt.WriteString(inputContract)
+		}
+		if outputContract := strings.TrimSpace(tool.OutputContract); outputContract != "" {
+			prompt.WriteString(" | output contract: ")
+			prompt.WriteString(outputContract)
+		}
+		if usage := strings.TrimSpace(tool.Usage); usage != "" {
+			prompt.WriteString(" | usage: ")
+			prompt.WriteString(usage)
+		}
 		if example := strings.TrimSpace(tool.InputJSONExample); example != "" {
 			prompt.WriteString(" | input json example: ")
+			prompt.WriteString(example)
+		}
+		if example := strings.TrimSpace(tool.OutputJSONExample); example != "" {
+			prompt.WriteString(" | output json example: ")
 			prompt.WriteString(example)
 		}
 		prompt.WriteString("\n")

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"myclaw/internal/toolcontract"
 )
 
 const (
@@ -57,18 +59,18 @@ type ToolResult struct {
 	Items []ResultItem `json:"items"`
 }
 
-type ToolSpec struct {
-	Name              string
-	Description       string
-	InputJSONExample  string
-	OutputJSONExample string
-	Usage             string
+type executionPlan struct {
+	display string
+	args    []string
 }
 
-func Definition() ToolSpec {
-	return ToolSpec{
+func Definition() toolcontract.Spec {
+	return toolcontract.Spec{
 		Name:              ToolName,
+		Purpose:           "Search existing local files on Windows through Everything (es.exe).",
 		Description:       "Search Windows local files indexed by Everything. The tool accepts either a native Everything query or structured semantic filters and returns normalized file hits.",
+		InputContract:     "query overrides semantic fields; otherwise provide any combination of keywords, drives, known_folders, paths, extensions, date_field, date_value, and limit.",
+		OutputContract:    "Returns the executed search form, effective limit, result count, and ordered file items with index, name, and full path.",
 		InputJSONExample:  `{"known_folders":["downloads"],"extensions":["pdf"],"date_field":"created","date_value":"last48hours","limit":10}`,
 		OutputJSONExample: `{"tool":"everything_file_search","query":"file: shell:Downloads *.pdf dc:last48hours","limit":10,"count":1,"items":[{"index":1,"name":"单细胞.pdf","path":"C:\\Users\\demo\\Downloads\\单细胞.pdf"}]}`,
 		Usage:             UsageText(),
@@ -128,7 +130,7 @@ func CommandHelpText() string {
 
 常用约束:
 - 下载目录: ` + "`shell:Downloads`" + `
-- D 盘: ` + "`d:`" + `
+- D 盘: ` + "`D:\\`" + `
 - PDF: ` + "`*.pdf`" + `
 - 今天修改: ` + "`dm:today`" + `
 - 近两天新建: ` + "`dc:last48hours`" + `
@@ -260,6 +262,14 @@ func NormalizeInput(raw ToolInput) ToolInput {
 }
 
 func CompileQuery(input ToolInput) string {
+	return compileQuery(input, true, false)
+}
+
+func DescribeExecution(input ToolInput) string {
+	return buildExecutionPlan(input).display
+}
+
+func compileQuery(input ToolInput, includeLocation bool, allowFileOnly bool) string {
 	input = NormalizeInput(input)
 	if input.Query != "" {
 		return input.Query
@@ -268,17 +278,19 @@ func CompileQuery(input ToolInput) string {
 	parts := []string{"file:"}
 	constraintCount := 0
 
-	if driveFilter := buildORFilter(buildDriveTerms(input.Drives)); driveFilter != "" {
-		parts = append(parts, driveFilter)
-		constraintCount++
-	}
-	if folderFilter := buildORFilter(buildKnownFolderTerms(input.KnownFolders)); folderFilter != "" {
-		parts = append(parts, folderFilter)
-		constraintCount++
-	}
-	if pathFilter := buildORFilter(buildPathTerms(input.Paths)); pathFilter != "" {
-		parts = append(parts, pathFilter)
-		constraintCount++
+	if includeLocation {
+		if driveFilter := buildORFilter(buildDriveTerms(input.Drives)); driveFilter != "" {
+			parts = append(parts, driveFilter)
+			constraintCount++
+		}
+		if folderFilter := buildORFilter(buildKnownFolderTerms(input.KnownFolders)); folderFilter != "" {
+			parts = append(parts, folderFilter)
+			constraintCount++
+		}
+		if pathFilter := buildORFilter(buildPathTerms(input.Paths)); pathFilter != "" {
+			parts = append(parts, pathFilter)
+			constraintCount++
+		}
 	}
 	if extFilter := buildORFilter(buildExtensionTerms(input.Extensions)); extFilter != "" {
 		parts = append(parts, extFilter)
@@ -297,10 +309,57 @@ func CompileQuery(input ToolInput) string {
 		constraintCount++
 	}
 
-	if constraintCount == 0 {
+	if constraintCount == 0 && !allowFileOnly {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+func buildExecutionPlan(input ToolInput) executionPlan {
+	input = NormalizeInput(input)
+	if input.Query != "" {
+		return executionPlan{
+			display: input.Query,
+			args:    []string{"-n", strconv.Itoa(input.Limit), input.Query},
+		}
+	}
+
+	if scopePath := executionScopePath(input); scopePath != "" {
+		searchInput := input
+		searchInput.Drives = nil
+		searchInput.Paths = nil
+		searchText := compileQuery(searchInput, false, true)
+		args := []string{"-n", strconv.Itoa(input.Limit), "-path", scopePath}
+		display := "-path " + scopePath
+		if searchText != "" {
+			args = append(args, searchText)
+			display += " " + searchText
+		}
+		return executionPlan{display: display, args: args}
+	}
+
+	query := compileQuery(input, true, false)
+	if query == "" {
+		return executionPlan{}
+	}
+	return executionPlan{
+		display: query,
+		args:    []string{"-n", strconv.Itoa(input.Limit), query},
+	}
+}
+
+func executionScopePath(input ToolInput) string {
+	if len(input.KnownFolders) != 0 {
+		return ""
+	}
+	switch {
+	case len(input.Drives) == 1 && len(input.Paths) == 0:
+		return strings.ToUpper(input.Drives[0]) + `:\`
+	case len(input.Paths) == 1 && len(input.Drives) == 0:
+		return normalizePath(input.Paths[0])
+	default:
+		return ""
+	}
 }
 
 func ExecuteWithEverything(ctx context.Context, everythingPath string, input ToolInput) (ToolResult, error) {
@@ -314,8 +373,8 @@ func ExecuteWithEverything(ctx context.Context, everythingPath string, input Too
 	}
 
 	input = NormalizeInput(input)
-	query := CompileQuery(input)
-	if query == "" {
+	plan := buildExecutionPlan(input)
+	if len(plan.args) == 0 {
 		return ToolResult{
 			Tool:  ToolName,
 			Query: "",
@@ -327,8 +386,7 @@ func ExecuteWithEverything(ctx context.Context, everythingPath string, input Too
 	searchCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	args := []string{"-n", strconv.Itoa(input.Limit), query}
-	output, err := exec.CommandContext(searchCtx, commandPath, args...).Output()
+	output, err := exec.CommandContext(searchCtx, commandPath, plan.args...).Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return ToolResult{}, fmt.Errorf("%w: %s", ErrUnconfigured, commandPath)
@@ -365,7 +423,7 @@ func ExecuteWithEverything(ctx context.Context, everythingPath string, input Too
 
 	return ToolResult{
 		Tool:  ToolName,
-		Query: query,
+		Query: plan.display,
 		Limit: input.Limit,
 		Count: len(items),
 		Items: items,
@@ -379,7 +437,7 @@ func buildDriveTerms(drives []string) []string {
 		if drive == "" {
 			continue
 		}
-		terms = append(terms, drive+":")
+		terms = append(terms, strings.ToUpper(drive)+`:\`)
 	}
 	return terms
 }

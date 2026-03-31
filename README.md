@@ -12,6 +12,7 @@
 - `/new` 的语义不是“执行一个特殊命令”，而是“把当前接口槽位重新绑定到一个新的对话”。
 - 微信端默认绑定一个已有对话；如果当前槽位没有已绑定对话，才建立一个新的默认对话。
 - 命令和工具默认运行在当前对话上下文中；是否写入历史、是否允许创建新对话、是否触发桌面 UI 激活，应该由统一策略决定，而不是由某个接口临时硬编码。
+- 上下文必须分层管理。任务执行中的原始工具输出、网页摘录、候选结果只属于临时 scratchpad；任务结束后只保留面向后续轮次的任务摘要；真正进入长期会话历史的内容必须是经过筛选的对话记忆，而不是原始中间产物。
 - 微信端是更薄的远程控制接口，可以能力更少，但不能拥有与桌面端完全不同的核心对话规则。
 
 ## 目标架构
@@ -29,6 +30,8 @@ flowchart TD
     runtime["Conversation Runtime\ncommand routing · mode routing · intent recognition · tool dispatch"]
     policy["Command / Tool Policy\nneed conversation?\npersist history?\ncan create conversation?\nactivate desktop UI?\nallowed interfaces?"]
     session["Session Store"]
+    scratchpad["Execution Scratchpad\nraw tool output · fetched docs · candidates\nper task only"]
+    summary["Task Summary\ncompressed conclusions for future turns"]
     kb["Knowledge Store"]
     reminders["Reminder Store"]
     ai["AI Services\ncommand routing · tool opportunity detection · tool planning · answer"]
@@ -43,6 +46,9 @@ flowchart TD
     resolver --> runtime
     policy --> runtime
     runtime --> session
+    runtime <--> scratchpad
+    runtime --> summary
+    summary --> session
     runtime <--> kb
     runtime <--> reminders
     runtime <--> ai
@@ -56,6 +62,7 @@ flowchart TD
 - 微信端通过“接口槽位”确定当前会话。默认按微信用户稳定复用已有绑定，`ContextToken` 只用于回复发送；只有输入 `/new` 或绑定丢失时，才切换到新对话。
 - “查看帮助”“查看知识库状态”“找文件”“发文件”等动作是否写入聊天历史，不由接口决定，而应由统一命令策略决定。
 - 同一个动作在不同接口上可以有不同的可用性和返回形式，但不应该拥有不同的会话生命周期定义。
+- 一次任务完成后，不应把原始工具输出直接塞回下一轮上下文。下一轮应该读取任务摘要或裁剪后的会话记忆，而不是执行阶段的原始材料。
 
 当前版本刻意保持简单：
 
@@ -63,6 +70,7 @@ flowchart TD
 - 模型配置只从本地环境变量读取，不在终端或聊天界面里暴露
 - 配置模型后，会先做 AI 命令路由，再决定是“记住 / 遗忘 / 提醒 / 查看 / 回答”
 - 工具调用不再依赖某个工具专属的意图提取入口；当前文件检索已经走“识别需求 -> 匹配工具 -> 读取工具契约 -> 生成检索方案 -> 执行 -> 按结果迭代”的通用决策链，最多 3 轮
+- 当前运行时已经引入三层上下文：任务 scratchpad 保存原始中间产物；任务摘要写入下一轮模型上下文；会话历史保留最终对话文本与调试元数据
 - 普通问题默认走 direct 模式，直接调用 AI；切到 knowledge 模式后才会走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持单次提醒和每天重复提醒
@@ -81,7 +89,9 @@ internal/knowledge    本地知识库存储
 internal/modelconfig  模型配置读取与存储
 internal/reminder     提醒调度与持久化
 internal/runtimepolicy 跨接口共享的命令/输入策略定义
+internal/taskcontext  单次任务 scratchpad 与任务摘要状态
 internal/terminal     终端接口适配
+internal/toolcontract 统一工具契约定义
 internal/weixin       微信接口适配、消息桥接与文件发送能力
 ```
 

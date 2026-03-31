@@ -150,7 +150,7 @@ func (s *Service) SetWeixinHistoryLimits(messages int, runes int) {
 }
 
 func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input string) (string, error) {
-	ctx = withKnowledgeContext(ctx, mc)
+	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
 	text := strings.TrimSpace(input)
 	if text == "" {
 		return "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。", nil
@@ -196,7 +196,7 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 }
 
 func (s *Service) HandleMessageStream(ctx context.Context, mc MessageContext, input string, onDelta func(string)) (string, error) {
-	ctx = withKnowledgeContext(ctx, mc)
+	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
 	text := strings.TrimSpace(input)
 	if text == "" {
 		reply := "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。"

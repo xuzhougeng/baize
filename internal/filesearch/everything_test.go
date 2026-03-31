@@ -15,8 +15,21 @@ func TestCompileQueryFromSemanticInput(t *testing.T) {
 		Paths:        nil,
 		Limit:        DefaultLimit,
 	})
-	if query != "file: d: *.pdf 单细胞" {
+	if query != `file: D:\ *.pdf 单细胞` {
 		t.Fatalf("unexpected query: %q", query)
+	}
+}
+
+func TestDescribeExecutionUsesPathOptionForSingleDrive(t *testing.T) {
+	t.Parallel()
+
+	display := DescribeExecution(ToolInput{
+		Drives:     []string{"d"},
+		Extensions: []string{"csv"},
+		Limit:      DefaultLimit,
+	})
+	if display != `-path D:\ file: *.csv` {
+		t.Fatalf("unexpected execution display: %q", display)
 	}
 }
 
@@ -43,7 +56,7 @@ func TestDefinitionContainsToolContract(t *testing.T) {
 	if spec.Name != ToolName {
 		t.Fatalf("unexpected tool name: %q", spec.Name)
 	}
-	if spec.Usage == "" || spec.InputJSONExample == "" || spec.OutputJSONExample == "" {
+	if spec.Purpose == "" || spec.Description == "" || spec.InputContract == "" || spec.OutputContract == "" || spec.Usage == "" || spec.InputJSONExample == "" || spec.OutputJSONExample == "" {
 		t.Fatalf("tool definition should be self descriptive: %#v", spec)
 	}
 }

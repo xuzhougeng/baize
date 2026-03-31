@@ -24,10 +24,11 @@ type Snapshot struct {
 }
 
 type Message struct {
-	Role    string             `json:"role"`
-	Content string             `json:"content"`
-	Usage   *ai.TokenUsage     `json:"usage,omitempty"`
-	Process []ai.CallTraceStep `json:"process,omitempty"`
+	Role           string             `json:"role"`
+	Content        string             `json:"content"`
+	ContextSummary string             `json:"context_summary,omitempty"`
+	Usage          *ai.TokenUsage     `json:"usage,omitempty"`
+	Process        []ai.CallTraceStep `json:"process,omitempty"`
 }
 
 type Store struct {

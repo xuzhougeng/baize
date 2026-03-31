@@ -55,6 +55,7 @@ func (s *Service) tryHandleFileSearch(ctx context.Context, mc MessageContext, in
 		reply = filesearch.FormatSearchResult(result)
 	}
 	if reply != "" {
+		setTurnSummary(ctx, summarizeFileSearchTurn(result, reply))
 		s.maybeAppendConversationHistory(ctx, mc, input, reply)
 	}
 	return reply, true, nil
@@ -172,7 +173,7 @@ func (s *Service) planAndExecuteFileSearch(ctx context.Context, mc MessageContex
 		if err != nil {
 			return filesearch.ToolResult{}, "", true, err
 		}
-		compiledQuery := strings.TrimSpace(filesearch.CompileQuery(toolInput))
+		compiledQuery := strings.TrimSpace(filesearch.DescribeExecution(toolInput))
 		addProcessTrace(ctx, fmt.Sprintf("规划调用 %d", round+1), "tool="+tool.Name+"\nquery="+compiledQuery+"\ninput="+mustMarshalJSON(toolInput))
 		queryKey := strings.ToLower(compiledQuery)
 		if queryKey == "" {
@@ -202,10 +203,12 @@ func (s *Service) planAndExecuteFileSearch(ctx context.Context, mc MessageContex
 			return result, "", true, nil
 		}
 
+		compactOutput := summarizeFileSearchResultForPlanner(result)
+		recordToolArtifact(ctx, tool.Name, mustMarshalJSON(toolInput), mustMarshalJSON(result), compactOutput)
 		prior = append(prior, ai.ToolExecution{
 			ToolName:   tool.Name,
 			ToolInput:  mustMarshalJSON(toolInput),
-			ToolOutput: mustMarshalJSON(result),
+			ToolOutput: compactOutput,
 		})
 	}
 
@@ -216,13 +219,7 @@ func (s *Service) planAndExecuteFileSearch(ctx context.Context, mc MessageContex
 }
 
 func fileSearchToolCapability() ai.ToolCapability {
-	spec := filesearch.Definition()
-	return ai.ToolCapability{
-		Name:             spec.Name,
-		Description:      spec.Description,
-		Usage:            spec.Usage,
-		InputJSONExample: spec.InputJSONExample,
-	}
+	return ai.ToolCapabilityFromContract(filesearch.Definition())
 }
 
 func containsToolOpportunity(matches []ai.ToolOpportunity, toolName string) bool {
@@ -251,4 +248,55 @@ func mustMarshalJSON(value any) string {
 		return "{}"
 	}
 	return string(data)
+}
+
+func summarizeFileSearchResultForPlanner(result filesearch.ToolResult) string {
+	type item struct {
+		Index int    `json:"index"`
+		Name  string `json:"name"`
+		Path  string `json:"path"`
+	}
+	type summary struct {
+		Query    string `json:"query,omitempty"`
+		Count    int    `json:"count"`
+		TopItems []item `json:"top_items,omitempty"`
+	}
+	compact := summary{
+		Query: strings.TrimSpace(result.Query),
+		Count: len(result.Items),
+	}
+	limit := 3
+	if len(result.Items) < limit {
+		limit = len(result.Items)
+	}
+	for _, current := range result.Items[:limit] {
+		compact.TopItems = append(compact.TopItems, item{
+			Index: current.Index,
+			Name:  strings.TrimSpace(current.Name),
+			Path:  strings.TrimSpace(current.Path),
+		})
+	}
+	return mustMarshalJSON(compact)
+}
+
+func summarizeFileSearchTurn(result filesearch.ToolResult, reply string) string {
+	query := strings.TrimSpace(result.Query)
+	if query == "" {
+		return summarizeToolOutputForModel(reply)
+	}
+	if len(result.Items) == 0 {
+		return fmt.Sprintf("文件检索已执行。query=%s count=0", query)
+	}
+	names := make([]string, 0, minInt(3, len(result.Items)))
+	for _, item := range result.Items[:minInt(3, len(result.Items))] {
+		names = append(names, strings.TrimSpace(item.Name))
+	}
+	return fmt.Sprintf("文件检索已执行。query=%s count=%d top=%s", query, len(result.Items), strings.Join(names, ", "))
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }

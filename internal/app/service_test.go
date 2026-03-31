@@ -1159,6 +1159,51 @@ func TestAgentToolProvidersExposeProtocolTools(t *testing.T) {
 	}
 }
 
+func TestAgentToolDefinitionsCarryUnifiedContracts(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	service := NewService(store, fakeAI{configured: true}, reminders)
+	service.RegisterMCPToolProvider("docs", fakeProtocolToolClient{
+		tools: []ProtocolToolSpec{{
+			Name:              "lookup",
+			Purpose:           "Search MCP docs.",
+			Description:       "Search MCP docs.",
+			InputContract:     `Provide {"query":"..."}.`,
+			OutputContract:    "Returns matching documentation passages.",
+			Usage:             "Use when external MCP documentation is needed.",
+			InputJSONExample:  `{"query":"tool calls"}`,
+			OutputJSONExample: `{"items":[{"title":"tool calls"}]}`,
+		}},
+	})
+
+	definitions, err := service.ListAgentToolDefinitions(context.Background(), MessageContext{})
+	if err != nil {
+		t.Fatalf("list agent tool definitions: %v", err)
+	}
+
+	var fileSearchDef *ai.AgentToolDefinition
+	var protocolDef *ai.AgentToolDefinition
+	for index := range definitions {
+		switch definitions[index].Name {
+		case "local::everything_file_search":
+			fileSearchDef = &definitions[index]
+		case "mcp.docs::lookup":
+			protocolDef = &definitions[index]
+		}
+	}
+	if fileSearchDef == nil || protocolDef == nil {
+		t.Fatalf("missing expected definitions in %#v", definitions)
+	}
+	if fileSearchDef.Usage == "" || fileSearchDef.InputContract == "" || fileSearchDef.OutputContract == "" {
+		t.Fatalf("expected unified contract fields on local tool, got %#v", *fileSearchDef)
+	}
+	if protocolDef.Usage == "" || protocolDef.InputContract == "" || protocolDef.OutputContract == "" || protocolDef.OutputJSONExample == "" {
+		t.Fatalf("expected unified contract fields on protocol tool, got %#v", *protocolDef)
+	}
+}
+
 func TestAgentModeCanUseMCPToolProvider(t *testing.T) {
 	t.Parallel()
 
@@ -1495,6 +1540,82 @@ func TestDesktopConversationHistoryIgnoresWeixinEnvLimits(t *testing.T) {
 	}
 }
 
+func TestDesktopConversationHistoryUsesGenericEnvLimits(t *testing.T) {
+	t.Setenv(envConversationHistoryMessages, "4")
+	t.Setenv(envConversationHistoryRunes, "5")
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
+	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
+
+	for index := 0; index < 3; index++ {
+		service.appendConversationHistory(context.Background(), mc,
+			fmt.Sprintf("desktop-user-%d-abcdef", index),
+			fmt.Sprintf("desktop-assistant-%d-uvwxyz", index),
+		)
+	}
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected saved session snapshot")
+	}
+	if len(snapshot.History) != 4 {
+		t.Fatalf("expected trimmed desktop history, got %#v", snapshot.History)
+	}
+
+	expected := []string{
+		trimConversationHistoryText("desktop-user-1-abcdef", 5),
+		trimConversationHistoryText("desktop-assistant-1-uvwxyz", 5),
+		trimConversationHistoryText("desktop-user-2-abcdef", 5),
+		trimConversationHistoryText("desktop-assistant-2-uvwxyz", 5),
+	}
+	for index, item := range snapshot.History {
+		if item.Content != expected[index] {
+			t.Fatalf("unexpected saved desktop message %d: %#v", index, snapshot.History)
+		}
+	}
+}
+
+func TestConversationHistoryUsesAssistantContextSummary(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
+	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
+
+	ctx := withTaskContext(context.Background())
+	setTurnSummary(ctx, "摘要结论")
+	service.appendConversationHistory(ctx, mc, "帮我查文件", "这里是很长的原始结果，包含很多不应该进入下一轮上下文的细节。")
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok || len(snapshot.History) != 2 {
+		t.Fatalf("expected saved history, got %#v", snapshot)
+	}
+	if snapshot.History[1].ContextSummary != "摘要结论" {
+		t.Fatalf("expected persisted context summary, got %#v", snapshot.History[1])
+	}
+
+	history := service.conversationHistory(context.Background(), mc)
+	if len(history) != 2 {
+		t.Fatalf("expected 2 conversation history items, got %#v", history)
+	}
+	if history[1].Content != "摘要结论" {
+		t.Fatalf("expected assistant context summary to be used, got %#v", history)
+	}
+}
+
 func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
 	t.Parallel()
 
@@ -1646,7 +1767,7 @@ func TestHandleMessageNaturalFileSearchRefinesAcrossRounds(t *testing.T) {
 		query := filesearch.CompileQuery(input)
 		switch searchCalls {
 		case 1:
-			if query != "file: d: *.csv report" {
+			if query != `file: D:\ *.csv report` {
 				t.Fatalf("unexpected first query: %#v", input)
 			}
 			return filesearch.ToolResult{
@@ -1654,7 +1775,7 @@ func TestHandleMessageNaturalFileSearchRefinesAcrossRounds(t *testing.T) {
 				Query: query,
 			}, nil
 		case 2:
-			if query != "file: d: *.csv" {
+			if query != `file: D:\ *.csv` {
 				t.Fatalf("unexpected second query: %#v", input)
 			}
 			return filesearch.ToolResult{

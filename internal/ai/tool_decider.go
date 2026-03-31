@@ -52,8 +52,28 @@ func (s *Service) DetectToolOpportunities(ctx context.Context, task string, tool
 		prompt.WriteString(name)
 		prompt.WriteString(": ")
 		prompt.WriteString(strings.TrimSpace(tool.Description))
+		if purpose := strings.TrimSpace(tool.Purpose); purpose != "" && purpose != strings.TrimSpace(tool.Description) {
+			prompt.WriteString(" | purpose: ")
+			prompt.WriteString(purpose)
+		}
+		if inputContract := strings.TrimSpace(tool.InputContract); inputContract != "" {
+			prompt.WriteString(" | input contract: ")
+			prompt.WriteString(inputContract)
+		}
+		if outputContract := strings.TrimSpace(tool.OutputContract); outputContract != "" {
+			prompt.WriteString(" | output contract: ")
+			prompt.WriteString(outputContract)
+		}
+		if usage := strings.TrimSpace(tool.Usage); usage != "" {
+			prompt.WriteString(" | usage: ")
+			prompt.WriteString(usage)
+		}
 		if example := strings.TrimSpace(tool.InputJSONExample); example != "" {
 			prompt.WriteString(" | input example: ")
+			prompt.WriteString(example)
+		}
+		if example := strings.TrimSpace(tool.OutputJSONExample); example != "" {
+			prompt.WriteString(" | output example: ")
 			prompt.WriteString(example)
 		}
 		prompt.WriteString("\n")
@@ -148,14 +168,30 @@ func (s *Service) PlanToolUse(ctx context.Context, task string, tool ToolCapabil
 	prompt.WriteString("\n\n当前工具：\n")
 	prompt.WriteString("name: ")
 	prompt.WriteString(tool.Name)
+	if purpose := strings.TrimSpace(tool.Purpose); purpose != "" {
+		prompt.WriteString("\npurpose: ")
+		prompt.WriteString(purpose)
+	}
 	prompt.WriteString("\ndescription: ")
 	prompt.WriteString(strings.TrimSpace(tool.Description))
+	if inputContract := strings.TrimSpace(tool.InputContract); inputContract != "" {
+		prompt.WriteString("\ninput contract: ")
+		prompt.WriteString(inputContract)
+	}
+	if outputContract := strings.TrimSpace(tool.OutputContract); outputContract != "" {
+		prompt.WriteString("\noutput contract: ")
+		prompt.WriteString(outputContract)
+	}
 	if usage := strings.TrimSpace(tool.Usage); usage != "" {
 		prompt.WriteString("\nusage:\n")
 		prompt.WriteString(usage)
 	}
 	if example := strings.TrimSpace(tool.InputJSONExample); example != "" {
 		prompt.WriteString("\ninput example: ")
+		prompt.WriteString(example)
+	}
+	if example := strings.TrimSpace(tool.OutputJSONExample); example != "" {
+		prompt.WriteString("\noutput example: ")
 		prompt.WriteString(example)
 	}
 

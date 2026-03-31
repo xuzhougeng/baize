@@ -12,8 +12,12 @@ import (
 )
 
 const (
+	defaultConversationHistoryMessages       = 24
+	defaultConversationHistoryRunes          = 2400
 	defaultWeixinConversationHistoryMessages = 12
 	defaultWeixinConversationHistoryRunes    = 360
+	envConversationHistoryMessages           = "MYCLAW_HISTORY_MESSAGES"
+	envConversationHistoryRunes              = "MYCLAW_HISTORY_RUNES"
 	envWeixinHistoryMessages                 = "MYCLAW_WEIXIN_HISTORY_MESSAGES"
 	envWeixinHistoryRunes                    = "MYCLAW_WEIXIN_HISTORY_RUNES"
 )
@@ -63,9 +67,13 @@ func (s *Service) conversationHistory(ctx context.Context, mc MessageContext) []
 
 	history := make([]ai.ConversationMessage, 0, len(snapshot.History))
 	for _, item := range snapshot.History {
+		content := strings.TrimSpace(item.Content)
+		if strings.EqualFold(strings.TrimSpace(item.Role), "assistant") && strings.TrimSpace(item.ContextSummary) != "" {
+			content = strings.TrimSpace(item.ContextSummary)
+		}
 		history = append(history, ai.ConversationMessage{
 			Role:    item.Role,
-			Content: item.Content,
+			Content: content,
 		})
 	}
 	return trimConversationHistory(history, s.conversationHistoryLimitsFor(mc))
@@ -90,16 +98,21 @@ func (s *Service) appendConversationHistory(ctx context.Context, mc MessageConte
 	if len(process) > 0 {
 		assistantProcess = append([]ai.CallTraceStep(nil), process...)
 	}
+	assistantContextSummary := turnSummaryFromContext(ctx)
+	if assistantContextSummary == "" {
+		assistantContextSummary = assistantReply
+	}
 	history = append(history,
 		sessionstate.Message{
 			Role:    "user",
 			Content: trimConversationHistoryText(userInput, limits.Runes),
 		},
 		sessionstate.Message{
-			Role:    "assistant",
-			Content: trimConversationHistoryText(assistantReply, limits.Runes),
-			Usage:   assistantUsage,
-			Process: assistantProcess,
+			Role:           "assistant",
+			Content:        trimConversationHistoryText(assistantReply, limits.Runes),
+			ContextSummary: trimConversationHistoryText(assistantContextSummary, limits.Runes),
+			Usage:          assistantUsage,
+			Process:        assistantProcess,
 		},
 	)
 	snapshot.History = trimSessionHistory(history, limits)
@@ -198,10 +211,11 @@ func trimSessionHistory(history []sessionstate.Message, limits conversationHisto
 			continue
 		}
 		out = append(out, sessionstate.Message{
-			Role:    role,
-			Content: content,
-			Usage:   item.Usage,
-			Process: item.Process,
+			Role:           role,
+			Content:        content,
+			ContextSummary: trimConversationHistoryText(item.ContextSummary, limits.Runes),
+			Usage:          item.Usage,
+			Process:        item.Process,
 		})
 	}
 	if limits.Messages <= 0 || len(out) <= limits.Messages {
@@ -225,12 +239,19 @@ func defaultWeixinConversationHistoryLimits() conversationHistoryLimits {
 	}
 }
 
-func (s *Service) conversationHistoryLimitsFor(mc MessageContext) conversationHistoryLimits {
-	if !strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
-		return conversationHistoryLimits{}
+func defaultConversationHistoryLimits() conversationHistoryLimits {
+	return conversationHistoryLimits{
+		Messages: envIntOrDefault(envConversationHistoryMessages, defaultConversationHistoryMessages),
+		Runes:    envIntOrDefault(envConversationHistoryRunes, defaultConversationHistoryRunes),
 	}
-	messages, runes := s.WeixinHistoryLimits()
-	return conversationHistoryLimits{Messages: messages, Runes: runes}
+}
+
+func (s *Service) conversationHistoryLimitsFor(mc MessageContext) conversationHistoryLimits {
+	if strings.EqualFold(strings.TrimSpace(mc.Interface), "weixin") {
+		messages, runes := s.WeixinHistoryLimits()
+		return conversationHistoryLimits{Messages: messages, Runes: runes}
+	}
+	return defaultConversationHistoryLimits()
 }
 
 func envIntOrDefault(key string, fallback int) int {

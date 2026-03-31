@@ -646,12 +646,7 @@ func TestDetectToolOpportunities(t *testing.T) {
 	})
 
 	matches, err := service.DetectToolOpportunities(context.Background(), "查找 D 盘单细胞相关的PDF文件", []ToolCapability{
-		{
-			Name:             filesearch.ToolName,
-			Description:      filesearch.Definition().Description,
-			Usage:            filesearch.UsageText(),
-			InputJSONExample: filesearch.Definition().InputJSONExample,
-		},
+		ToolCapabilityFromContract(filesearch.Definition()),
 	})
 	if err != nil {
 		t.Fatalf("detect tool opportunities: %v", err)
@@ -682,12 +677,7 @@ func TestPlanToolUse(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"action\":\"tool\",\"tool_name\":\"everything_file_search\",\"tool_input\":\"{\\\"paths\\\":[\\\"Downloads\\\"],\\\"extensions\\\":[\\\"pdf\\\"],\\\"date_field\\\":\\\"created\\\",\\\"date_value\\\":\\\"last2days\\\"}\",\"user_message\":\"\"}"}]}]}`), nil
 	})
 
-	decision, err := service.PlanToolUse(context.Background(), "查找下载目录下这两天下载的文件", ToolCapability{
-		Name:             filesearch.ToolName,
-		Description:      filesearch.Definition().Description,
-		Usage:            filesearch.UsageText(),
-		InputJSONExample: filesearch.Definition().InputJSONExample,
-	}, nil)
+	decision, err := service.PlanToolUse(context.Background(), "查找下载目录下这两天下载的文件", ToolCapabilityFromContract(filesearch.Definition()), nil)
 	if err != nil {
 		t.Fatalf("plan tool use: %v", err)
 	}

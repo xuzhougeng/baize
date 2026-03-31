@@ -44,11 +44,13 @@ func (s *Service) handleAgentQuestion(ctx context.Context, mc MessageContext, qu
 			if err != nil {
 				output = "工具执行失败: " + err.Error()
 			}
-			addProcessTrace(ctx, fmt.Sprintf("Agent 工具结果 %d", step+1), preview(output, maxReplyPreviewRunes))
+			summary := summarizeToolOutputForModel(output)
+			recordToolArtifact(ctx, decision.ToolName, decision.ToolInput, output, summary)
+			addProcessTrace(ctx, fmt.Sprintf("Agent 工具结果 %d", step+1), preview(summary, maxReplyPreviewRunes))
 			results = append(results, ai.AgentToolResult{
 				ToolName:  strings.TrimSpace(decision.ToolName),
 				ToolInput: strings.TrimSpace(decision.ToolInput),
-				Output:    strings.TrimSpace(output),
+				Output:    strings.TrimSpace(summary),
 			})
 		default:
 			return "", fmt.Errorf("unsupported agent action %q", decision.Action)

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"myclaw/internal/ai"
+	"myclaw/internal/toolcontract"
 )
 
 type AgentToolProviderKind string
@@ -19,9 +20,14 @@ const (
 )
 
 type AgentToolSpec struct {
-	Name             string
-	Description      string
-	InputJSONExample string
+	Purpose           string
+	Name              string
+	Description       string
+	InputContract     string
+	OutputContract    string
+	Usage             string
+	InputJSONExample  string
+	OutputJSONExample string
 }
 
 type AgentToolProvider interface {
@@ -87,11 +93,16 @@ func (r *agentToolProviders) Definitions(ctx context.Context, mc MessageContext)
 				continue
 			}
 			out = append(out, ai.AgentToolDefinition{
-				Name:             joinProviderToolName(key, name),
-				Provider:         key,
-				ProviderKind:     string(provider.ProviderKind()),
-				Description:      strings.TrimSpace(tool.Description),
-				InputJSONExample: strings.TrimSpace(tool.InputJSONExample),
+				Name:              joinProviderToolName(key, name),
+				Provider:          key,
+				ProviderKind:      string(provider.ProviderKind()),
+				Purpose:           strings.TrimSpace(tool.Purpose),
+				Description:       strings.TrimSpace(tool.Description),
+				InputContract:     strings.TrimSpace(tool.InputContract),
+				OutputContract:    strings.TrimSpace(tool.OutputContract),
+				Usage:             strings.TrimSpace(tool.Usage),
+				InputJSONExample:  strings.TrimSpace(tool.InputJSONExample),
+				OutputJSONExample: strings.TrimSpace(tool.OutputJSONExample),
 			})
 		}
 	}
@@ -132,4 +143,18 @@ func splitProviderToolName(value string) (string, string, error) {
 
 func normalizeProviderKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func agentToolSpecFromContract(spec toolcontract.Spec) AgentToolSpec {
+	spec = spec.Normalized()
+	return AgentToolSpec{
+		Name:              spec.Name,
+		Purpose:           spec.Purpose,
+		Description:       spec.Description,
+		InputContract:     spec.InputContract,
+		OutputContract:    spec.OutputContract,
+		Usage:             spec.Usage,
+		InputJSONExample:  spec.InputJSONExample,
+		OutputJSONExample: spec.OutputJSONExample,
+	}
 }

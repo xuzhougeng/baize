@@ -9,9 +9,14 @@ import (
 )
 
 type ProtocolToolSpec struct {
-	Name             string
-	Description      string
-	InputJSONExample string
+	Purpose           string
+	Name              string
+	Description       string
+	InputContract     string
+	OutputContract    string
+	Usage             string
+	InputJSONExample  string
+	OutputJSONExample string
 }
 
 type ProtocolToolClient interface {
@@ -60,9 +65,14 @@ func (p *protocolAgentToolProvider) ListAgentTools(ctx context.Context, mc Messa
 			continue
 		}
 		out = append(out, AgentToolSpec{
-			Name:             name,
-			Description:      strings.TrimSpace(tool.Description),
-			InputJSONExample: strings.TrimSpace(tool.InputJSONExample),
+			Name:              name,
+			Purpose:           strings.TrimSpace(tool.Purpose),
+			Description:       strings.TrimSpace(tool.Description),
+			InputContract:     strings.TrimSpace(tool.InputContract),
+			OutputContract:    strings.TrimSpace(tool.OutputContract),
+			Usage:             strings.TrimSpace(tool.Usage),
+			InputJSONExample:  strings.TrimSpace(tool.InputJSONExample),
+			OutputJSONExample: strings.TrimSpace(tool.OutputJSONExample),
 		})
 	}
 	return out, nil

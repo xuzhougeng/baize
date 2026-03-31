@@ -11,6 +11,8 @@ This repository is being refactored toward a conversation-first, interface-thin 
 - Model `/new` as a conversation binding operation for the current interface slot, not as a generic business command with ad hoc side effects.
 - Commands and tool-like actions should have explicit policy metadata in the core runtime: whether they require conversation context, whether they persist history, whether they may create a conversation, whether they may activate desktop UI, and which interfaces can invoke them.
 - Prefer generic AI decision stages over tool-specific intent extractors. The default pattern is: identify need, match candidate tools, read tool contract, plan tool input, execute, and optionally iterate on prior results.
+- Keep context in three layers: execution scratchpad for raw per-task artifacts, task summary for compact carry-over state, and conversation memory for persisted user/assistant turns. Do not feed raw tool output back into future turns when a summary is sufficient.
+- Treat intermediate material as disposable by default. File listings, fetched page bodies, raw command output, and other execution artifacts should stay in scratchpad unless there is an explicit reason to persist or surface them.
 - A thinner interface may expose fewer capabilities, but it must not redefine the fundamental conversation semantics.
 - When fixing bugs, prefer removing transport-specific special cases and moving logic into `internal/app` or a dedicated `internal/<domain>` package instead of adding more branchy behavior to `internal/weixin`, `internal/terminal`, or desktop UI glue.
 - If a change alters architecture assumptions, update `README.md` and this file in the same change.
