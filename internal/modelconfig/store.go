@@ -2,10 +2,7 @@ package modelconfig
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,7 +31,6 @@ const (
 	DefaultRequestTimeoutSeconds = 90
 
 	currentDatabaseVersion = 2
-	masterKeySize          = 32
 )
 
 type Config struct {
@@ -206,7 +202,7 @@ func (s *Store) List(_ context.Context) (Snapshot, error) {
 			Model:                 cfg.Model,
 			RequestTimeoutSeconds: cfg.RequestTimeoutSeconds,
 			HasAPIKey:             strings.TrimSpace(profile.EncryptedAPIKey) != "",
-			APIKeyMasked:          maskedStoredSecret(profile.EncryptedAPIKey),
+			APIKeyMasked:          MaskSecret(profile.EncryptedAPIKey),
 			Active:                profile.ID == db.ActiveProfileID,
 			UpdatedAt:             profile.UpdatedAt,
 			MaxOutputTokensText:   cfg.MaxOutputTokensText,
@@ -451,18 +447,6 @@ func SharedMaxOutputTokens(text, json *int) *int {
 	return text
 }
 
-func normalizeOptionalPositiveInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	if *value <= 0 {
-		return nil
-	}
-	return value
-}
-
-const noChangeSecretSentinel = "\x00myclaw:keep-secret\x00"
-
 func (s *Store) readDatabaseLocked() (databaseFile, error) {
 	if strings.TrimSpace(s.path) == "" {
 		return databaseFile{
@@ -506,133 +490,22 @@ func (s *Store) readDatabaseLocked() (databaseFile, error) {
 	return db, nil
 }
 
-func normalizeDatabase(db *databaseFile) bool {
-	if db == nil {
-		return false
+func (s *Store) writeDatabaseLocked(db databaseFile) error {
+	if strings.TrimSpace(s.path) == "" {
+		return errors.New("model config store is read-only")
 	}
-	changed := false
-	if db.Version != currentDatabaseVersion {
-		db.Version = currentDatabaseVersion
-		changed = true
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
 	}
-	for index := range db.Profiles {
-		if normalizeStoredProfile(&db.Profiles[index]) {
-			changed = true
-		}
-	}
-	return changed
-}
-
-func normalizeStoredProfile(profile *storedProfile) bool {
-	if profile == nil {
-		return false
-	}
-	before := *profile
-	cfg := profile.config().Normalize()
-	profile.ID = strings.TrimSpace(profile.ID)
-	if profile.ID == "" {
-		profile.ID = newID()
-	}
-	profile.Name = cfg.Name
-	profile.Provider = cfg.Provider
-	profile.APIType = cfg.APIType
-	profile.BaseURL = cfg.BaseURL
-	profile.Model = cfg.Model
-	profile.MaxOutputTokensText = cfg.MaxOutputTokensText
-	profile.MaxOutputTokensJSON = cfg.MaxOutputTokensJSON
-	profile.MaxOutputTokens = nil
-	if profile.CreatedAt.IsZero() {
-		profile.CreatedAt = time.Now().UTC()
-	}
-	if profile.UpdatedAt.IsZero() {
-		profile.UpdatedAt = profile.CreatedAt
-	}
-	return before != *profile
-}
-
-func repairActiveProfile(db *databaseFile) bool {
-	if db == nil {
-		return false
-	}
-	if len(db.Profiles) == 0 {
-		if db.ActiveProfileID != "" {
-			db.ActiveProfileID = ""
-			return true
-		}
-		return false
-	}
-	if indexOfProfile(db.Profiles, db.ActiveProfileID) != -1 {
-		return false
-	}
-	db.ActiveProfileID = db.Profiles[0].ID
-	return true
-}
-
-func (s *Store) importLegacyConfigLocked(db *databaseFile) (bool, error) {
-	if strings.TrimSpace(s.legacyPath) == "" {
-		return false, nil
-	}
-	data, err := os.ReadFile(s.legacyPath)
+	data, err := json.MarshalIndent(db, "", "  ")
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	if len(data) == 0 {
-		return false, retireLegacyConfig(s.legacyPath)
-	}
-
-	var legacy struct {
-		Provider string `json:"provider"`
-		BaseURL  string `json:"base_url"`
-		APIKey   string `json:"api_key"`
-		Model    string `json:"model"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return false, err
-	}
-
-	if len(db.Profiles) == 0 {
-		key, err := s.loadMasterKeyLocked()
-		if err != nil {
-			return false, err
-		}
-		cfg := Config{
-			Name:     strings.TrimSpace(legacy.Model),
-			Provider: legacy.Provider,
-			APIType:  DefaultAPIType,
-			BaseURL:  legacy.BaseURL,
-			APIKey:   legacy.APIKey,
-			Model:    legacy.Model,
-		}.Normalize()
-		if cfg.ID == "" {
-			cfg.ID = newID()
-		}
-		profile, err := newStoredProfile(cfg, key, time.Now().UTC())
-		if err != nil {
-			return false, err
-		}
-		db.Profiles = append(db.Profiles, profile)
-		if strings.TrimSpace(db.ActiveProfileID) == "" {
-			db.ActiveProfileID = profile.ID
-		}
-	}
-
-	return true, retireLegacyConfig(s.legacyPath)
-}
-
-func retireLegacyConfig(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	if err := os.WriteFile(path, []byte(`{"migrated":true}`), 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	tmpPath := s.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return err
 	}
-	return nil
+	return os.Rename(tmpPath, s.path)
 }
 
 func (s *Store) profileConfigLocked(profile storedProfile) (Config, error) {
@@ -650,57 +523,6 @@ func (s *Store) profileConfigLocked(profile storedProfile) (Config, error) {
 	}
 	cfg.APIKey = apiKey
 	return cfg, nil
-}
-
-func (s *Store) loadMasterKeyLocked() ([]byte, error) {
-	if strings.TrimSpace(s.keyPath) == "" {
-		return nil, errors.New("model secret key store is read-only")
-	}
-
-	data, err := os.ReadFile(s.keyPath)
-	if err == nil {
-		if len(data) != masterKeySize {
-			return nil, fmt.Errorf("invalid model secret key length %d", len(data))
-		}
-		return data, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-
-	key := make([]byte, masterKeySize)
-	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(s.keyPath), 0o700); err != nil {
-		return nil, err
-	}
-	tmpPath := s.keyPath + ".tmp"
-	if err := os.WriteFile(tmpPath, key, 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmpPath, s.keyPath); err != nil {
-		return nil, err
-	}
-	return key, nil
-}
-
-func (s *Store) writeDatabaseLocked(db databaseFile) error {
-	if strings.TrimSpace(s.path) == "" {
-		return errors.New("model config store is read-only")
-	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(db, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.path)
 }
 
 func newStoredProfile(cfg Config, key []byte, now time.Time) (storedProfile, error) {
@@ -734,7 +556,6 @@ func newStoredProfile(cfg Config, key []byte, now time.Time) (storedProfile, err
 
 func updateStoredProfile(profile storedProfile, cfg Config, key []byte, now time.Time) (storedProfile, error) {
 	cfg = cfg.Normalize()
-	profile.ID = profile.ID
 	profile.Name = cfg.Name
 	profile.Provider = cfg.Provider
 	profile.APIType = cfg.APIType
@@ -798,151 +619,10 @@ func indexOfProfile(profiles []storedProfile, id string) int {
 	return -1
 }
 
-func normalizeProvider(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", ProviderOpenAI:
-		return ProviderOpenAI
-	case ProviderAnthropic, "antrophic":
-		return ProviderAnthropic
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
-	}
-}
-
-func normalizeAPIType(provider, value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "":
-		return defaultAPIType(provider)
-	case "response":
-		return APITypeResponses
-	case "responses":
-		return APITypeResponses
-	case "chat_completion", "chat-completion", "chat completions", "chat completion", "chat-completions":
-		return APITypeChatCompletions
-	case APITypeChatCompletions:
-		return APITypeChatCompletions
-	case "message":
-		return APITypeMessages
-	case APITypeMessages:
-		return APITypeMessages
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
-	}
-}
-
-func defaultAPIType(provider string) string {
-	switch normalizeProvider(provider) {
-	case ProviderAnthropic:
-		return APITypeMessages
-	default:
-		return APITypeResponses
-	}
-}
-
-func defaultBaseURL(provider string) string {
-	switch normalizeProvider(provider) {
-	case ProviderAnthropic:
-		return DefaultAnthropicBaseURL
-	default:
-		return DefaultBaseURL
-	}
-}
-
-func normalizeProfileName(name, provider, apiType, model string) string {
-	name = strings.TrimSpace(name)
-	if name != "" {
-		return name
-	}
-	model = strings.TrimSpace(model)
-	if model != "" {
-		return model
-	}
-	label := providerLabel(normalizeProvider(provider))
-	switch normalizeAPIType(provider, apiType) {
-	case APITypeResponses:
-		return label + " Responses"
-	case APITypeChatCompletions:
-		return label + " Chat Completions"
-	case APITypeMessages:
-		return label + " Messages"
-	default:
-		return label
-	}
-}
-
-func providerLabel(provider string) string {
-	switch normalizeProvider(provider) {
-	case ProviderAnthropic:
-		return "Anthropic"
-	default:
-		return "OpenAI"
-	}
-}
-
-func maskedStoredSecret(encrypted string) string {
-	if strings.TrimSpace(encrypted) == "" {
-		return "(empty)"
-	}
-	return "********"
-}
-
 func newID() string {
 	var buf [8]byte
 	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
 		return time.Now().UTC().Format("20060102150405")
 	}
 	return hex.EncodeToString(buf[:])
-}
-
-func encryptSecret(key []byte, secret string) (string, error) {
-	secret = strings.TrimSpace(secret)
-	if secret == "" {
-		return "", nil
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
-	}
-	ciphertext := gcm.Seal(nil, nonce, []byte(secret), nil)
-	return "v1:" + base64.StdEncoding.EncodeToString(nonce) + ":" + base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-func decryptSecret(key []byte, encrypted string) (string, error) {
-	encrypted = strings.TrimSpace(encrypted)
-	if encrypted == "" {
-		return "", nil
-	}
-	parts := strings.Split(encrypted, ":")
-	if len(parts) != 3 || parts[0] != "v1" {
-		return "", fmt.Errorf("unsupported encrypted secret format")
-	}
-	nonce, err := base64.StdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.StdEncoding.DecodeString(parts[2])
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
 }
