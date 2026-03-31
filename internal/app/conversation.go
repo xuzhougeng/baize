@@ -75,24 +75,6 @@ func (s *Service) SetMode(ctx context.Context, mc MessageContext, mode Mode) (Mo
 	return s.setConversationMode(ctx, mc, mode)
 }
 
-func (s *Service) handleConversationMessage(ctx context.Context, mc MessageContext, text string) (string, error) {
-	mode, stripped, overridden, err := s.resolveConversationMode(ctx, mc, text)
-	if err != nil {
-		return "", err
-	}
-	if overridden {
-		text = stripped
-		if text == "" {
-			return "请在 `@ai`、`@kb` 或 `@agent` 后输入具体内容。", nil
-		}
-		if normalized := normalizeSlash(text); isSlashCommand(normalized) {
-			return s.handleCommand(ctx, mc, normalized)
-		}
-	}
-
-	return s.handleAIDecision(ctx, mc, text, mode)
-}
-
 func (s *Service) handleConversationMessageStream(ctx context.Context, mc MessageContext, text string, onDelta func(string)) (string, error) {
 	mode, stripped, overridden, err := s.resolveConversationMode(ctx, mc, text)
 	if err != nil {
@@ -102,21 +84,19 @@ func (s *Service) handleConversationMessageStream(ctx context.Context, mc Messag
 		text = stripped
 		if text == "" {
 			reply := "请在 `@ai`、`@kb` 或 `@agent` 后输入具体内容。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		if normalized := normalizeSlash(text); isSlashCommand(normalized) {
 			reply, err := s.handleCommand(ctx, mc, normalized)
-			if err == nil && onDelta != nil && reply != "" {
-				onDelta(reply)
+			if err == nil {
+				emitIfPresent(onDelta, reply)
 			}
 			return reply, err
 		}
 	}
 
-	return s.handleAIDecisionStream(ctx, mc, text, mode, onDelta)
+	return s.handleAIDecisionInternal(ctx, mc, text, mode, onDelta)
 }
 
 func (s *Service) resolveConversationMode(ctx context.Context, mc MessageContext, text string) (Mode, string, bool, error) {
@@ -131,110 +111,23 @@ func (s *Service) resolveConversationMode(ctx context.Context, mc MessageContext
 	return mode, text, false, nil
 }
 
-func (s *Service) handleAIDecision(ctx context.Context, mc MessageContext, text string, mode Mode) (string, error) {
-	if reply, err := s.ensureAIAvailable(ctx); reply != "" || err != nil {
-		return reply, err
-	}
-	ctx = s.withSkillContext(ctx, mc)
-
-	decision, err := s.aiService.RouteCommand(ctx, text)
-	if err != nil {
-		return "", err
-	}
-	addProcessTrace(ctx, "AI 路由", "command="+strings.TrimSpace(decision.Command)+"\nmode="+string(mode))
-
-	switch decision.Command {
-	case "remember":
-		memoryText := strings.TrimSpace(decision.MemoryText)
-		if memoryText == "" {
-			memoryText = text
-		}
-		entry, err := s.store.Add(ctx, knowledge.Entry{
-			Text:       memoryText,
-			Source:     sourceLabel(mc),
-			RecordedAt: time.Now(),
-		})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
-	case "append":
-		if decision.KnowledgeID == "" {
-			return "请提供要补充的知识 ID。", nil
-		}
-		if decision.AppendText == "" {
-			return "请提供要补充的内容。", nil
-		}
-		return s.appendKnowledge(ctx, decision.KnowledgeID, decision.AppendText)
-	case "append_last":
-		if decision.AppendText == "" {
-			return "请提供要补充的内容。", nil
-		}
-		return s.appendLatestKnowledge(ctx, mc, decision.AppendText)
-	case "forget":
-		if decision.KnowledgeID == "" {
-			return "请提供要遗忘的知识 ID。", nil
-		}
-		return s.forgetKnowledge(ctx, decision.KnowledgeID)
-	case "notice_add":
-		if decision.ReminderSpec == "" {
-			return "请提供提醒时间和内容。", nil
-		}
-		return s.handleReminderCommand(ctx, mc, "/notice "+decision.ReminderSpec)
-	case "notice_list":
-		return s.handleReminderCommand(ctx, mc, "/notice list")
-	case "notice_remove":
-		if decision.ReminderID == "" {
-			return "请提供要删除的提醒 ID。", nil
-		}
-		return s.handleReminderCommand(ctx, mc, "/notice remove "+decision.ReminderID)
-	case "list":
-		return s.handleCommand(ctx, mc, "/list")
-	case "stats":
-		return s.handleCommand(ctx, mc, "/stats")
-	case "help":
-		return s.handleCommand(ctx, mc, "/help")
-	case "answer":
-		question := strings.TrimSpace(decision.Question)
-		if question == "" {
-			question = text
-		}
-		switch mode {
-		case ModeKnowledge:
-			entries, err := s.selectKnowledgeForAnswer(ctx, question)
-			if err != nil {
-				return "", err
-			}
-			addProcessTrace(ctx, "执行模式", "mode=knowledge\nentries="+fmt.Sprintf("%d", len(entries)))
-			reply, err := s.aiService.Answer(ctx, question, entries)
-			if err == nil {
-				s.maybeAppendConversationHistory(ctx, mc, question, reply)
-			}
-			return reply, err
-		case ModeAgent:
-			addProcessTrace(ctx, "执行模式", "mode=agent")
-			return s.handleAgentQuestion(ctx, mc, question)
-		case ModeDirect:
-			fallthrough
-		default:
-			history := s.conversationHistory(ctx, mc)
-			addProcessTrace(ctx, "执行模式", "mode=direct\nhistory="+fmt.Sprintf("%d", len(history)))
-			reply, err := s.aiService.Chat(ctx, question, history)
-			if err == nil {
-				s.maybeAppendConversationHistory(ctx, mc, question, reply)
-			}
-			return reply, err
-		}
-	default:
-		return fmt.Sprintf("无法识别命令路由: %s", decision.Command), nil
+func emitIfPresent(onDelta func(string), reply string) {
+	if onDelta != nil && reply != "" {
+		onDelta(reply)
 	}
 }
 
+func (s *Service) handleAIDecision(ctx context.Context, mc MessageContext, text string, mode Mode) (string, error) {
+	return s.handleAIDecisionInternal(ctx, mc, text, mode, nil)
+}
+
 func (s *Service) handleAIDecisionStream(ctx context.Context, mc MessageContext, text string, mode Mode, onDelta func(string)) (string, error) {
+	return s.handleAIDecisionInternal(ctx, mc, text, mode, onDelta)
+}
+
+func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContext, text string, mode Mode, onDelta func(string)) (string, error) {
 	if reply, err := s.ensureAIAvailable(ctx); reply != "" || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
-		}
+		emitIfPresent(onDelta, reply)
 		return reply, err
 	}
 	ctx = s.withSkillContext(ctx, mc)
@@ -260,104 +153,90 @@ func (s *Service) handleAIDecisionStream(ctx context.Context, mc MessageContext,
 			return "", err
 		}
 		reply := fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes))
-		if onDelta != nil {
-			onDelta(reply)
-		}
+		emitIfPresent(onDelta, reply)
 		return reply, nil
 	case "append":
 		if decision.KnowledgeID == "" {
 			reply := "请提供要补充的知识 ID。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		if decision.AppendText == "" {
 			reply := "请提供要补充的内容。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		reply, err := s.appendKnowledge(ctx, decision.KnowledgeID, decision.AppendText)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "append_last":
 		if decision.AppendText == "" {
 			reply := "请提供要补充的内容。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		reply, err := s.appendLatestKnowledge(ctx, mc, decision.AppendText)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "forget":
 		if decision.KnowledgeID == "" {
 			reply := "请提供要遗忘的知识 ID。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		reply, err := s.forgetKnowledge(ctx, decision.KnowledgeID)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "notice_add":
 		if decision.ReminderSpec == "" {
 			reply := "请提供提醒时间和内容。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		reply, err := s.handleReminderCommand(ctx, mc, "/notice "+decision.ReminderSpec)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "notice_list":
 		reply, err := s.handleReminderCommand(ctx, mc, "/notice list")
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "notice_remove":
 		if decision.ReminderID == "" {
 			reply := "请提供要删除的提醒 ID。"
-			if onDelta != nil {
-				onDelta(reply)
-			}
+			emitIfPresent(onDelta, reply)
 			return reply, nil
 		}
 		reply, err := s.handleReminderCommand(ctx, mc, "/notice remove "+decision.ReminderID)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "list":
 		reply, err := s.handleCommand(ctx, mc, "/list")
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "stats":
 		reply, err := s.handleCommand(ctx, mc, "/stats")
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "help":
 		reply, err := s.handleCommand(ctx, mc, "/help")
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "answer":
@@ -380,8 +259,8 @@ func (s *Service) handleAIDecisionStream(ctx context.Context, mc MessageContext,
 		case ModeAgent:
 			addProcessTrace(ctx, "执行模式", "mode=agent")
 			reply, err := s.handleAgentQuestion(ctx, mc, question)
-			if err == nil && onDelta != nil && reply != "" {
-				onDelta(reply)
+			if err == nil {
+				emitIfPresent(onDelta, reply)
 			}
 			return reply, err
 		case ModeDirect:
@@ -397,9 +276,7 @@ func (s *Service) handleAIDecisionStream(ctx context.Context, mc MessageContext,
 		}
 	default:
 		reply := fmt.Sprintf("无法识别命令路由: %s", decision.Command)
-		if onDelta != nil {
-			onDelta(reply)
-		}
+		emitIfPresent(onDelta, reply)
 		return reply, nil
 	}
 }

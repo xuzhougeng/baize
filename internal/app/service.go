@@ -153,84 +153,48 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
 	text := strings.TrimSpace(input)
 	if text == "" {
-		return "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。", nil
+		return "我没有收到有效内容。发送\u201c记住：xxx\u201d保存知识，或直接问问题。", nil
 	}
-
-	if normalized := normalizeSlash(text); isSlashCommand(normalized) {
-		return s.handleCommand(ctx, mc, normalized)
-	}
-
-	if reply, ok, err := s.tryHandleNaturalAppend(ctx, mc, text); ok || err != nil {
-		return reply, err
-	}
-
-	if reply, ok, err := s.tryHandleNaturalReminder(ctx, mc, text); ok || err != nil {
-		return reply, err
-	}
-
-	if reply, ok, err := s.tryHandleNaturalForget(ctx, text); ok || err != nil {
-		return reply, err
-	}
-
-	if memoryText, ok := parseRememberIntent(text); ok {
-		entry, err := s.store.Add(ctx, knowledge.Entry{
-			Text:       memoryText,
-			Source:     sourceLabel(mc),
-			RecordedAt: time.Now(),
-		})
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
-	}
-
-	if reply, ok, err := s.tryHandleDirectFileIngest(ctx, mc, text); ok || err != nil {
-		return reply, err
-	}
-
-	if reply, ok, err := s.tryHandleFileSearch(ctx, mc, text); ok || err != nil {
-		return reply, err
-	}
-
-	return s.handleConversationMessage(ctx, mc, text)
+	return s.handleMessageDispatch(ctx, mc, text, nil)
 }
 
 func (s *Service) HandleMessageStream(ctx context.Context, mc MessageContext, input string, onDelta func(string)) (string, error) {
 	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
 	text := strings.TrimSpace(input)
 	if text == "" {
-		reply := "我没有收到有效内容。发送“记住：xxx”保存知识，或直接问问题。"
-		if onDelta != nil {
-			onDelta(reply)
-		}
+		reply := "我没有收到有效内容。发送\u201c记住：xxx\u201d保存知识，或直接问问题。"
+		emitIfPresent(onDelta, reply)
 		return reply, nil
 	}
+	return s.handleMessageDispatch(ctx, mc, text, onDelta)
+}
 
+func (s *Service) handleMessageDispatch(ctx context.Context, mc MessageContext, text string, onDelta func(string)) (string, error) {
 	if normalized := normalizeSlash(text); isSlashCommand(normalized) {
 		reply, err := s.handleCommand(ctx, mc, normalized)
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
 
 	if reply, ok, err := s.tryHandleNaturalAppend(ctx, mc, text); ok || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
 
 	if reply, ok, err := s.tryHandleNaturalReminder(ctx, mc, text); ok || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
 
 	if reply, ok, err := s.tryHandleNaturalForget(ctx, text); ok || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
@@ -245,22 +209,20 @@ func (s *Service) HandleMessageStream(ctx context.Context, mc MessageContext, in
 			return "", err
 		}
 		reply := fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes))
-		if onDelta != nil {
-			onDelta(reply)
-		}
+		emitIfPresent(onDelta, reply)
 		return reply, nil
 	}
 
 	if reply, ok, err := s.tryHandleDirectFileIngest(ctx, mc, text); ok || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
 
 	if reply, ok, err := s.tryHandleFileSearch(ctx, mc, text); ok || err != nil {
-		if err == nil && onDelta != nil && reply != "" {
-			onDelta(reply)
+		if err == nil {
+			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	}
@@ -316,7 +278,7 @@ func (s *Service) appendLatestKnowledge(ctx context.Context, mc MessageContext, 
 		return "", err
 	}
 	if !ok {
-		return "当前没有可补充的最近知识。先记住一条内容，再说“再补充一点：...”。", nil
+		return "当前没有可补充的最近知识。先记住一条内容，再说\u201c再补充一点：...\u201d。", nil
 	}
 	return fmt.Sprintf("已补充 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
 }
@@ -680,9 +642,9 @@ func parseRememberIntent(text string) (string, bool) {
 func formatKnowledgeDump(entries []knowledge.Entry, question string) (string, error) {
 	if len(entries) == 0 {
 		if strings.TrimSpace(question) == "" {
-			return "知识库为空。发送“记住：xxx”或 `/remember xxx` 添加内容。", nil
+			return "知识库为空。发送\u201c记住：xxx\u201d或 `/remember xxx` 添加内容。", nil
 		}
-		return fmt.Sprintf("我已读取知识库，但当前为空。\n\n你的问题：%s\n\n先用“记住：xxx”保存内容，再来问我。", question), nil
+		return fmt.Sprintf("我已读取知识库，但当前为空。\n\n你的问题：%s\n\n先用\u201c记住：xxx\u201d保存内容，再来问我。", question), nil
 	}
 
 	var builder strings.Builder

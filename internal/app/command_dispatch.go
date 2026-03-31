@@ -73,7 +73,7 @@ func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input st
 
 	handler, ok := serviceCommandHandlers[strings.ToLower(fields[0])]
 	if !ok {
-		return s.handleConversationMessage(ctx, mc, input)
+		return s.handleConversationMessageStream(ctx, mc, input, nil)
 	}
 	addProcessTrace(ctx, "命令分发", "command="+strings.ToLower(fields[0]))
 	return handler(s, ctx, mc, input, fields)
