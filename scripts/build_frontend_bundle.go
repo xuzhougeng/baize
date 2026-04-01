@@ -84,18 +84,24 @@ func repoRoot() (string, error) {
 
 func concatBundle(baseDir string, sources []string) ([]byte, error) {
 	var out bytes.Buffer
-	for _, source := range sources {
+	for index, source := range sources {
 		sourcePath := filepath.Join(baseDir, source)
 		content, err := os.ReadFile(sourcePath)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", sourcePath, err)
 		}
+		content = normalizeLF(content)
+		content = bytes.TrimRight(content, "\n")
+
+		if index > 0 {
+			out.WriteString("\n\n")
+		}
 
 		out.WriteString("/* Source: ")
 		out.WriteString(filepath.ToSlash(source))
 		out.WriteString(" */\n")
-		out.Write(bytes.TrimRight(content, "\n"))
-		out.WriteString("\n\n")
+		out.Write(content)
+		out.WriteString("\n")
 	}
 	return out.Bytes(), nil
 }
@@ -106,14 +112,31 @@ func writeIfChanged(targetPath string, content []byte) error {
 	}
 
 	existing, err := os.ReadFile(targetPath)
-	if err == nil && bytes.Equal(existing, content) {
-		return nil
+	output := content
+	if err == nil {
+		output = applyExistingEOL(content, existing)
+		if bytes.Equal(existing, output) {
+			return nil
+		}
 	}
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	return os.WriteFile(targetPath, content, 0o644)
+	return os.WriteFile(targetPath, output, 0o644)
+}
+
+func normalizeLF(content []byte) []byte {
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+	content = bytes.ReplaceAll(content, []byte("\r"), []byte("\n"))
+	return content
+}
+
+func applyExistingEOL(content, existing []byte) []byte {
+	if bytes.Contains(existing, []byte("\r\n")) {
+		return bytes.ReplaceAll(content, []byte("\n"), []byte("\r\n"))
+	}
+	return content
 }
 
 func exitf(format string, args ...any) {

@@ -73,6 +73,7 @@ function updateThemeIcon(theme) {
   }
 }
 
+
 /* Source: js/shared/state-models.js */
 function defaultChatSessionContextMenuState() {
   return {
@@ -487,6 +488,7 @@ function normalizeWeixinStatus(payload) {
   };
 }
 
+
 /* Source: js/shared/utils.js */
 function showBanner(message, isError) {
   const banner = document.getElementById('banner');
@@ -818,6 +820,7 @@ function escapeAttribute(value) {
   return escapeHTML(value).replaceAll('`', '&#96;');
 }
 
+
 /* Source: js/core/state.js */
 const state = {
   backend: null,
@@ -890,6 +893,7 @@ const CHAT_SLASH_COMMANDS = [
   { label: '/notice remove', insert: '/notice remove ', description: '删除提醒' },
   { label: '/cron', insert: '/cron ', description: '与 /notice 等价' },
 ];
+
 
 /* Source: js/views/chat.js */
 function renderChat() {
@@ -1551,6 +1555,7 @@ function reorderChatSessions(sourceSessionId, targetSessionId, placeBefore) {
   saveChatSessionOrder(conversations.map((item) => item.sessionId));
   renderChatSessions();
 }
+
 
 /* Source: js/views/library.js */
 function renderKnowledge() {
@@ -2471,6 +2476,7 @@ function renderSettings() {
   }
 }
 
+
 /* Source: js/ui/chat-session-ui.js */
 function bindNavigation() {
   document.querySelectorAll('.nav-item, [data-nav-view]').forEach(item => {
@@ -3048,6 +3054,7 @@ async function submitChatSessionDialog() {
   }
 }
 
+
 /* Source: js/core/events.js */
 function bindStaticEvents() {
   document.addEventListener('click', (event) => {
@@ -3588,6 +3595,7 @@ function updateFilePreview(file) {
   }
 }
 
+
 /* Source: js/core/backend.js */
 async function waitForBackend() {
   for (let index = 0; index < 80; index += 1) {
@@ -4051,6 +4059,7 @@ async function refreshSettings() {
   renderSettings();
 }
 
+
 /* Source: js/features/library-actions.js */
 async function browseFile() {
   if (state.backendMode === 'http') {
@@ -4339,6 +4348,7 @@ async function clearPromptsLibrary() {
     showBanner(asMessage(error), true);
   }
 }
+
 
 /* Source: js/features/chat-composer.js */
 async function sendMessage(rawText = null, displayText = null) {
@@ -5014,6 +5024,7 @@ function focusChatInput() {
   updateChatAutocomplete();
 }
 
+
 /* Source: js/core/init.js */
 document.addEventListener("DOMContentLoaded", () => {
   void init();
@@ -5051,4 +5062,3 @@ async function init() {
     showBanner(asMessage(error), true);
   }
 }
-

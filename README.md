@@ -436,6 +436,8 @@ workflow 上传的 artifact 现在只包含 NSIS 安装器：
 
 这两个脚本会优先使用 `PATH` 里的 `wails`；如果没找到，会自动回退到仓库 `go.mod` 锁定版本的 `go run github.com/wailsapp/wails/v2/cmd/wails@<version>`。
 
+桌面脚本会强制使用 `CGO_ENABLED=1`，因为桌面端运行依赖 SQLite；如果你的 shell 里全局设置了 `CGO_ENABLED=0`，脚本也会覆盖它。
+
 如果脚本走的是 `go run` 回退，且你没有显式设置 `GOPROXY/GOSUMDB`，脚本会临时注入一组更适合国内网络的默认值：
 
 - `GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct`
@@ -444,8 +446,11 @@ workflow 上传的 artifact 现在只包含 NSIS 安装器：
 如果你只想手工调用 Wails，也可以在 `cmd/myclaw-desktop/` 下执行：
 
 ```powershell
-wails build -platform windows/amd64 -o myclaw-amd64.exe -nsis -webview2 download -s
+$env:CGO_ENABLED="1"
+wails build -platform windows/amd64 -o myclaw-amd64.exe -nsis -webview2 download -m -s
 ```
+
+这里的 `-m` 是 Wails 的 `SkipModTidy`，用于避免桌面打包时顺手改写 `go.mod` / `go.sum`。
 
 ### GitHub Actions macOS 签名 DMG
 

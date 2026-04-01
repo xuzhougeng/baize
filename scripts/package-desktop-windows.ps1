@@ -76,6 +76,18 @@ function Get-GoFallbackEnvironment {
     return $environment
 }
 
+function Get-DesktopBuildEnvironment {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GoCommand
+    )
+
+    $environment = Get-GoFallbackEnvironment -GoCommand $GoCommand
+    # Desktop builds depend on sqlite via go-sqlite3, so they must not inherit CGO_ENABLED=0.
+    $environment["CGO_ENABLED"] = "1"
+    return $environment
+}
+
 function Invoke-FrontendBundleBuild {
     $goCommand = Get-Command go -ErrorAction SilentlyContinue
     if ($null -eq $goCommand) {
@@ -131,12 +143,19 @@ function Get-WailsInvocation {
     return @{
         Command = $goCommand.Source
         Arguments = @("run", "github.com/wailsapp/wails/v2/cmd/wails@$wailsVersion")
-        Environment = Get-GoFallbackEnvironment -GoCommand $goCommand.Source
+        Environment = Get-DesktopBuildEnvironment -GoCommand $goCommand.Source
         ResolvedVersion = $wailsVersion
         UsesFallback = $true
     }
 }
 
+$wailsCommand = Get-Command wails -ErrorAction SilentlyContinue
+$wailsBuildEnvironment = if ($null -ne $wailsCommand) {
+    Get-DesktopBuildEnvironment -GoCommand (Get-Command go).Source
+}
+else {
+    @{}
+}
 $wailsInvocation = Get-WailsInvocation
 Invoke-FrontendBundleBuild
 
@@ -152,7 +171,10 @@ try {
         if ($wailsInvocation.Environment.Count -gt 0) {
             Write-Host ("Applying Go fallback env: " + (($wailsInvocation.Environment.GetEnumerator() | Sort-Object Name | ForEach-Object { "{0}={1}" -f $_.Name, $_.Value }) -join ", "))
         }
+    } elseif ($wailsBuildEnvironment.Count -gt 0) {
+        Write-Host ("Applying desktop build env: " + (($wailsBuildEnvironment.GetEnumerator() | Sort-Object Name | ForEach-Object { "{0}={1}" -f $_.Name, $_.Value }) -join ", "))
     }
+    $buildEnvironment = if ($wailsInvocation.UsesFallback) { $wailsInvocation.Environment } else { $wailsBuildEnvironment }
     Invoke-ExternalCommand -Command $wailsInvocation.Command -Arguments ($wailsInvocation.Arguments + @(
         "build",
         "-platform", "windows/amd64",
@@ -160,9 +182,10 @@ try {
         "-nsis",
         "-webview2", "download",
         "-ldflags", $ldflags,
-        # Keep standard Wails bindings; obfuscated bindings change the frontend call path.
+        # Skip go mod tidy to avoid rewriting go.mod/go.sum during desktop packaging.
+        "-m",
         "-s"
-    )) -Environment $wailsInvocation.Environment
+    )) -Environment $buildEnvironment
 }
 finally {
     Pop-Location
