@@ -47,6 +47,10 @@
             <span class="icon">⌬</span>
             <span>Skill库</span>
           </a>
+          <a class="nav-item" data-view="tools">
+            <span class="icon">⌘</span>
+            <span>工具</span>
+          </a>
           <a class="nav-item" data-view="settings">
             <span class="icon">⚙</span>
             <span>设置</span>
@@ -128,6 +132,10 @@
               <div class="action-card" onclick="navigateTo('skills')">
                 <h3>Skill 库</h3>
                 <p>把技能加载到当前 desktop 会话</p>
+              </div>
+              <div class="action-card" onclick="navigateTo('tools')">
+                <h3>工具页</h3>
+                <p>查看当前 claw 可调用的本地能力</p>
               </div>
               <div class="action-card" onclick="navigateTo('chat')">
                 <h3>开始对话</h3>
@@ -357,6 +365,26 @@
           </div>
         </div>
 
+        <div id="view-tools" class="view">
+          <header class="content-header">
+            <div class="content-header-row">
+              <div>
+                <h2>工具</h2>
+                <p class="subtitle">当前 desktop agent 会从这里列出的 tool 能力里按需选择执行，本地配置也直接挂在对应工具项上。</p>
+              </div>
+            </div>
+          </header>
+          <div class="content-body">
+            <div class="tools-grid" id="tool-list">
+              <div class="empty-state">
+                <div class="empty-state-icon">⌘</div>
+                <h3>还没有可用工具</h3>
+                <p>后端加载完成后，这里会展示当前 claw 的可调用能力。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="view-settings" class="view">
           <header class="content-header">
             <h2>设置</h2>
@@ -565,17 +593,11 @@
                     <span>单条消息字符上限</span>
                     <input id="settings-weixin-history-runes" type="number" min="0" step="1" placeholder="360" />
                   </label>
-                  <label class="form-field" style="grid-column: 1 / -1;">
-                    <span>Everything `es.exe` 路径</span>
-                    <input id="settings-weixin-everything-path" type="text" placeholder="例如: C:\\Program Files\\Everything\\es.exe 或 es.exe" />
-                  </label>
                 </div>
 
                 <div class="settings-note">
                   <p><code>0</code> 表示不限制。</p>
                   <p>这些限制只作用于微信 bridge 的历史保留和后续对话上下文；本地 desktop / terminal 会话不受影响。</p>
-                  <p>如果还没安装 ES，可以直接去 <a href="https://www.voidtools.com/zh-cn/downloads" target="_blank" rel="noopener noreferrer">Everything 下载页</a> 下载。</p>
-                  <p>`/find` 目前只在 Windows 下生效，desktop / terminal / 微信都会调用同一个文件检索模块；微信发送文件请使用 `/send <序号>`。macOS/Linux 暂时是 TODO。</p>
                 </div>
 
                 <div class="model-actions">

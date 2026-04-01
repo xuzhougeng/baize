@@ -32,6 +32,12 @@ window.navigateTo = function(viewName, sectionId) {
     });
   }
 
+  if (normalizedView === 'tools' && state.backend) {
+    void refreshTools().catch((error) => {
+      showBanner(asMessage(error), true);
+    });
+  }
+
   if (targetView && normalizedSectionId) {
     const targetSection = document.getElementById(normalizedSectionId);
     if (targetSection && targetView.contains(targetSection)) {
@@ -76,6 +82,7 @@ const state = {
   knowledge: [],
   prompts: [],
   skills: [],
+  tools: [],
   chatPrompt: defaultChatPromptState(),
   autocomplete: defaultAutocompleteState(),
   selectedSkillName: "",
@@ -157,6 +164,7 @@ async function init() {
   renderReminders();
   renderPrompts();
   renderSkills();
+  renderTools();
   renderModel();
   renderWeixin();
   renderSettings();
@@ -919,6 +927,18 @@ function bindStaticEvents() {
     });
   }
 
+  const toolList = document.getElementById('tool-list');
+  if (toolList) {
+    toolList.addEventListener('click', (event) => {
+      const actionTarget = event.target.closest('[data-tool-action]');
+      if (!actionTarget) return;
+
+      if (actionTarget.dataset.toolAction === 'save-everything-path') {
+        void saveSettings();
+      }
+    });
+  }
+
   // Chat events
   const chatSend = document.getElementById('chat-send');
   if (chatSend) {
@@ -1290,6 +1310,7 @@ function createWailsBackend(backend) {
     DeletePrompt: (idOrPrefix) => backend.DeletePrompt(idOrPrefix),
     ClearPrompts: () => backend.ClearPrompts(),
     ListSkills: () => backend.ListSkills(),
+    ListTools: () => backend.ListTools(),
     LoadSkill: (name) => backend.LoadSkill(name),
     UnloadSkill: (name) => backend.UnloadSkill(name),
     OpenSkillImportDialog: () => backend.OpenSkillImportDialog(),
@@ -1364,6 +1385,7 @@ function createHTTPBackend() {
     DeletePrompt: (idOrPrefix) => requestJSON('POST', '/api/prompts/delete', { idOrPrefix }),
     ClearPrompts: () => requestJSON('POST', '/api/prompts/clear'),
     ListSkills: () => requestJSON('GET', '/api/skills'),
+    ListTools: () => requestJSON('GET', '/api/tools'),
     LoadSkill: (name) => requestJSON('POST', '/api/skills/load', { name }),
     UnloadSkill: (name) => requestJSON('POST', '/api/skills/unload', { name }),
     OpenSkillImportDialog: async () => '',
@@ -1529,7 +1551,7 @@ function startBackendPolling() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings()]);
+  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshTools(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings()]);
 }
 
 async function refreshProjectState() {
@@ -1637,6 +1659,11 @@ async function refreshSkills() {
   renderSkills();
   renderChatContext();
   updateChatAutocomplete();
+}
+
+async function refreshTools() {
+  state.tools = normalizeTools(await state.backend.ListTools());
+  renderTools();
 }
 
 async function refreshChatPrompt() {
@@ -2854,6 +2881,120 @@ function normalizeSkills(payload) {
   }));
 }
 
+function normalizeTools(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    name: item.name || '',
+    shortName: item.shortName || '',
+    title: item.title || item.shortName || item.name || '',
+    description: item.description || item.purpose || '',
+    purpose: item.purpose || '',
+    provider: item.provider || '',
+    providerKind: item.providerKind || '',
+    sideEffectLevel: item.sideEffectLevel || '',
+    status: item.status || '已就绪',
+    statusTone: item.statusTone || 'on',
+    configurable: Boolean(item.configurable),
+    configValue: item.configValue || '',
+  }));
+}
+
+function toolSideEffectLabel(level) {
+  switch ((level || '').toLowerCase()) {
+    case 'read_only':
+      return '只读';
+    case 'soft_write':
+      return '软写入';
+    case 'destructive':
+      return '删除/变更';
+    default:
+      return level || '未标注';
+  }
+}
+
+function renderToolConfig(tool) {
+  if (!tool.configurable || tool.shortName !== 'everything_file_search') {
+    return '';
+  }
+
+  if (tool.statusTone === 'off') {
+    return `
+      <div class="tool-config">
+        <div class="tool-card-note">
+          这个工具当前只在 Windows 下可用，所以这里不显示 Everything 路径输入。
+        </div>
+      </div>
+    `;
+  }
+
+  const value = tool.configValue || state.settings.weixinEverythingPath || '';
+  return `
+    <div class="tool-config">
+      <label class="form-field form-field-wide">
+        <span>Everything \`es.exe\` 路径</span>
+        <input id="tool-everything-path" type="text" placeholder="例如: C:\\Program Files\\Everything\\es.exe 或 es.exe" value="${escapeAttribute(value)}" />
+      </label>
+      <div class="tool-card-note">
+        这个配置同时供 agent 文件检索和 `/find` 使用；如果还没安装 ES，可以去
+        <a href="https://www.voidtools.com/zh-cn/downloads" target="_blank" rel="noopener noreferrer">Everything 下载页</a>
+        下载。
+      </div>
+      <div class="tool-card-note">
+        `/find` 目前只在 Windows 下生效，desktop / terminal / 微信会复用同一个文件检索模块；微信发送文件仍然使用 `/send &lt;序号&gt;`。
+      </div>
+      <div class="tool-card-actions">
+        <button class="btn btn-primary btn-sm" data-tool-action="save-everything-path">保存路径</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderTools() {
+  const container = document.getElementById('tool-list');
+  if (!container) return;
+
+  const tools = [...state.tools];
+  if (tools.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">⌘</div>
+        <h3>还没有可用工具</h3>
+        <p>后端加载完成后，这里会展示当前 claw 的可调用能力。</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = tools
+    .map((tool) => {
+      const purpose = tool.purpose && tool.purpose !== tool.description
+        ? `<p class="tool-card-purpose">${escapeHTML(tool.purpose)}</p>`
+        : '';
+      const providerLabel = [tool.provider, tool.providerKind].filter(Boolean).join(' / ') || 'local';
+      return `
+        <article class="tool-card">
+          <div class="tool-card-header">
+            <div>
+              <div class="tool-card-title-row">
+                <h3>${escapeHTML(tool.title || tool.shortName || tool.name)}</h3>
+                <span class="status-pill ${escapeAttribute(tool.statusTone || 'on')}">${escapeHTML(tool.status || '已就绪')}</span>
+              </div>
+              <div class="tool-card-name">${escapeHTML(tool.name || tool.shortName)}</div>
+            </div>
+            <div class="tool-card-tags">
+              <span class="tool-meta-pill">${escapeHTML(toolSideEffectLabel(tool.sideEffectLevel))}</span>
+              <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
+            </div>
+          </div>
+          <p class="tool-card-desc">${escapeHTML(tool.description || '这个工具还没有填写描述。')}</p>
+          ${purpose}
+          ${renderToolConfig(tool)}
+        </article>
+      `;
+    })
+    .join('');
+}
+
 function ensureSelectedSkill() {
   if (state.skills.length === 0) {
     state.selectedSkillName = '';
@@ -3390,7 +3531,7 @@ async function saveSettings() {
   try {
     const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || '0';
     const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || '0';
-    const everythingPathValue = document.getElementById('settings-weixin-everything-path')?.value.trim() || '';
+    const everythingPathValue = document.getElementById('tool-everything-path')?.value.trim() || state.settings.weixinEverythingPath || '';
     const payload = {
       weixinHistoryMessages: Number(messagesValue),
       weixinHistoryRunes: Number(runesValue),
@@ -3405,6 +3546,7 @@ async function saveSettings() {
     }
 
     state.settings = normalizeSettingsState(await state.backend.SaveSettings(payload));
+    await refreshTools();
     renderSettings();
     showBanner('设置已保存。', false);
   } catch (error) {
@@ -3415,16 +3557,12 @@ async function saveSettings() {
 function renderSettings() {
   const messages = document.getElementById('settings-weixin-history-messages');
   const runes = document.getElementById('settings-weixin-history-runes');
-  const everythingPath = document.getElementById('settings-weixin-everything-path');
 
   if (messages) {
     messages.value = String(state.settings.weixinHistoryMessages ?? 12);
   }
   if (runes) {
     runes.value = String(state.settings.weixinHistoryRunes ?? 360);
-  }
-  if (everythingPath) {
-    everythingPath.value = String(state.settings.weixinEverythingPath ?? '');
   }
 }
 
