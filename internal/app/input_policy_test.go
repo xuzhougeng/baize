@@ -66,6 +66,16 @@ func TestInspectInputPolicy(t *testing.T) {
 			wantActivateConv:   false,
 		},
 		{
+			name:               "kb switch stays stateless",
+			input:              "/kb switch Alpha",
+			wantCommand:        "/kb",
+			wantExecution:      CommandExecutionService,
+			wantKnown:          true,
+			wantControl:        false,
+			wantPersistHistory: false,
+			wantActivateConv:   false,
+		},
+		{
 			name:               "kb list activates conversation",
 			input:              "/kb list",
 			wantCommand:        "/kb",

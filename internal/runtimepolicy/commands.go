@@ -52,6 +52,8 @@ var commandPolicies = []CommandPolicy{
 		PersistHistory:       false,
 		ActivateConversation: false,
 		Subcommands: []SubcommandPolicy{
+			{Subcommand: "new", Execution: CommandExecutionService, PersistHistory: false, ActivateConversation: false},
+			{Subcommand: "switch", Execution: CommandExecutionService, PersistHistory: false, ActivateConversation: false},
 			{Subcommand: "remember", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 			{Subcommand: "remember-file", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 			{Subcommand: "append", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
@@ -63,7 +65,6 @@ var commandPolicies = []CommandPolicy{
 	},
 	{Command: "/translate", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/debug-search", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/mode", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/notice", Aliases: []string{"/cron"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 }
 

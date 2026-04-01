@@ -54,6 +54,9 @@ func (s *Store) Add(ctx context.Context, entry Entry) (Entry, error) {
 	entry.Source = strings.TrimSpace(entry.Source)
 	entry.Project = canonicalEntryProject(ctx, entry.Project)
 	entry.Keywords = MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
+	if err := s.ensureProject(ctx, entry.Project); err != nil {
+		return Entry{}, err
+	}
 
 	keywordsJSON, err := json.Marshal(entry.Keywords)
 	if err != nil {
@@ -68,6 +71,17 @@ func (s *Store) Add(ctx context.Context, entry Entry) (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func (s *Store) EnsureProject(ctx context.Context, project string) (ProjectInfo, error) {
+	if err := s.ensureReady(); err != nil {
+		return ProjectInfo{}, err
+	}
+	project = CanonicalProjectName(project)
+	if err := s.ensureProject(ctx, project); err != nil {
+		return ProjectInfo{}, err
+	}
+	return s.projectInfo(ctx, project)
 }
 
 func (s *Store) List(ctx context.Context) ([]Entry, error) {
@@ -219,10 +233,14 @@ func (s *Store) ListProjects(ctx context.Context) ([]ProjectInfo, error) {
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT project, COUNT(*), MAX(recorded_at)
-		FROM knowledge_entries
-		GROUP BY project
-		ORDER BY MAX(recorded_at) DESC, LOWER(project) ASC
+		SELECT
+			p.name,
+			COUNT(e.id),
+			COALESCE(MAX(e.recorded_at), p.created_at)
+		FROM knowledge_projects p
+		LEFT JOIN knowledge_entries e ON e.project = p.name
+		GROUP BY p.name, p.created_at
+		ORDER BY COALESCE(MAX(e.recorded_at), p.created_at) DESC, LOWER(p.name) ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -265,6 +283,10 @@ func (s *Store) ensureReady() error {
 			return
 		}
 		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS knowledge_projects (
+				name TEXT PRIMARY KEY,
+				created_at TEXT NOT NULL
+			);
 			CREATE TABLE IF NOT EXISTS knowledge_entries (
 				id TEXT PRIMARY KEY,
 				text TEXT NOT NULL,
@@ -278,6 +300,10 @@ func (s *Store) ensureReady() error {
 			CREATE INDEX IF NOT EXISTS knowledge_entries_source_recorded_idx
 				ON knowledge_entries (source, recorded_at);
 		`)
+		if s.initErr != nil {
+			return
+		}
+		s.initErr = s.ensureProject(context.Background(), DefaultProjectName)
 	})
 	return s.initErr
 }
@@ -331,6 +357,48 @@ func (s *Store) findByPrefix(ctx context.Context, idOrPrefix, project string, ne
 	project = canonicalProjectFilter(project)
 	row := s.db.QueryRowContext(ctx, query, prefix+"%", project, project)
 	return scanKnowledgeEntry(row)
+}
+
+func (s *Store) ensureProject(ctx context.Context, project string) error {
+	project = CanonicalProjectName(project)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO knowledge_projects (name, created_at)
+		VALUES (?, ?)
+		ON CONFLICT(name) DO NOTHING
+	`, project, formatSQLiteTime(time.Now()))
+	return err
+}
+
+func (s *Store) projectInfo(ctx context.Context, project string) (ProjectInfo, error) {
+	project = CanonicalProjectName(project)
+	row := s.db.QueryRowContext(ctx, `
+		SELECT
+			p.name,
+			COUNT(e.id),
+			COALESCE(MAX(e.recorded_at), p.created_at)
+		FROM knowledge_projects p
+		LEFT JOIN knowledge_entries e ON e.project = p.name
+		WHERE p.name = ?
+		GROUP BY p.name, p.created_at
+	`, project)
+
+	var (
+		name     string
+		count    int
+		recorded string
+	)
+	if err := row.Scan(&name, &count, &recorded); err != nil {
+		return ProjectInfo{}, err
+	}
+	recordedAt, err := parseSQLiteTime(recorded)
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+	return ProjectInfo{
+		Name:             CanonicalProjectName(name),
+		KnowledgeCount:   count,
+		LatestRecordedAt: recordedAt,
+	}, nil
 }
 
 func scanKnowledgeRows(scanner interface{ Scan(...any) error }) (Entry, error) {

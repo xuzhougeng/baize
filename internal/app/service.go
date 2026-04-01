@@ -15,6 +15,7 @@ import (
 	"myclaw/internal/fileingest"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
@@ -56,6 +57,7 @@ type Service struct {
 	weixinHistory   conversationHistoryLimits
 	fileSearchPath  string
 	fileSearchExec  filesearch.SearchExecutor
+	projectStore    *projectstate.Store
 	modeMu          sync.RWMutex
 	modeMap         map[string]Mode
 	loadedSkillsMu  sync.RWMutex
@@ -152,8 +154,17 @@ func (s *Service) SetWeixinHistoryLimits(messages int, runes int) {
 	s.settingsMu.Unlock()
 }
 
+func (s *Service) SetProjectStore(store *projectstate.Store) {
+	s.projectStore = store
+}
+
 func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input string) (string, error) {
-	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
+	var err error
+	ctx, err = s.withKnowledgeContext(ctx, mc)
+	if err != nil {
+		return "", err
+	}
+	ctx = withTaskContext(ctx)
 	text := strings.TrimSpace(input)
 	if text == "" {
 		return "我没有收到有效内容。发送\u201c记住：xxx\u201d保存知识，或直接问问题。", nil
@@ -162,7 +173,12 @@ func (s *Service) HandleMessage(ctx context.Context, mc MessageContext, input st
 }
 
 func (s *Service) HandleMessageStream(ctx context.Context, mc MessageContext, input string, onDelta func(string)) (string, error) {
-	ctx = withTaskContext(withKnowledgeContext(ctx, mc))
+	var err error
+	ctx, err = s.withKnowledgeContext(ctx, mc)
+	if err != nil {
+		return "", err
+	}
+	ctx = withTaskContext(ctx)
 	text := strings.TrimSpace(input)
 	if text == "" {
 		reply := "我没有收到有效内容。发送\u201c记住：xxx\u201d保存知识，或直接问问题。"
@@ -985,11 +1001,15 @@ func skillSessionKey(mc MessageContext) string {
 	return conversationSessionKey(mc)
 }
 
-func withKnowledgeContext(ctx context.Context, mc MessageContext) context.Context {
-	if project := strings.TrimSpace(mc.Project); project != "" {
-		return knowledge.WithProject(ctx, project)
+func (s *Service) withKnowledgeContext(ctx context.Context, mc MessageContext) (context.Context, error) {
+	project, err := s.activeProject(ctx, mc)
+	if err != nil {
+		return nil, err
 	}
-	return ctx
+	if strings.TrimSpace(project) == "" {
+		return ctx, nil
+	}
+	return knowledge.WithProject(ctx, project), nil
 }
 
 func sourceLabel(mc MessageContext) string {

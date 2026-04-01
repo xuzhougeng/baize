@@ -246,7 +246,7 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 			question = text
 		}
 		switch mode {
-		case ModeKnowledge:
+		case modeKnowledgeOverride:
 			entries, err := s.selectKnowledgeForAnswer(ctx, question)
 			if err != nil {
 				return "", err
@@ -264,11 +264,11 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 				emitIfPresent(onDelta, reply)
 			}
 			return reply, err
-		case ModeDirect:
+		case ModeAsk:
 			fallthrough
 		default:
 			history := s.chatHistoryWithRuntimeState(ctx, mc)
-			addProcessTrace(ctx, "执行模式", "mode=direct\nhistory="+fmt.Sprintf("%d", len(history)))
+			addProcessTrace(ctx, "执行模式", "mode=ask\nhistory="+fmt.Sprintf("%d", len(history)))
 			reply, err := s.streamOrChat(ctx, question, history, onDelta)
 			if err == nil {
 				s.maybeAppendConversationHistory(ctx, mc, question, reply)

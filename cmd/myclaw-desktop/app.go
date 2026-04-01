@@ -177,10 +177,6 @@ type MessageResult struct {
 	Message string `json:"message"`
 }
 
-type ChatModeState struct {
-	Mode string `json:"mode"`
-}
-
 type AppSettings struct {
 	WeixinHistoryMessages int    `json:"weixinHistoryMessages"`
 	WeixinHistoryRunes    int    `json:"weixinHistoryRunes"`
@@ -422,7 +418,7 @@ func (a *DesktopApp) GetProjectState() (ProjectState, error) {
 func (a *DesktopApp) SetActiveProject(name string) (ProjectState, error) {
 	project := knowledge.CanonicalProjectName(name)
 	if a.projectStore != nil {
-		snapshot, err := a.projectStore.Save(context.Background(), project)
+		snapshot, err := a.projectStore.SaveScope(context.Background(), desktopKnowledgeScopeID(), project)
 		if err != nil {
 			return ProjectState{}, err
 		}
@@ -870,48 +866,6 @@ func (a *DesktopApp) UnloadSkill(name string) (MessageResult, error) {
 	return MessageResult{Message: message}, nil
 }
 
-func (a *DesktopApp) GetChatMode() (ChatModeState, error) {
-	if a.service == nil {
-		return ChatModeState{}, errors.New("聊天服务尚未启用")
-	}
-
-	project, err := a.currentProject(context.Background())
-	if err != nil {
-		return ChatModeState{}, err
-	}
-	mc, err := a.chatMessageContext(context.Background(), project)
-	if err != nil {
-		return ChatModeState{}, err
-	}
-
-	mode, err := a.service.GetMode(context.Background(), mc)
-	if err != nil {
-		return ChatModeState{}, err
-	}
-	return ChatModeState{Mode: string(mode)}, nil
-}
-
-func (a *DesktopApp) SetChatMode(mode string) (ChatModeState, error) {
-	if a.service == nil {
-		return ChatModeState{}, errors.New("聊天服务尚未启用")
-	}
-
-	project, err := a.currentProject(context.Background())
-	if err != nil {
-		return ChatModeState{}, err
-	}
-	mc, err := a.chatMessageContext(context.Background(), project)
-	if err != nil {
-		return ChatModeState{}, err
-	}
-
-	selected, err := a.service.SetMode(context.Background(), mc, appsvc.Mode(mode))
-	if err != nil {
-		return ChatModeState{}, err
-	}
-	return ChatModeState{Mode: string(selected)}, nil
-}
-
 func (a *DesktopApp) GetChatPrompt() (ChatPromptState, error) {
 	if a.service == nil {
 		return ChatPromptState{}, errors.New("聊天服务尚未启用")
@@ -1112,7 +1066,7 @@ func (a *DesktopApp) sendMessage(ctx context.Context, input string, onDelta func
 		return ChatResponse{}, err
 	}
 	if appsvc.IsNewConversationCommand(input) {
-		state, err := a.NewChatSession()
+		state, err := a.NewChatSession("")
 		if err != nil {
 			return ChatResponse{}, err
 		}
@@ -1317,24 +1271,17 @@ func (a *DesktopApp) projectContext(ctx context.Context) (context.Context, strin
 }
 
 func (a *DesktopApp) currentProject(ctx context.Context) (string, error) {
-	a.projectMu.RLock()
-	current := strings.TrimSpace(a.activeProject)
-	a.projectMu.RUnlock()
-	if current != "" {
-		return current, nil
-	}
-
 	if a.projectStore == nil {
-		current = knowledge.DefaultProjectName
+		current := knowledge.DefaultProjectName
 		a.rememberActiveProject(current)
 		return current, nil
 	}
 
-	snapshot, err := a.projectStore.Load(ctx)
+	snapshot, err := a.projectStore.LoadScope(ctx, desktopKnowledgeScopeID())
 	if err != nil {
 		return "", err
 	}
-	current = knowledge.CanonicalProjectName(snapshot.ActiveProject)
+	current := knowledge.CanonicalProjectName(snapshot.ActiveProject)
 	a.rememberActiveProject(current)
 	return current, nil
 }
@@ -1391,6 +1338,10 @@ func desktopMessageContext(project string, sessionID string) appsvc.MessageConte
 		SessionID: strings.TrimSpace(sessionID),
 		Project:   project,
 	}
+}
+
+func desktopKnowledgeScopeID() string {
+	return "knowledge:" + desktopInterface + ":" + desktopUserID
 }
 
 func desktopSourceLabel() string {

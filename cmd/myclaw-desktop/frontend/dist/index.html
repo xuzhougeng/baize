@@ -689,6 +689,14 @@
             <span>标题</span>
             <input id="chat-session-dialog-input" type="text" maxlength="120" placeholder="输入对话标题" />
           </label>
+          <div class="dialog-choice-group" id="chat-session-dialog-mode-group" hidden>
+            <span>模式</span>
+            <div class="dialog-choice-options" id="chat-session-dialog-mode-options">
+              <button class="dialog-choice-option" type="button" data-chat-session-mode-option="agent">Agent</button>
+              <button class="dialog-choice-option" type="button" data-chat-session-mode-option="ask">Ask</button>
+            </div>
+            <p class="dialog-choice-hint" id="chat-session-dialog-mode-hint">Agent 会自主判断是否调用知识库、提醒和本地只读工具。</p>
+          </div>
           <div class="dialog-actions">
             <button class="btn btn-ghost" id="chat-session-dialog-cancel" type="button">取消</button>
             <button class="btn btn-primary" id="chat-session-dialog-confirm" type="button">保存</button>

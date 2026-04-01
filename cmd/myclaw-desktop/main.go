@@ -61,6 +61,7 @@ func main() {
 	sessionStore := sessionstate.NewStore(appDBPath)
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
 	service := appsvc.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
+	service.SetProjectStore(projectStore)
 	weixinBridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{
 		DataDir:        dataDir,
 		EverythingPath: envOrDefault("MYCLAW_WEIXIN_EVERYTHING_PATH", ""),

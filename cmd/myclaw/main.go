@@ -14,6 +14,7 @@ import (
 	"myclaw/internal/app"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/modelconfig"
+	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
 	"myclaw/internal/sessionstate"
@@ -48,6 +49,7 @@ func main() {
 	appDBPath := filepath.Join(dataDir, "app.db")
 	store := knowledge.NewStore(appDBPath)
 	promptStore := promptlib.NewStore(appDBPath)
+	projectStore := projectstate.NewStore(appDBPath)
 	if err := promptlib.SeedDefaultPrompts(context.Background(), promptStore, promptlib.DefaultPromptSeedMarker(dataDir)); err != nil {
 		log.Fatalf("seed default prompts: %v", err)
 	}
@@ -61,6 +63,7 @@ func main() {
 	sessionStore := sessionstate.NewStore(appDBPath)
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
 	service := app.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
+	service.SetProjectStore(projectStore)
 	service.SetFileSearchEverythingPath(envOrDefault("MYCLAW_WEIXIN_EVERYTHING_PATH", ""))
 	bridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{
 		DataDir:        dataDir,

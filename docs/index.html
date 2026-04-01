@@ -818,20 +818,21 @@
         </div>
         <div class="code-body">
           <span class="comment"># Remember something</span><br>
-          <span class="cmd">/remember</span> <span class="str">The WiFi password for the office is quantum42fish</span><br><br>
+          <span class="cmd">/kb</span> <span class="comment"># Show current knowledge base</span><br>
+          <span class="cmd">/kb</span> <span class="flag">remember</span> <span class="str">The WiFi password for the office is quantum42fish</span><br><br>
           <span class="comment"># Ask from your knowledge base</span><br>
-          <span class="str">What's the office WiFi password?</span><br><br>
+          <span class="str">@kb What's the office WiFi password?</span><br><br>
           <span class="comment"># Set a reminder</span><br>
           <span class="cmd">/notice</span> <span class="flag">每天 09:00</span> <span class="str">Stand-up meeting</span><br>
           <span class="cmd">/notice</span> <span class="flag">2小时后</span> <span class="str">喝水</span><br><br>
-          <span class="comment"># Switch modes &amp; profiles</span><br>
-          <span class="cmd">/mode</span> <span class="flag">agent</span>      <span class="comment"># Enable tool-calling</span><br>
+          <span class="comment"># Switch knowledge base, profiles, and skills</span><br>
+          <span class="cmd">/kb</span> <span class="flag">switch work</span> <span class="comment"># Change current knowledge base</span><br>
           <span class="cmd">/prompt</span> <span class="flag">use 1</span>    <span class="comment"># Switch AI persona</span><br>
-          <span class="cmd">/load-skill</span> <span class="flag">translate</span> <span class="comment"># Activate a skill</span><br><br>
+          <span class="cmd">/skill</span> <span class="flag">load translate</span> <span class="comment"># Activate a skill</span><br><br>
           <span class="comment"># Manage knowledge</span><br>
-          <span class="cmd">/list</span>   <span class="comment"># List all entries</span><br>
-          <span class="cmd">/forget</span> <span class="comment"># Remove an entry</span><br>
-          <span class="cmd">/append</span> <span class="comment"># Add to an existing entry</span><br>
+          <span class="cmd">/kb</span> <span class="flag">list</span>   <span class="comment"># List all entries</span><br>
+          <span class="cmd">/kb</span> <span class="flag">forget</span> <span class="comment"># Remove an entry</span><br>
+          <span class="cmd">/kb</span> <span class="flag">append</span> <span class="comment"># Add to an existing entry</span><br>
         </div>
       </div>
     </div>

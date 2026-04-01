@@ -28,11 +28,15 @@ func NewStore(path string) *Store {
 }
 
 func (s *Store) Load(ctx context.Context) (Snapshot, error) {
+	return s.LoadScope(ctx, projectStateRowID)
+}
+
+func (s *Store) LoadScope(ctx context.Context, scopeID string) (Snapshot, error) {
 	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, err
 	}
 
-	row := s.db.QueryRowContext(ctx, `SELECT active_project FROM project_state WHERE id = ?`, projectStateRowID)
+	row := s.db.QueryRowContext(ctx, `SELECT active_project FROM project_state WHERE id = ?`, canonicalScopeID(scopeID))
 	var project string
 	if err := row.Scan(&project); err != nil {
 		if err == sql.ErrNoRows {
@@ -44,6 +48,10 @@ func (s *Store) Load(ctx context.Context) (Snapshot, error) {
 }
 
 func (s *Store) Save(ctx context.Context, project string) (Snapshot, error) {
+	return s.SaveScope(ctx, projectStateRowID, project)
+}
+
+func (s *Store) SaveScope(ctx context.Context, scopeID string, project string) (Snapshot, error) {
 	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, err
 	}
@@ -53,7 +61,7 @@ func (s *Store) Save(ctx context.Context, project string) (Snapshot, error) {
 		INSERT INTO project_state (id, active_project)
 		VALUES (?, ?)
 		ON CONFLICT(id) DO UPDATE SET active_project = excluded.active_project
-	`, projectStateRowID, snapshot.ActiveProject)
+	`, canonicalScopeID(scopeID), snapshot.ActiveProject)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -82,4 +90,12 @@ func canonicalProject(project string) string {
 		return knowledge.DefaultProjectName
 	}
 	return project
+}
+
+func canonicalScopeID(scopeID string) string {
+	scopeID = strings.TrimSpace(scopeID)
+	if scopeID == "" {
+		return projectStateRowID
+	}
+	return scopeID
 }

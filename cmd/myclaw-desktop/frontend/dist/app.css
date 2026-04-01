@@ -2453,6 +2453,57 @@ select {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+.dialog-choice-group {
+  display: grid;
+  gap: 10px;
+}
+
+.dialog-choice-group[hidden] {
+  display: none;
+}
+
+.dialog-choice-group span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dialog-choice-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dialog-choice-option {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.dialog-choice-option:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.dialog-choice-option.active {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-input));
+  color: var(--text-primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.dialog-choice-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

@@ -41,7 +41,7 @@ func TestDesktopChatSessionsCanBeCreatedAndSwitched(t *testing.T) {
 		t.Fatalf("unexpected initial conversations: %#v", first.Conversations)
 	}
 
-	second, err := app.NewChatSession()
+	second, err := app.NewChatSession("")
 	if err != nil {
 		t.Fatalf("new chat session: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestDesktopAppRestartRestoresLastSelectedDesktopSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get first state: %v", err)
 	}
-	second, err := app.NewChatSession()
+	second, err := app.NewChatSession("")
 	if err != nil {
 		t.Fatalf("create second session: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestDesktopDeleteChatSessionFallsBackToRemainingConversation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("get first chat state: %v", err)
 	}
-	second, err := app.NewChatSession()
+	second, err := app.NewChatSession("")
 	if err != nil {
 		t.Fatalf("new chat session: %v", err)
 	}
@@ -706,15 +706,7 @@ func TestDesktopChatStateSurvivesNewSessionSwitchAndRestart(t *testing.T) {
 		t.Fatalf("expected first session id, got %#v", firstReply)
 	}
 
-	modeState, err := app.SetChatMode("knowledge")
-	if err != nil {
-		t.Fatalf("set first session mode: %v", err)
-	}
-	if modeState.Mode != "knowledge" {
-		t.Fatalf("expected knowledge mode, got %#v", modeState)
-	}
-
-	secondState, err := app.NewChatSession()
+	secondState, err := app.NewChatSession("ask")
 	if err != nil {
 		t.Fatalf("new second session: %v", err)
 	}
@@ -756,14 +748,6 @@ func TestDesktopChatStateSurvivesNewSessionSwitchAndRestart(t *testing.T) {
 		t.Fatalf("expected first session history after restart, got %#v", reloadedState.Messages)
 	}
 
-	reloadedMode, err := reloadedApp.GetChatMode()
-	if err != nil {
-		t.Fatalf("get reloaded mode: %v", err)
-	}
-	if reloadedMode.Mode != "knowledge" {
-		t.Fatalf("expected first session mode to survive restart, got %#v", reloadedMode)
-	}
-
 	secondReloadedState, err := reloadedApp.SwitchChatSession(secondSessionID)
 	if err != nil {
 		t.Fatalf("switch to second session after restart: %v", err)
@@ -773,6 +757,17 @@ func TestDesktopChatStateSurvivesNewSessionSwitchAndRestart(t *testing.T) {
 	}
 	if len(secondReloadedState.Messages) != 2 || secondReloadedState.Messages[0].Text != "second" || secondReloadedState.Messages[1].Text != "reply:second" {
 		t.Fatalf("expected second session history after restart, got %#v", secondReloadedState.Messages)
+	}
+
+	secondSnapshot, ok, err := sessionStore.Load(context.Background(), desktopConversationSnapshotKey(knowledge.DefaultProjectName, secondSessionID))
+	if err != nil {
+		t.Fatalf("load second session snapshot: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected second session snapshot to persist")
+	}
+	if secondSnapshot.Mode != "ask" {
+		t.Fatalf("expected ask mode on second session snapshot, got %#v", secondSnapshot)
 	}
 }
 
@@ -1000,8 +995,22 @@ func (f desktopTestAI) DecideAgentStep(context.Context, string, []ai.Conversatio
 	return ai.AgentStepDecision{}, nil
 }
 
-func (f desktopTestAI) PlanNext(_ context.Context, _ string, _ []ai.ConversationMessage, _ []ai.AgentToolDefinition, _ ai.AgentTaskState) (ai.LoopDecision, error) {
-	return ai.LoopDecision{Action: ai.LoopAnswer, Answer: ""}, nil
+func (f desktopTestAI) PlanNext(ctx context.Context, task string, history []ai.ConversationMessage, _ []ai.AgentToolDefinition, state ai.AgentTaskState) (ai.LoopDecision, error) {
+	if len(state.ToolAttempts) == 0 && strings.EqualFold(strings.TrimSpace(f.toolPlanDecision.Action), "tool") {
+		toolName := strings.TrimSpace(f.toolPlanDecision.ToolName)
+		if toolName != "" && !strings.Contains(toolName, "::") {
+			toolName = "local::" + toolName
+		}
+		return ai.LoopDecision{Action: ai.LoopContinue, ToolName: toolName, ToolInput: f.toolPlanDecision.ToolInput}, nil
+	}
+	if len(state.ToolAttempts) > 0 {
+		return ai.LoopDecision{Action: ai.LoopAnswer, Answer: strings.TrimSpace(state.ToolAttempts[len(state.ToolAttempts)-1].RawOutput)}, nil
+	}
+	reply, err := f.Chat(ctx, task, history)
+	if err != nil {
+		return ai.LoopDecision{}, err
+	}
+	return ai.LoopDecision{Action: ai.LoopAnswer, Answer: reply}, nil
 }
 
 func (f desktopTestAI) SummarizeWorkingState(_ context.Context, _ ai.AgentTaskState) (string, error) {

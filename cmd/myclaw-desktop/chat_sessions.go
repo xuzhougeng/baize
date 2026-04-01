@@ -64,7 +64,7 @@ func (a *DesktopApp) GetChatState() (ChatState, error) {
 	return a.buildChatState(context.Background(), project)
 }
 
-func (a *DesktopApp) NewChatSession() (ChatState, error) {
+func (a *DesktopApp) NewChatSession(mode string) (ChatState, error) {
 	project, err := a.currentProject(context.Background())
 	if err != nil {
 		return ChatState{}, err
@@ -72,6 +72,9 @@ func (a *DesktopApp) NewChatSession() (ChatState, error) {
 
 	sessionID := newDesktopChatSessionID(project)
 	if err := a.ensureChatSession(context.Background(), project, sessionID); err != nil {
+		return ChatState{}, err
+	}
+	if err := a.setChatSessionMode(context.Background(), project, sessionID, mode); err != nil {
 		return ChatState{}, err
 	}
 	a.rememberChatSession(project, sessionID)
@@ -367,6 +370,24 @@ func (a *DesktopApp) ensureChatSession(ctx context.Context, project, sessionID s
 	return err
 }
 
+func (a *DesktopApp) setChatSessionMode(ctx context.Context, project, sessionID, mode string) error {
+	if a.sessionStore == nil {
+		return nil
+	}
+
+	mode = normalizeNewChatMode(mode)
+	snapshot, ok, err := a.loadChatSessionSnapshot(ctx, project, sessionID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("未找到要设置模式的对话")
+	}
+	snapshot.Mode = mode
+	_, err = a.sessionStore.Save(ctx, snapshot)
+	return err
+}
+
 func (a *DesktopApp) loadChatSessionSnapshot(ctx context.Context, project, sessionID string) (sessionstate.Snapshot, bool, error) {
 	if a.sessionStore == nil {
 		return sessionstate.Snapshot{}, false, nil
@@ -484,6 +505,15 @@ func parseDesktopConversationKey(key string) (project string, sessionID string, 
 
 func desktopChatSessionBase(project string) string {
 	return desktopChatSessionID + ":" + knowledge.CanonicalProjectName(project)
+}
+
+func normalizeNewChatMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "ask":
+		return "ask"
+	default:
+		return "agent"
+	}
 }
 
 func newDesktopChatSessionID(project string) string {

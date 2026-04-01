@@ -15,6 +15,7 @@ import (
 	"myclaw/internal/fileingest"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
 	"myclaw/internal/sessionstate"
@@ -43,6 +44,73 @@ func TestHandleMessageRememberAndList(t *testing.T) {
 	}
 	if !strings.Contains(reply, "Windows 版本先做微信接口") {
 		t.Fatalf("list reply missing entry: %q", reply)
+	}
+}
+
+func TestKnowledgeBaseCommandsCreateSwitchAndListScopes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appDBPath := filepath.Join(root, "app.db")
+	store := knowledge.NewStore(appDBPath)
+	projectStore := projectstate.NewStore(appDBPath)
+	reminders := reminder.NewManager(reminder.NewStore(appDBPath))
+	service := NewService(store, nil, reminders)
+	service.SetProjectStore(projectStore)
+	ctx := context.Background()
+	mc := MessageContext{Interface: "terminal", UserID: "terminal"}
+
+	reply, err := service.HandleMessage(ctx, mc, "/kb")
+	if err != nil {
+		t.Fatalf("show kb state: %v", err)
+	}
+	if !strings.Contains(reply, "当前知识库：default") {
+		t.Fatalf("unexpected default kb reply: %q", reply)
+	}
+
+	reply, err = service.HandleMessage(ctx, mc, "/kb new Alpha")
+	if err != nil {
+		t.Fatalf("create alpha kb: %v", err)
+	}
+	if !strings.Contains(reply, "Alpha") {
+		t.Fatalf("unexpected create alpha reply: %q", reply)
+	}
+
+	if _, err := service.HandleMessage(ctx, mc, "/kb remember alpha note"); err != nil {
+		t.Fatalf("remember alpha note: %v", err)
+	}
+
+	if _, err := service.HandleMessage(ctx, mc, "/kb switch Beta"); err != nil {
+		t.Fatalf("switch beta kb: %v", err)
+	}
+	if _, err := service.HandleMessage(ctx, mc, "/kb remember beta note"); err != nil {
+		t.Fatalf("remember beta note: %v", err)
+	}
+
+	reply, err = service.HandleMessage(ctx, mc, "/kb")
+	if err != nil {
+		t.Fatalf("show kb summary: %v", err)
+	}
+	for _, expected := range []string{"当前知识库：Beta", "Alpha (1 条)", "Beta [当前] (1 条)", "default (0 条)"} {
+		if !strings.Contains(reply, expected) {
+			t.Fatalf("expected %q in kb summary, got %q", expected, reply)
+		}
+	}
+
+	reply, err = service.HandleMessage(ctx, mc, "/kb switch Alpha")
+	if err != nil {
+		t.Fatalf("switch alpha kb: %v", err)
+	}
+	if !strings.Contains(reply, "已切换到知识库 Alpha") {
+		t.Fatalf("unexpected switch alpha reply: %q", reply)
+	}
+
+	reply, err = service.HandleMessage(ctx, mc, "/kb list")
+	if err != nil {
+		t.Fatalf("list alpha kb: %v", err)
+	}
+	if !strings.Contains(reply, "alpha note") || strings.Contains(reply, "beta note") {
+		t.Fatalf("expected alpha-only kb list, got %q", reply)
 	}
 }
 
@@ -96,11 +164,7 @@ func TestHandleMessageQuestionUsesReviewedKnowledgeSubset(t *testing.T) {
 			return "知识库里提到未来需要支持 macOS，目前还没有实现时间表。"
 		},
 	}
-	if _, err := service.SetMode(ctx, MessageContext{}, ModeKnowledge); err != nil {
-		t.Fatalf("set mode: %v", err)
-	}
-
-	reply, err := service.HandleMessage(ctx, MessageContext{}, "macOS 什么时候做？")
+	reply, err := service.HandleMessage(ctx, MessageContext{}, "@kb macOS 什么时候做？")
 	if err != nil {
 		t.Fatalf("question failed: %v", err)
 	}
@@ -282,7 +346,41 @@ Use concise Chinese writing.
 	}
 }
 
-func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
+func TestHandleMessageDefaultsToAgentMode(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "macOS 什么时候做？",
+		},
+		agentStepFunc: func(_ context.Context, task string, history []ai.ConversationMessage, tools []ai.AgentToolDefinition, results []ai.AgentToolResult) ai.AgentStepDecision {
+			if task != "macOS 什么时候做？" {
+				t.Fatalf("unexpected agent task: %q", task)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty agent history, got %#v", history)
+			}
+			return ai.AgentStepDecision{
+				Action: "answer",
+				Answer: "这是 agent 默认模式下的回复。",
+			}
+		},
+	}, reminders)
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "macOS 什么时候做？")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "这是 agent 默认模式下的回复。" {
+		t.Fatalf("unexpected agent reply: %q", reply)
+	}
+}
+
+func TestHandleMessageAskModeUsesChat(t *testing.T) {
 	t.Parallel()
 
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
@@ -294,7 +392,7 @@ func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
 			Question: "macOS 什么时候做？",
 		},
 		answerFunc: func(string, []knowledge.Entry) string {
-			t.Fatalf("knowledge answer should not be used in direct mode")
+			t.Fatalf("knowledge answer should not be used in ask mode")
 			return ""
 		},
 		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
@@ -304,16 +402,19 @@ func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
 			if len(history) != 0 {
 				t.Fatalf("expected empty history, got %#v", history)
 			}
-			return "这是 direct 模式下的普通 AI 回复。"
+			return "这是 ask 模式下的普通 AI 回复。"
 		},
 	}, reminders)
+	if _, err := service.SetMode(context.Background(), MessageContext{}, ModeAsk); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "macOS 什么时候做？")
 	if err != nil {
 		t.Fatalf("handle message: %v", err)
 	}
-	if reply != "这是 direct 模式下的普通 AI 回复。" {
-		t.Fatalf("unexpected direct reply: %q", reply)
+	if reply != "这是 ask 模式下的普通 AI 回复。" {
+		t.Fatalf("unexpected ask reply: %q", reply)
 	}
 }
 
@@ -358,11 +459,7 @@ func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 			return entries[0].Text
 		},
 	}, reminders)
-	if _, err := service.SetMode(context.Background(), MessageContext{Project: "Alpha"}, ModeKnowledge); err != nil {
-		t.Fatalf("set mode: %v", err)
-	}
-
-	reply, err := service.HandleMessage(context.Background(), MessageContext{Project: "Alpha"}, "项目发布计划是什么？")
+	reply, err := service.HandleMessage(context.Background(), MessageContext{Project: "Alpha"}, "@kb 项目发布计划是什么？")
 	if err != nil {
 		t.Fatalf("answer failed: %v", err)
 	}
@@ -476,7 +573,7 @@ func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
 			if len(history) != 0 {
 				t.Fatalf("expected empty history, got %#v", history)
 			}
-			return "这是默认 direct 模式回复。"
+			return "这是 ask 模式下的普通回复。"
 		},
 	}, reminders)
 
@@ -490,10 +587,10 @@ func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
 
 	reply, err = service.HandleMessage(context.Background(), MessageContext{}, "macOS 什么时候做？")
 	if err != nil {
-		t.Fatalf("direct follow-up: %v", err)
+		t.Fatalf("ask follow-up: %v", err)
 	}
-	if reply != "这是默认 direct 模式回复。" {
-		t.Fatalf("unexpected direct follow-up reply: %q", reply)
+	if reply != "这是 ask 模式下的普通回复。" {
+		t.Fatalf("unexpected ask follow-up reply: %q", reply)
 	}
 }
 
@@ -1359,7 +1456,7 @@ func TestModePersistsAcrossServiceRestarts(t *testing.T) {
 	service := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1", Project: "alpha"}
 
-	if _, err := service.SetMode(context.Background(), mc, ModeKnowledge); err != nil {
+	if _, err := service.SetMode(context.Background(), mc, ModeAsk); err != nil {
 		t.Fatalf("set mode: %v", err)
 	}
 
@@ -1368,8 +1465,8 @@ func TestModePersistsAcrossServiceRestarts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get mode: %v", err)
 	}
-	if mode != ModeKnowledge {
-		t.Fatalf("expected persisted knowledge mode, got %q", mode)
+	if mode != ModeAsk {
+		t.Fatalf("expected persisted ask mode, got %q", mode)
 	}
 }
 
@@ -1402,7 +1499,7 @@ func TestSetModePreservesConversationHistory(t *testing.T) {
 	if _, err := service.HandleMessage(context.Background(), mc, "第一轮"); err != nil {
 		t.Fatalf("handle first message: %v", err)
 	}
-	if _, err := service.SetMode(context.Background(), mc, ModeKnowledge); err != nil {
+	if _, err := service.SetMode(context.Background(), mc, ModeAsk); err != nil {
 		t.Fatalf("set mode: %v", err)
 	}
 
@@ -1413,8 +1510,8 @@ func TestSetModePreservesConversationHistory(t *testing.T) {
 	if !ok {
 		t.Fatal("expected persisted session snapshot")
 	}
-	if snapshot.Mode != string(ModeKnowledge) {
-		t.Fatalf("expected persisted mode %q, got %#v", ModeKnowledge, snapshot)
+	if snapshot.Mode != string(ModeAsk) {
+		t.Fatalf("expected persisted mode %q, got %#v", ModeAsk, snapshot)
 	}
 	if len(snapshot.History) != 2 {
 		t.Fatalf("expected history to be preserved, got %#v", snapshot.History)
@@ -1615,7 +1712,7 @@ func TestDesktopPrimaryDirectChatIncludesReminderRuntimeSummary(t *testing.T) {
 		},
 	}, reminders, nil, stateStore)
 
-	reply, err := service.HandleMessage(context.Background(), mc, "我今天要做什么事情？")
+	reply, err := service.HandleMessage(context.Background(), mc, "@ai 我今天要做什么事情？")
 	if err != nil {
 		t.Fatalf("handle message: %v", err)
 	}
@@ -1819,7 +1916,7 @@ func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
 	}, reminders, nil, stateStore)
 
 	var chunks []string
-	reply, err := service.HandleMessageStream(context.Background(), mc, "给我结果", func(delta string) {
+	reply, err := service.HandleMessageStream(context.Background(), mc, "@ai 给我结果", func(delta string) {
 		chunks = append(chunks, delta)
 	})
 	if err != nil {
@@ -2129,6 +2226,26 @@ func (f fakeAI) PlanNext(ctx context.Context, task string, history []ai.Conversa
 	step, err := f.DecideAgentStep(ctx, task, history, tools, results)
 	if err != nil {
 		return ai.LoopDecision{}, err
+	}
+	if strings.TrimSpace(step.Action) == "" {
+		if len(results) == 0 {
+			decision, err := f.PlanToolUse(ctx, task, ai.ToolCapability{Name: filesearch.ToolName}, nil)
+			if err == nil && strings.EqualFold(strings.TrimSpace(decision.Action), "tool") {
+				toolName := strings.TrimSpace(decision.ToolName)
+				if toolName != "" && !strings.Contains(toolName, "::") {
+					toolName = "local::" + toolName
+				}
+				return ai.LoopDecision{Action: ai.LoopContinue, ToolName: toolName, ToolInput: decision.ToolInput}, nil
+			}
+		}
+		if len(results) > 0 {
+			return ai.LoopDecision{Action: ai.LoopAnswer, Answer: strings.TrimSpace(results[len(results)-1].Output)}, nil
+		}
+		reply, err := f.Chat(ctx, task, history)
+		if err != nil {
+			return ai.LoopDecision{}, err
+		}
+		return ai.LoopDecision{Action: ai.LoopAnswer, Answer: reply}, nil
 	}
 	switch step.Action {
 	case "answer":

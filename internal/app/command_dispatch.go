@@ -19,7 +19,6 @@ var serviceCommandHandlers = map[string]commandHandler{
 	"/send":         handleSendCommand,
 	"/translate":    handleTranslateCommand,
 	"/debug-search": handleDebugSearchCommand,
-	"/mode":         handleModeCommand,
 	"/skill":        handleSkillCommandDispatch,
 	"/prompt":       handlePromptCommandDispatch,
 	"/kb":           handleKnowledgeCommandDispatch,
@@ -44,16 +43,18 @@ const helpCommandText = "可用命令:\n" +
 	"/kb remember-file <路径> — 总结图片/PDF并存入知识库\n" +
 	"/kb append <ID前缀> <内容> — 追加到已有知识\n" +
 	"/kb forget <ID前缀> — 删除一条知识\n" +
+	"/kb new <名称> — 新建并切换到一个知识库\n" +
+	"/kb switch <名称> — 切换当前知识库\n" +
+	"/kb — 查看当前知识库和可用知识库\n" +
 	"/kb list — 查看全部知识\n" +
 	"/kb stats — 查看知识库状态\n" +
 	"/kb clear — 清空知识库\n" +
 	"/translate <内容> — 翻译成中文\n" +
 	"/debug-search <问题> — 查看关键词检索和候选复核过程\n" +
-	"/mode [direct|knowledge|agent] — 查看或切换普通对话模式\n" +
 	"/notice — 创建、查看、删除提醒\n" +
 	"/cron — 与 /notice 等价\n" +
 	"/help — 查看帮助\n\n" +
-	"普通问题默认走 direct 模式；可以用 `/mode knowledge` 切到知识库检索，或在单条消息前加 `@kb` 临时覆盖。"
+	"普通问题默认走 agent 模式；可以在单条消息前加 `@ai`、`@kb` 或 `@agent` 临时覆盖当前执行方式。"
 
 func (s *Service) handleCommand(ctx context.Context, mc MessageContext, input string) (string, error) {
 	input = CanonicalizeCommandInput(input)
@@ -154,27 +155,6 @@ func handleDebugSearchCommand(s *Service, ctx context.Context, mc MessageContext
 	return s.debugSearch(s.withSkillContext(ctx, mc), body)
 }
 
-func handleModeCommand(s *Service, ctx context.Context, mc MessageContext, _ string, fields []string) (string, error) {
-	if len(fields) == 1 {
-		mode, err := s.GetMode(ctx, mc)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("当前模式: %s\n%s\n\n%s", mode, modeDescription(mode), modeUsage()), nil
-	}
-	if len(fields) != 2 {
-		return modeUsage(), nil
-	}
-	mode := normalizeMode(fields[1])
-	if mode == "" {
-		return modeUsage(), nil
-	}
-	if _, err := s.SetMode(ctx, mc, mode); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("已切换到 %s 模式。\n%s", mode, modeDescription(mode)), nil
-}
-
 func handleSkillCommandDispatch(s *Service, _ context.Context, mc MessageContext, input string, fields []string) (string, error) {
 	if len(fields) == 1 {
 		return s.formatCurrentSkills(mc), nil
@@ -213,7 +193,7 @@ func handlePromptCommandDispatch(s *Service, ctx context.Context, mc MessageCont
 
 func handleKnowledgeCommandDispatch(s *Service, ctx context.Context, mc MessageContext, input string, fields []string) (string, error) {
 	if len(fields) == 1 {
-		return knowledgeCommandUsage(), nil
+		return s.currentKnowledgeBaseReply(ctx, mc)
 	}
 
 	switch strings.ToLower(fields[1]) {
@@ -229,6 +209,26 @@ func handleKnowledgeCommandDispatch(s *Service, ctx context.Context, mc MessageC
 	case "forget":
 		rewritten, rewrittenFields := rewriteNamespacedCommand(input, fields, 2, "/forget")
 		return handleForgetCommand(s, ctx, mc, rewritten, rewrittenFields)
+	case "new":
+		if len(fields) < 3 {
+			return "用法: /kb new <知识库名称>", nil
+		}
+		name := strings.TrimSpace(stripLeadingFields(input, fields, 2))
+		info, err := s.switchKnowledgeBase(ctx, mc, name)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("已新建并切换到知识库 %s。\n当前条数: %d", info.Name, info.KnowledgeCount), nil
+	case "switch":
+		if len(fields) < 3 {
+			return "用法: /kb switch <知识库名称>", nil
+		}
+		name := strings.TrimSpace(stripLeadingFields(input, fields, 2))
+		info, err := s.switchKnowledgeBase(ctx, mc, name)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("已切换到知识库 %s。\n当前条数: %d", info.Name, info.KnowledgeCount), nil
 	case "list":
 		return handleListCommand(s, ctx, mc, "/kb list", []string{"/kb", "list"})
 	case "stats":
@@ -309,6 +309,9 @@ func skillCommandUsage() string {
 
 func knowledgeCommandUsage() string {
 	return "用法:\n" +
+		"/kb\n" +
+		"/kb new <知识库名称>\n" +
+		"/kb switch <知识库名称>\n" +
 		"/kb remember <内容>\n" +
 		"/kb remember-file <图片或PDF路径>\n" +
 		"/kb append <知识ID前缀> <补充内容>\n" +

@@ -5,17 +5,15 @@ import "strings"
 type Mode string
 
 const (
-	ModeDirect    Mode = "direct"
-	ModeKnowledge Mode = "knowledge"
-	ModeAgent     Mode = "agent"
+	ModeAsk               Mode = "ask"
+	modeKnowledgeOverride Mode = "knowledge"
+	ModeAgent             Mode = "agent"
 )
 
 func normalizeMode(value string) Mode {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case string(ModeDirect), "ai", "@ai":
-		return ModeDirect
-	case string(ModeKnowledge), "kb", "@kb":
-		return ModeKnowledge
+	case string(ModeAsk), "direct", "ai", "@ai", string(modeKnowledgeOverride):
+		return ModeAsk
 	case string(ModeAgent), "@agent":
 		return ModeAgent
 	default:
@@ -24,7 +22,7 @@ func normalizeMode(value string) Mode {
 }
 
 func defaultMode() Mode {
-	return ModeDirect
+	return ModeAgent
 }
 
 func parseModeOverride(input string) (Mode, string, bool) {
@@ -38,8 +36,8 @@ func parseModeOverride(input string) (Mode, string, bool) {
 		prefix string
 		mode   Mode
 	}{
-		{prefix: "@ai", mode: ModeDirect},
-		{prefix: "@kb", mode: ModeKnowledge},
+		{prefix: "@ai", mode: ModeAsk},
+		{prefix: "@kb", mode: modeKnowledgeOverride},
 		{prefix: "@agent", mode: ModeAgent},
 	} {
 		if !strings.HasPrefix(lower, candidate.prefix) {
@@ -48,26 +46,4 @@ func parseModeOverride(input string) (Mode, string, bool) {
 		return candidate.mode, strings.TrimSpace(text[len(candidate.prefix):]), true
 	}
 	return "", input, false
-}
-
-func modeUsage() string {
-	return "用法:\n" +
-		"/mode\n" +
-		"/mode direct\n" +
-		"/mode knowledge\n" +
-		"/mode agent\n\n" +
-		"也可以在单条消息前加 `@ai`、`@kb` 或 `@agent` 临时覆盖当前模式。"
-}
-
-func modeDescription(mode Mode) string {
-	switch mode {
-	case ModeDirect:
-		return "普通问题直接走 AI，不依赖知识库。"
-	case ModeKnowledge:
-		return "普通问题走知识库检索和候选复核。"
-	case ModeAgent:
-		return "预留给未来的工具执行模式。"
-	default:
-		return ""
-	}
 }

@@ -109,32 +109,32 @@ const promptExamples = [
 const CHAT_SLASH_COMMANDS = [
   { label: '/help', insert: '/help', description: '查看可用命令' },
   { label: '/new', insert: '/new', description: '开启一个新的对话' },
-  { label: '/remember', insert: '/remember ', description: '保存一条知识' },
-  { label: '/remember-file', insert: '/remember-file ', description: '总结图片或 PDF 并写入知识库' },
-  { label: '/append', insert: '/append ', description: '追加到已有知识' },
-  { label: '/skills', insert: '/skills', description: '查看可用技能和当前会话已加载技能' },
-  { label: '/show-skill', insert: '/show-skill ', description: '查看某个技能内容' },
-  { label: '/load-skill', insert: '/load-skill ', description: '为当前会话加载一个技能' },
-  { label: '/unload-skill', insert: '/unload-skill ', description: '从当前会话卸载一个技能' },
-  { label: '/page-skills', insert: '/page-skills', description: '查看当前会话已加载技能' },
+  { label: '/kb', insert: '/kb', description: '查看当前知识库和可用知识库' },
+  { label: '/kb new', insert: '/kb new ', description: '新建并切换到一个知识库' },
+  { label: '/kb switch', insert: '/kb switch ', description: '切换当前知识库' },
+  { label: '/kb remember', insert: '/kb remember ', description: '保存一条知识' },
+  { label: '/kb remember-file', insert: '/kb remember-file ', description: '总结图片或 PDF 并写入知识库' },
+  { label: '/kb append', insert: '/kb append ', description: '追加到已有知识' },
+  { label: '/kb forget', insert: '/kb forget ', description: '删除一条知识' },
+  { label: '/kb list', insert: '/kb list', description: '查看全部知识' },
+  { label: '/kb stats', insert: '/kb stats', description: '查看知识库状态' },
+  { label: '/kb clear', insert: '/kb clear', description: '清空知识库' },
+  { label: '/skill', insert: '/skill', description: '查看当前会话已加载技能' },
+  { label: '/skill list', insert: '/skill list', description: '查看可用技能和加载状态' },
+  { label: '/skill show', insert: '/skill show ', description: '查看某个技能内容' },
+  { label: '/skill load', insert: '/skill load ', description: '为当前会话加载一个技能' },
+  { label: '/skill unload', insert: '/skill unload ', description: '从当前会话卸载一个技能' },
+  { label: '/skill clear', insert: '/skill clear', description: '清空当前会话已加载技能' },
   { label: '/prompt', insert: '/prompt', description: '查看当前 Prompt profile' },
   { label: '/prompt list', insert: '/prompt list', description: '查看可用 Prompt profiles' },
   { label: '/prompt use', insert: '/prompt use ', description: '为当前会话启用 Prompt profile' },
   { label: '/prompt clear', insert: '/prompt clear', description: '清除当前会话 Prompt profile' },
   { label: '/translate', insert: '/translate ', description: '翻译成中文' },
   { label: '/debug-search', insert: '/debug-search ', description: '查看关键词检索和候选复核过程' },
-  { label: '/mode', insert: '/mode', description: '查看当前对话模式' },
-  { label: '/mode direct', insert: '/mode direct', description: '切换到 direct 模式' },
-  { label: '/mode knowledge', insert: '/mode knowledge', description: '切换到 knowledge 模式' },
-  { label: '/mode agent', insert: '/mode agent', description: '切换到 agent 模式' },
-  { label: '/forget', insert: '/forget ', description: '删除一条知识' },
-  { label: '/list', insert: '/list', description: '查看全部知识' },
-  { label: '/stats', insert: '/stats', description: '查看知识库状态' },
   { label: '/notice', insert: '/notice ', description: '创建提醒' },
   { label: '/notice list', insert: '/notice list', description: '查看提醒列表' },
   { label: '/notice remove', insert: '/notice remove ', description: '删除提醒' },
   { label: '/cron', insert: '/cron ', description: '与 /notice 等价' },
-  { label: '/clear', insert: '/clear', description: '清空知识库' },
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -260,6 +260,17 @@ function bindChatSessionUI() {
   const confirm = document.getElementById('chat-session-dialog-confirm');
   if (confirm) {
     confirm.addEventListener('click', () => void submitChatSessionDialog());
+  }
+
+  const modeOptions = document.getElementById('chat-session-dialog-mode-options');
+  if (modeOptions) {
+    modeOptions.addEventListener('click', (event) => {
+      const target = event.target instanceof Element
+        ? event.target.closest('[data-chat-session-mode-option]')
+        : null;
+      if (!target) return;
+      setChatSessionDialogMode(target.dataset.chatSessionModeOption || '');
+    });
   }
 
   const contextMenu = document.getElementById('chat-session-context-menu');
@@ -437,6 +448,25 @@ function applyChatSidebarState() {
   }
 }
 
+function setChatSessionDialogMode(mode) {
+  const nextMode = String(mode || '').trim().toLowerCase() === 'ask' ? 'ask' : 'agent';
+  state.chatSessionDialog = {
+    ...state.chatSessionDialog,
+    selectedMode: nextMode,
+  };
+
+  document.querySelectorAll('[data-chat-session-mode-option]').forEach((option) => {
+    option.classList.toggle('active', option.dataset.chatSessionModeOption === nextMode);
+  });
+
+  const modeHint = document.getElementById('chat-session-dialog-mode-hint');
+  if (modeHint) {
+    modeHint.textContent = nextMode === 'ask'
+      ? 'Ask 只走传统一问一答；需要时可在单条消息前加 @kb 临时附加知识库。'
+      : 'Agent 会自主判断是否调用知识库、提醒和本地只读工具。';
+  }
+}
+
 function openChatSessionDialog(mode, conversation) {
   const dialog = document.getElementById('chat-session-dialog');
   const card = dialog?.querySelector('.dialog-card');
@@ -447,8 +477,10 @@ function openChatSessionDialog(mode, conversation) {
   const targetValue = document.getElementById('chat-session-dialog-target-value');
   const field = document.getElementById('chat-session-dialog-field');
   const input = document.getElementById('chat-session-dialog-input');
+  const modeGroup = document.getElementById('chat-session-dialog-mode-group');
+  const modeHint = document.getElementById('chat-session-dialog-mode-hint');
   const confirm = document.getElementById('chat-session-dialog-confirm');
-  if (!dialog || !card || !eyebrow || !title || !description || !targetLabel || !targetValue || !field || !input || !confirm) {
+  if (!dialog || !card || !eyebrow || !title || !description || !targetLabel || !targetValue || !field || !input || !modeGroup || !modeHint || !confirm) {
     return;
   }
 
@@ -459,6 +491,7 @@ function openChatSessionDialog(mode, conversation) {
     sessionId: conversation?.sessionId || '',
     itemId: conversation?.id || '',
     restoreFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    selectedMode: conversation?.mode === 'ask' ? 'ask' : 'agent',
   };
 
   if (mode === 'knowledge-delete') {
@@ -478,6 +511,7 @@ function openChatSessionDialog(mode, conversation) {
     confirm.classList.remove('btn-primary');
     confirm.classList.add('btn-danger');
     card.classList.add('danger');
+    modeGroup.hidden = true;
   } else if (mode === 'prompt-delete') {
     const shortId = (conversation?.shortId || String(conversation?.id || '').slice(0, 8)).trim();
     const promptTitle = String(conversation?.title || '').trim();
@@ -498,6 +532,7 @@ function openChatSessionDialog(mode, conversation) {
     confirm.classList.remove('btn-primary');
     confirm.classList.add('btn-danger');
     card.classList.add('danger');
+    modeGroup.hidden = true;
   } else if (mode === 'refresh') {
     const previewText = truncateText(String(conversation?.preview || '').replace(/\s+/g, ' ').trim(), 48);
     const displayTitle = previewText || '当前回复';
@@ -514,6 +549,22 @@ function openChatSessionDialog(mode, conversation) {
     confirm.classList.remove('btn-danger');
     confirm.classList.add('btn-primary');
     card.classList.remove('danger');
+    modeGroup.hidden = true;
+  } else if (mode === 'new') {
+    targetLabel.textContent = '新对话';
+    targetValue.textContent = '创建后会固定当前会话模式';
+    eyebrow.textContent = '对话模式';
+    title.textContent = '新建对话';
+    description.textContent = '默认推荐 agent。ask 适合传统一问一答；agent 会自主判断是否调用知识库、提醒和本地只读工具。';
+    field.hidden = true;
+    modeGroup.hidden = false;
+    input.value = '';
+    input.placeholder = '';
+    confirm.textContent = '创建';
+    confirm.classList.remove('btn-danger');
+    confirm.classList.add('btn-primary');
+    card.classList.remove('danger');
+    setChatSessionDialogMode(state.chatSessionDialog.selectedMode);
   } else {
     const displayTitle = (conversation?.title || '新对话').trim() || '新对话';
     state.chatSessionDialog.initialTitle = displayTitle;
@@ -531,11 +582,13 @@ function openChatSessionDialog(mode, conversation) {
       confirm.classList.remove('btn-primary');
       confirm.classList.add('btn-danger');
       card.classList.add('danger');
+      modeGroup.hidden = true;
     } else {
       eyebrow.textContent = '对话标题';
       title.textContent = '重命名对话';
       description.textContent = '只修改列表显示，不影响当前上下文和消息内容。';
       field.hidden = false;
+      modeGroup.hidden = true;
       input.value = displayTitle;
       input.placeholder = '输入对话标题';
       confirm.textContent = '保存';
@@ -549,6 +602,13 @@ function openChatSessionDialog(mode, conversation) {
   requestAnimationFrame(() => {
     if (mode === 'delete' || mode === 'knowledge-delete' || mode === 'prompt-delete' || mode === 'refresh') {
       confirm.focus();
+    } else if (mode === 'new') {
+      const activeMode = document.querySelector('.dialog-choice-option.active');
+      if (activeMode instanceof HTMLElement) {
+        activeMode.focus();
+      } else {
+        confirm.focus();
+      }
     } else {
       input.focus();
       input.select();
@@ -563,6 +623,8 @@ function closeChatSessionDialog() {
   const targetValue = document.getElementById('chat-session-dialog-target-value');
   const field = document.getElementById('chat-session-dialog-field');
   const input = document.getElementById('chat-session-dialog-input');
+  const modeGroup = document.getElementById('chat-session-dialog-mode-group');
+  const modeHint = document.getElementById('chat-session-dialog-mode-hint');
   const confirm = document.getElementById('chat-session-dialog-confirm');
   const restoreFocus = state.chatSessionDialog.restoreFocus;
 
@@ -587,6 +649,15 @@ function closeChatSessionDialog() {
     input.value = '';
     input.placeholder = '输入对话标题';
   }
+  if (modeGroup) {
+    modeGroup.hidden = true;
+  }
+  if (modeHint) {
+    modeHint.textContent = 'Agent 会自主判断是否调用知识库、提醒和本地只读工具。';
+  }
+  document.querySelectorAll('[data-chat-session-mode-option]').forEach((option) => {
+    option.classList.remove('active');
+  });
   if (confirm) {
     confirm.disabled = false;
     confirm.textContent = '保存';
@@ -627,6 +698,17 @@ async function submitChatSessionDialog() {
     if (mode === 'refresh') {
       closeChatSessionDialog();
       await refreshCurrentChatResponse();
+      return;
+    }
+
+    if (mode === 'new') {
+      const selectedMode = state.chatSessionDialog.selectedMode === 'ask' ? 'ask' : 'agent';
+      applyChatState(normalizeChatState(await state.backend.NewChatSession(selectedMode)));
+      closeChatSessionDialog();
+      await Promise.all([refreshSkills(), refreshChatPrompt(), refreshProjectState()]);
+      const chatInput = document.getElementById('chat-input');
+      if (chatInput) chatInput.focus();
+      showBanner(`已开启 ${selectedMode} 对话。`, false);
       return;
     }
 
@@ -1244,7 +1326,7 @@ function createWailsBackend(backend) {
     OpenExternalURL: (url) => backend.OpenExternalURL(url),
     RefreshChatResponse: () => backend.RefreshChatResponse(),
     ExportChatMarkdown: () => backend.ExportChatMarkdown(),
-    NewChatSession: () => backend.NewChatSession(),
+    NewChatSession: (mode = 'agent') => backend.NewChatSession(mode),
     SwitchChatSession: (sessionId) => backend.SwitchChatSession(sessionId),
     RenameChatSession: (sessionId, title) => backend.RenameChatSession(sessionId, title),
     DeleteChatSession: (sessionId) => backend.DeleteChatSession(sessionId),
@@ -1306,7 +1388,7 @@ function createHTTPBackend() {
       downloadTextFile(payload.filename || 'myclaw-chat.md', payload.markdown || '', 'text/markdown;charset=utf-8');
       return { message: `已导出 Markdown：${payload.filename || 'myclaw-chat.md'}` };
     },
-    NewChatSession: () => requestJSON('POST', '/api/chat/session/new'),
+    NewChatSession: (mode = 'agent') => requestJSON('POST', '/api/chat/session/new', { mode }),
     SwitchChatSession: (sessionId) => requestJSON('POST', '/api/chat/session/switch', { sessionId }),
     RenameChatSession: (sessionId, title) => requestJSON('POST', '/api/chat/session/rename', { sessionId, title }),
     DeleteChatSession: (sessionId) => requestJSON('POST', '/api/chat/session/delete', { sessionId }),
@@ -1934,7 +2016,7 @@ async function sendMessage(rawText = null, displayText = null) {
     placeholder.streaming = false;
     syncCurrentChatConversationFromMessages();
     renderChat();
-    await refreshAll();
+    await Promise.all([refreshAll(), refreshChatState()]);
   } catch (error) {
     if ((placeholder.text || '').trim()) {
       placeholder.time = nowLabel();
@@ -1965,15 +2047,7 @@ async function startNewConversation() {
     showBanner('当前回复尚未完成。', true);
     return;
   }
-  try {
-    applyChatState(normalizeChatState(await state.backend.NewChatSession()));
-    await Promise.all([refreshSkills(), refreshChatPrompt()]);
-    const input = document.getElementById('chat-input');
-    if (input) input.focus();
-    showBanner('已开启新对话。', false);
-  } catch (error) {
-    showBanner(asMessage(error), true);
-  }
+  openChatSessionDialog('new', { mode: 'agent' });
 }
 
 async function exportChatMarkdown() {
@@ -3367,7 +3441,7 @@ function renderChat() {
       <div class="empty-state">
         <div class="empty-state-icon">○</div>
         <h3>开始新对话</h3>
-        <p>输入问题或使用命令如 /remember、/notice、/forget</p>
+        <p>输入问题或使用命令如 /kb remember、/notice、/skill list</p>
       </div>
     `;
     renderChatContentActions();
@@ -4157,6 +4231,7 @@ function defaultChatSessionDialogState() {
     sessionId: '',
     itemId: '',
     initialTitle: '',
+    selectedMode: 'agent',
     restoreFocus: null,
   };
 }

@@ -66,12 +66,13 @@ flowchart TD
 
 当前版本刻意保持简单：
 
-- 知识库存储在本地 JSON 文件里
-- 模型配置只从本地环境变量读取，不在终端或聊天界面里暴露
+- 运行时状态统一存储在本地 `app.db` 里
+- 模型配置从本地模型数据库读取，密钥单独保存在 `model/secret.key`
 - 配置模型后，会先做 AI 命令路由，再决定是“记住 / 遗忘 / 提醒 / 查看 / 回答”
 - 工具调用不再依赖某个工具专属的意图提取入口；当前文件检索已经走“识别需求 -> 匹配工具 -> 读取工具契约 -> 生成检索方案 -> 执行 -> 按结果迭代”的通用决策链，最多 3 轮
 - 当前运行时已经引入三层上下文：任务 scratchpad 保存原始中间产物；任务摘要写入下一轮模型上下文；会话历史保留最终对话文本与调试元数据
-- 普通问题默认走 direct 模式，直接调用 AI；切到 knowledge 模式后才会走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”
+- 普通问题默认走 agent 模式；需要传统一问一答时可用 `@ai`，需要单条附加知识库检索时可用 `@kb`
+- desktop 新建对话时会先选择 `ask` 或 `agent`，模式在该会话创建时确定
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持单次提醒和每天重复提醒
 - 桌面主会话与提醒面板会聚合显示当前运行时里的提醒，并标注来源（如桌面、微信）
@@ -127,7 +128,8 @@ go run ./cmd/myclaw-desktop
 - 模型配置页面，可直接保存和测试连接
 - 原生文件选择和确认对话框
 - 微信页面，支持在桌面端直接显示二维码扫码登录
-- 对话面板，可继续使用 `/kb remember`、`/notice`、`/kb forget`、`/debug-search`、`/mode` 等命令
+- 新建对话时可直接选择 `ask` 或 `agent`
+- 对话面板，可继续使用 `/kb remember`、`/notice`、`/kb forget`、`/debug-search` 等命令
 
 桌面版默认数据目录会放到用户配置目录：
 
@@ -206,6 +208,9 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - `/kb remember-file ./docs/puppeteer.pdf`
 - `./screenshots/puppeteer-home.png`
 - `/kb append 6d2d7724 它是 Google 出品的一个工具`
+- `/kb`
+- `/kb new 产品资料`
+- `/kb switch default`
 - `给 #6d2d7724 补充：它是 Google 出品的一个工具`
 - `再补充一点：它是 Google 出品的一个工具`
 - `/skill`
@@ -213,8 +218,7 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - `/skill show writer`
 - `/skill load writer`
 - `/skill unload writer`
-- `/mode`
-- `/mode knowledge`
+- `/skill clear`
 - `@kb macOS 什么时候做？`
 - `@ai 帮我直接分析这个方案`
 - `/translate Puppeteer is a browser automation tool.`
@@ -259,24 +263,19 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 
 ## 对话模式
 
-现在普通对话支持 3 种模式：
+现在普通对话默认走 `agent` 模式。模型会自主决定是否调用工具，包括知识库、提醒和本地只读工具；工具注册已经抽成 provider，可继续挂接 MCP / NCP / ACP。
 
-- `direct`：默认模式。普通问题直接走 AI，不依赖知识库。
-- `knowledge`：普通问题走知识库检索、候选复核和基于知识库回答。
-- `agent`：工具模式。默认包含一批本地工具，包括知识检索、记忆写入/删除、提醒查看/创建/删除；工具注册已经抽成 provider，可继续挂接 MCP / NCP / ACP。
+不再提供 `/mode` 命令。desktop 里新建对话时会先选 `ask` 或 `agent`；其他界面默认新会话就是 `agent`。
 
-切换方式：
-
-- `/mode` 查看当前模式
-- `/mode direct`
-- `/mode knowledge`
-- `/mode agent`
-
-也可以只对单条消息临时覆盖：
+如果只想覆盖当前这一条消息，可以临时加前缀：
 
 - `@ai ...`
 - `@kb ...`
 - `@agent ...`
+
+- `@ai ...`：这一条走传统问答，不主动进入工具流
+- `@kb ...`：这一条临时附加知识库检索与候选复核
+- `@agent ...`：这一条显式走 agent 工具模式
 
 如果需要在代码里扩展 agent 工具，可以在创建 `app.Service` 后注册 provider：
 
