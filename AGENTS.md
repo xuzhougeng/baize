@@ -44,6 +44,20 @@ When adding a new tool unit:
   Output contract: executed query, effective limit, result count, ordered file items with `index`, `name`, and `path`.
   Shortcut registration: `/find` and `/find help`, handled by the shared app runtime; WeChat additionally supports `/send <序号>` through its interface adapter.
   Current pipeline split: generic tool opportunity detection and tool planning in `internal/ai`; runtime orchestration in `internal/app`; search execution and selection state in `internal/filesearch`; WeChat file delivery in `internal/weixin/filesender.go`.
+- `readonly_system_command`
+  Package: `internal/systemcmd`
+  Purpose: Run a small allowlisted set of read-only local OS commands for machine inspection in agent mode.
+  Input contract: `command`, `args`, `timeout_seconds`.
+  Output contract: tool name, executed command, args, exit code, stdout, stderr, truncation flag.
+  Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts.
+  Current pipeline split: tool opportunity detection and planning in `internal/ai`; runtime exposure in `internal/app`; command validation and execution in `internal/systemcmd`.
+- `list_directory`
+  Package: `internal/dirlist`
+  Purpose: List files and folders in a local directory through native filesystem reads instead of shell commands.
+  Input contract: `path`, `limit`, `include_hidden`, `directories_only`.
+  Output contract: resolved directory path, effective limit, returned item count, truncation flag, and ordered items with `index`, `name`, `path`, `is_dir`, `size_bytes`, and `modified_at`.
+  Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts.
+  Current pipeline split: tool opportunity detection and planning in `internal/ai`; runtime exposure in `internal/app`; directory enumeration and filtering in `internal/dirlist`.
 
 ## Testing Guidelines
 Place tests beside the code they cover as `*_test.go`; this repo already follows that pattern in `internal/*` and `cmd/myclaw-desktop`. Prefer table-driven tests for routing, storage, and parser behavior. There is no stated coverage gate, but new logic should include focused tests and `make test` should pass before a PR is opened.

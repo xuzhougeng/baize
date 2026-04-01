@@ -7,9 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/reminder"
+	"myclaw/internal/systemcmd"
 	"myclaw/internal/toolcontract"
 )
 
@@ -29,8 +31,8 @@ func (p *localAgentToolProvider) ProviderKey() string {
 	return string(AgentToolProviderLocal)
 }
 
-func (p *localAgentToolProvider) ListAgentTools(context.Context, MessageContext) ([]AgentToolSpec, error) {
-	return []AgentToolSpec{
+func (p *localAgentToolProvider) ListAgentTools(_ context.Context, mc MessageContext) ([]AgentToolSpec, error) {
+	tools := []AgentToolSpec{
 		specWithLevel(agentToolSpecFromContract(localKnowledgeSearchContract()), ToolSideEffectReadOnly),
 		specWithLevel(agentToolSpecFromContract(localRememberContract()), ToolSideEffectSoftWrite),
 		specWithLevel(agentToolSpecFromContract(localAppendKnowledgeContract()), ToolSideEffectSoftWrite),
@@ -39,7 +41,14 @@ func (p *localAgentToolProvider) ListAgentTools(context.Context, MessageContext)
 		specWithLevel(agentToolSpecFromContract(localReminderListContract()), ToolSideEffectReadOnly),
 		specWithLevel(agentToolSpecFromContract(localReminderAddContract()), ToolSideEffectSoftWrite),
 		specWithLevel(agentToolSpecFromContract(localReminderRemoveContract()), ToolSideEffectDestructive),
-	}, nil
+	}
+	if dirlist.AllowedForInterface(mc.Interface) {
+		tools = append(tools, specWithLevel(agentToolSpecFromContract(dirlist.Definition()), ToolSideEffectReadOnly))
+	}
+	if systemcmd.AllowedForInterface(mc.Interface) && systemcmd.SupportedForCurrentPlatform() {
+		tools = append(tools, specWithLevel(agentToolSpecFromContract(systemcmd.Definition()), ToolSideEffectReadOnly))
+	}
+	return tools, nil
 }
 
 func specWithLevel(s AgentToolSpec, level ToolSideEffectLevel) AgentToolSpec {
@@ -53,7 +62,9 @@ func (p *localAgentToolProvider) ExecuteAgentTool(ctx context.Context, mc Messag
 		"remember":          p.executeRemember,
 		"append_knowledge":  p.executeAppendKnowledge,
 		"forget_knowledge":  p.executeForgetKnowledge,
+		dirlist.ToolName:    p.executeListDirectory,
 		filesearch.ToolName: p.executeFileSearch,
+		systemcmd.ToolName:  p.executeReadonlySystemCommand,
 		"reminder_list":     p.executeReminderList,
 		"reminder_add":      p.executeReminderAdd,
 		"reminder_remove":   p.executeReminderRemove,
@@ -153,6 +164,38 @@ func (p *localAgentToolProvider) executeFileSearch(ctx context.Context, _ Messag
 		return reply, nil
 	}
 	return filesearch.FormatSearchResult(result), nil
+}
+
+func (p *localAgentToolProvider) executeListDirectory(_ context.Context, mc MessageContext, rawInput string) (string, error) {
+	if !dirlist.AllowedForInterface(mc.Interface) {
+		return "", fmt.Errorf("%s is not available for interface %q", dirlist.ToolName, strings.TrimSpace(mc.Interface))
+	}
+
+	var args dirlist.ToolInput
+	if err := decodeAgentToolInput(rawInput, &args); err != nil {
+		return "", err
+	}
+	result, err := dirlist.Execute(args)
+	if err != nil {
+		return "", err
+	}
+	return dirlist.FormatResult(result)
+}
+
+func (p *localAgentToolProvider) executeReadonlySystemCommand(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
+	if !systemcmd.AllowedForInterface(mc.Interface) {
+		return "", fmt.Errorf("%s is not available for interface %q", systemcmd.ToolName, strings.TrimSpace(mc.Interface))
+	}
+
+	var args systemcmd.ToolInput
+	if err := decodeAgentToolInput(rawInput, &args); err != nil {
+		return "", err
+	}
+	result, err := systemcmd.Execute(ctx, args)
+	if err != nil {
+		return "", err
+	}
+	return systemcmd.FormatResult(result)
 }
 
 func (p *localAgentToolProvider) executeReminderList(ctx context.Context, mc MessageContext, rawInput string) (string, error) {

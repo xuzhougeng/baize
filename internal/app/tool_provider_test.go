@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
 )
@@ -34,14 +35,16 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"knowledge_search":  string(ToolSideEffectReadOnly),
-		filesearch.ToolName: string(ToolSideEffectReadOnly),
-		"reminder_list":     string(ToolSideEffectReadOnly),
-		"remember":          string(ToolSideEffectSoftWrite),
-		"append_knowledge":  string(ToolSideEffectSoftWrite),
-		"reminder_add":      string(ToolSideEffectSoftWrite),
-		"forget_knowledge":  string(ToolSideEffectDestructive),
-		"reminder_remove":   string(ToolSideEffectDestructive),
+		"knowledge_search":        string(ToolSideEffectReadOnly),
+		dirlist.ToolName:          string(ToolSideEffectReadOnly),
+		filesearch.ToolName:       string(ToolSideEffectReadOnly),
+		"readonly_system_command": string(ToolSideEffectReadOnly),
+		"reminder_list":           string(ToolSideEffectReadOnly),
+		"remember":                string(ToolSideEffectSoftWrite),
+		"append_knowledge":        string(ToolSideEffectSoftWrite),
+		"reminder_add":            string(ToolSideEffectSoftWrite),
+		"forget_knowledge":        string(ToolSideEffectDestructive),
+		"reminder_remove":         string(ToolSideEffectDestructive),
 	}
 
 	for tool, wantLevel := range want {
@@ -52,6 +55,26 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 		}
 		if got != wantLevel {
 			t.Errorf("tool %q SideEffectLevel = %q, want %q", tool, got, wantLevel)
+		}
+	}
+}
+
+func TestReadonlySystemCommandNotExposedOnWeixin(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	service := NewService(store, nil, nil)
+
+	defs, err := service.toolProviders.Definitions(context.Background(), MessageContext{Interface: "weixin"})
+	if err != nil {
+		t.Fatalf("Definitions() failed: %v", err)
+	}
+	for _, def := range defs {
+		if strings.HasSuffix(def.Name, "::readonly_system_command") {
+			t.Fatalf("unexpected readonly system tool in weixin definitions: %#v", def)
+		}
+		if strings.HasSuffix(def.Name, "::list_directory") {
+			t.Fatalf("unexpected directory listing tool in weixin definitions: %#v", def)
 		}
 	}
 }
