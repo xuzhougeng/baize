@@ -6,46 +6,6 @@ import (
 	"strings"
 )
 
-type LoopAction string
-
-const (
-	LoopContinue LoopAction = "continue"
-	LoopAnswer   LoopAction = "answer"
-	LoopAsk      LoopAction = "ask"
-	LoopStop     LoopAction = "stop"
-)
-
-type LoopDecision struct {
-	Action    LoopAction
-	ToolName  string
-	ToolInput string
-	Answer    string
-	Question  string
-	Reason    string
-}
-
-type ToolAttempt struct {
-	ToolName      string
-	ToolInput     string
-	RawOutput     string
-	OutputSummary string
-	Succeeded     bool
-	FailureReason string
-}
-
-type AgentTaskState struct {
-	Goal            string
-	UserInput       string
-	HistorySummary  string
-	WorkingSummary  string
-	FinalSummary    string
-	Observations    []string
-	ToolAttempts    []ToolAttempt
-	CandidateTools  []AgentToolDefinition
-	PendingQuestion string
-	LastAnswerDraft string
-	SideEffects     []string
-}
 
 type loopDecisionRaw struct {
 	Action    string `json:"action"`
@@ -266,4 +226,28 @@ func (s *Service) SummarizeAgentFinalState(ctx context.Context, state AgentTaskS
 		return finalAnswer, nil
 	}
 	return result, nil
+}
+
+// PlanNext implements AgentPlanner by delegating to PlanAgentLoopStep.
+func (s *Service) PlanNext(ctx context.Context, task string, history []ConversationMessage, tools []AgentToolDefinition, state AgentTaskState) (LoopDecision, error) {
+	if state.Goal == "" {
+		state.Goal = task
+	}
+	if state.UserInput == "" {
+		state.UserInput = task
+	}
+	if len(state.CandidateTools) == 0 {
+		state.CandidateTools = tools
+	}
+	return s.PlanAgentLoopStep(ctx, history, state)
+}
+
+// SummarizeWorkingState implements AgentPlanner by delegating to SummarizeAgentWorkingState.
+func (s *Service) SummarizeWorkingState(ctx context.Context, state AgentTaskState) (string, error) {
+	return s.SummarizeAgentWorkingState(ctx, state)
+}
+
+// SummarizeFinal implements AgentPlanner by delegating to SummarizeAgentFinalState.
+func (s *Service) SummarizeFinal(ctx context.Context, state AgentTaskState, finalAnswer string) (string, error) {
+	return s.SummarizeAgentFinalState(ctx, state, finalAnswer)
 }
