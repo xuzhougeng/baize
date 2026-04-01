@@ -105,6 +105,12 @@ func NormalizeInput(raw ToolInput) ToolInput {
 func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
   // ...
 }
+
+// FormatResult is an optional helper; renders ToolResult as human-readable text.
+// Used by transport layers (terminal, desktop) for display; not required by the agent loop.
+func FormatResult(result ToolResult) (string, error) {
+  // ...
+}
 ```
 
 如果工具需要平台或接口限制，也建议把限制函数显式化，例如：
@@ -167,6 +173,22 @@ func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
   只负责展示、交互、发文件、弹窗、扫码等界面或协议动作。
 
 如果一个实现把这几层揉成一个 handler，通常说明它还不够像一个规范化 tool unit。
+
+## Eval Runner
+
+`cmd/myclaw-eval` 已实现，可用于对 tool unit 进行批量评测。
+
+```
+myclaw-eval -data-dir <dir> -dataset <path> [-output <path>]
+```
+
+Flags：
+
+- `-data-dir`：数据目录，默认 `"data"`，用于定位 `app.db` 和密钥文件。
+- `-dataset`：必填，`.jsonl` 数据集文件路径（例如 `docs/evals/route-command.jsonl`）。
+- `-output`：可选，结果输出路径。默认写到 `eval/testdata/runs/<timestamp>-<provider>-<model>-<dataset>.json`。
+
+运行后会在控制台逐条打印 pass / fail，并将完整报告以 JSON 写入输出路径。
 
 ## Registered Tool Units
 
