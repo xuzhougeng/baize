@@ -31,36 +31,13 @@ Target Go 1.24 and let `gofmt` own formatting; do not hand-align whitespace. Fol
 ## Tool Units
 Reusable tool-style modules must be designed as self-descriptive units, so they can be reused by other AI projects without reverse-engineering app-specific code paths.
 
-When adding a new tool unit:
-- Put the executable logic in its own `internal/<tool>` package instead of burying it inside a transport layer such as WeChat, terminal, or desktop UI.
-- Expose a stable tool name, a short purpose statement, a machine-oriented input contract, a machine-oriented output contract, and a human-readable help/usage text.
-- Keep the phases separated: the generic AI decider identifies the need, chooses a tool, and prepares tool input; the tool package normalizes input and executes; the transport layer only renders results or delivers side effects.
-- Tool units should not decide conversation lifecycle. If a tool depends on special persistence or activation behavior, express that through shared runtime policy instead of transport-local logic.
-- If the tool also has a shortcut command such as `/find`, treat that command as a thin registration layer over the tool unit. Register the shortcut in the runtime that actually owns it, not globally by default, and route `help` back to the tool's own usage text from that runtime.
-- Update the registry below whenever a reusable tool is added, renamed, or removed.
+The authoritative requirements, checklist, template, and registered tool registry now live in [docs/tool-units.md](./docs/tool-units.md).
 
-### Registered Tool Units
-- `everything_file_search`
-  Package: `internal/filesearch`
-  Purpose: Search local Windows files via Everything (`es.exe`) using either native queries or structured semantic filters.
-  Input contract: `query`, `keywords`, `drives`, `known_folders`, `paths`, `extensions`, `date_field`, `date_value`, `limit`.
-  Output contract: executed query, effective limit, result count, ordered file items with `index`, `name`, and `path`.
-  Shortcut registration: `/find` and `/find help`, handled by the shared app runtime; WeChat additionally supports `/send <序号>` through its interface adapter.
-  Current pipeline split: generic tool opportunity detection and tool planning in `internal/ai`; runtime orchestration in `internal/app`; search execution and selection state in `internal/filesearch`; WeChat file delivery in `internal/weixin/filesender.go`.
-- `readonly_system_command`
-  Package: `internal/systemcmd`
-  Purpose: Run a small allowlisted set of read-only local OS commands for machine inspection in agent mode.
-  Input contract: `command`, `args`, `timeout_seconds`.
-  Output contract: tool name, executed command, args, exit code, stdout, stderr, truncation flag.
-  Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts.
-  Current pipeline split: tool opportunity detection and planning in `internal/ai`; runtime exposure in `internal/app`; command validation and execution in `internal/systemcmd`.
-- `list_directory`
-  Package: `internal/dirlist`
-  Purpose: List files and folders in a local directory through native filesystem reads instead of shell commands.
-  Input contract: `path`, `limit`, `include_hidden`, `directories_only`.
-  Output contract: resolved directory path, effective limit, returned item count, truncation flag, and ordered items with `index`, `name`, `path`, `is_dir`, `size_bytes`, and `modified_at`.
-  Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts.
-  Current pipeline split: tool opportunity detection and planning in `internal/ai`; runtime exposure in `internal/app`; directory enumeration and filtering in `internal/dirlist`.
+When adding, renaming, or removing a reusable tool unit:
+- Follow `docs/tool-units.md`
+- Keep the tool logic in `internal/<tool>`
+- Keep runtime registration and transport/UI glue outside the tool package
+- Update the registry in `docs/tool-units.md` in the same change
 
 ## Testing Guidelines
 Place tests beside the code they cover as `*_test.go`; this repo already follows that pattern in `internal/*` and `cmd/myclaw-desktop`. Prefer table-driven tests for routing, storage, and parser behavior. There is no stated coverage gate, but new logic should include focused tests and `make test` should pass before a PR is opened.

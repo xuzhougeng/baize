@@ -1,0 +1,208 @@
+# Tool Unit 规范
+
+本文档定义 `myclaw` 里“可复用 tool-style 模块”的新增要求。目标不是写概念文，而是给新增 / 改名 / 重构 tool 时一个统一落地标准。
+
+如果你只是想知道当前仓库的总体设计思路，可以顺带参考 [独立工作单元设计规范](./work-unit-design.md)。本文更偏工程约束和提交流程。
+
+## 适用范围
+
+以下能力都按 tool unit 对待：
+
+- 供 agent 直接调用的本地 tool
+- 未来可能被多个接口复用的能力模块
+- 有明确输入输出契约、可单独测试、可被 slash command 或 UI 薄包装的模块
+
+以下内容通常不单独登记为 tool unit：
+
+- 纯 transport 层逻辑，例如桌面弹窗、微信发消息、terminal 输出格式
+- 单一接口专属的胶水代码
+- 只作为某个更大 tool 内部实现细节的小函数
+
+## 硬性要求
+
+新增一个 tool unit 时，至少满足这些要求：
+
+1. 放在独立包中。
+   推荐路径是 `internal/<tool>`，不要把核心执行逻辑埋进 `internal/weixin`、`internal/terminal`、desktop UI 或某个 handler。
+
+2. 具备稳定身份。
+   至少要有稳定 `ToolName`，以及一个能输出完整契约的 `Definition()` 或等价入口。
+
+3. 具备统一契约。
+   至少要能明确说明：
+   - purpose
+   - description
+   - input contract
+   - output contract
+   - usage/help
+   - input JSON example
+   - output JSON example
+
+4. 输入输出结构显式化。
+   使用明确的 `ToolInput` / `ToolResult` 结构，不要只靠自然语言提示词隐式约定字段。
+
+5. 执行逻辑和运行时接入分层。
+   基本分层应是：
+   - `internal/ai`: 判断是否需要某类工具
+   - `internal/app`: 暴露 / 编排 / 注册
+   - `internal/<tool>`: 归一化和执行
+   - transport/UI: 展示结果或触发副作用
+
+6. 不决定会话生命周期。
+   tool unit 不应自己决定是否新建对话、是否绑定当前会话、是否写历史。这些都属于 shared runtime policy。
+
+7. shortcut 只是薄包装。
+   如果有 `/find` 这种命令：
+   - shortcut 不是核心逻辑本体
+   - shortcut 不应重写 tool 执行逻辑
+   - `help` 应回到 tool 自己的 usage/help
+   - shortcut 应由真正拥有该能力的 runtime 注册，而不是默认全局暴露
+
+8. 必须可测试。
+   至少要覆盖契约完整性、标准执行路径，以及 runtime 注册或暴露行为。
+
+9. 必须登记。
+   新增、改名、删除 tool unit 后，要更新本文档末尾的 `Registered Tool Units`。
+
+## 推荐代码骨架
+
+一个标准 tool unit 推荐至少包含这些元素：
+
+```go
+package mytool
+
+const ToolName = "my_tool"
+
+type ToolInput struct {
+  // ...
+}
+
+type ToolResult struct {
+  // ...
+}
+
+func Definition() toolcontract.Spec {
+  return toolcontract.Spec{
+    Name:              ToolName,
+    Purpose:           "...",
+    Description:       "...",
+    InputContract:     "...",
+    OutputContract:    "...",
+    InputJSONExample:  `{"...":"..."}`,
+    OutputJSONExample: `{"tool":"my_tool"}`,
+    Usage:             UsageText(),
+  }
+}
+
+func UsageText() string {
+  return "..."
+}
+
+func NormalizeInput(raw ToolInput) ToolInput {
+  // optional but strongly recommended
+}
+
+func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
+  // ...
+}
+```
+
+如果工具需要平台或接口限制，也建议把限制函数显式化，例如：
+
+- `AllowedForInterface(name string) bool`
+- `SupportedForCurrentPlatform() bool`
+
+## 新建 Tool Checklist
+
+提交一个新 tool 前，逐项确认：
+
+- 已创建独立包 `internal/<tool>`
+- 已定义稳定 `ToolName`
+- 已提供 `Definition()`
+- 已提供 `ToolInput` / `ToolResult`
+- 已提供 `UsageText()` 或等价帮助文本
+- 已提供 input/output JSON example
+- 已把归一化和执行逻辑放在 tool 包内
+- 已把 shortcut、provider 注册、UI 接入放在运行时层
+- 已补测试
+- 已更新本文档的 registry
+- 如果此变更影响架构边界，已同步更新 `AGENTS.md` / `README.md`
+
+## Shortcut 规则
+
+有 slash command 的 tool，按下面约束处理：
+
+- shortcut 应该是 runtime 的注册层，不是 tool 本体
+- shortcut 解析失败时，应能回到 tool 的 usage/help
+- shortcut 不应偷偷附带会话生命周期副作用，除非 runtime policy 明确允许
+- 多接口支持时，每个接口可以决定是否暴露该 shortcut
+- 如果某个接口需要补充专属动作，例如微信 `/send <序号>`，这类动作仍应作为 transport adapter 的补充层，而不是塞回核心 tool
+
+## 测试要求
+
+一个成熟 tool 至少建议覆盖这些测试：
+
+- 契约完整性测试
+  例如 `Definition()` 不为空，字段齐全。
+- 输入归一化测试
+  默认值、别名、大小写、路径、时间表达式等。
+- 执行测试
+  正常执行、错误路径、边界情况。
+- 帮助可达性测试
+  shortcut help 或 usage 文本能稳定返回。
+- runtime 注册测试
+  例如 `tool provider`、command registry、接口 gating。
+
+## 运行时接入要求
+
+通常按下面方式接入：
+
+- `internal/ai`
+  做“是否需要这个 tool”的识别、候选工具提示、工具计划输入。
+- `internal/app`
+  负责 tool provider 暴露、执行编排、shared runtime policy。
+- `internal/<tool>`
+  只负责定义契约、规范输入、执行能力。
+- interface adapter
+  只负责展示、交互、发文件、弹窗、扫码等界面或协议动作。
+
+如果一个实现把这几层揉成一个 handler，通常说明它还不够像一个规范化 tool unit。
+
+## Registered Tool Units
+
+### `everything_file_search`
+
+- Package: `internal/filesearch`
+- Purpose: Search local Windows files via Everything (`es.exe`) using either native queries or structured semantic filters.
+- Input contract: `query`, `keywords`, `drives`, `known_folders`, `paths`, `extensions`, `date_field`, `date_value`, `limit`
+- Output contract: executed query, effective limit, result count, ordered file items with `index`, `name`, and `path`
+- Shortcut registration: `/find` and `/find help`, handled by the shared app runtime; WeChat additionally supports `/send <序号>` through its interface adapter
+- Current pipeline split:
+  - generic tool opportunity detection and tool planning in `internal/ai`
+  - runtime orchestration in `internal/app`
+  - search execution and selection state in `internal/filesearch`
+  - WeChat file delivery in `internal/weixin/filesender.go`
+
+### `readonly_system_command`
+
+- Package: `internal/systemcmd`
+- Purpose: Run a small allowlisted set of read-only local OS commands for machine inspection in agent mode.
+- Input contract: `command`, `args`, `timeout_seconds`
+- Output contract: tool name, executed command, args, exit code, stdout, stderr, truncation flag
+- Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts
+- Current pipeline split:
+  - tool opportunity detection and planning in `internal/ai`
+  - runtime exposure in `internal/app`
+  - command validation and execution in `internal/systemcmd`
+
+### `list_directory`
+
+- Package: `internal/dirlist`
+- Purpose: List files and folders in a local directory through native filesystem reads instead of shell commands.
+- Input contract: `path`, `limit`, `include_hidden`, `directories_only`
+- Output contract: resolved directory path, effective limit, returned item count, truncation flag, and ordered items with `index`, `name`, `path`, `is_dir`, `size_bytes`, and `modified_at`
+- Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts
+- Current pipeline split:
+  - tool opportunity detection and planning in `internal/ai`
+  - runtime exposure in `internal/app`
+  - directory enumeration and filtering in `internal/dirlist`
