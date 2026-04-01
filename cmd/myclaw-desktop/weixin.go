@@ -217,6 +217,7 @@ func (a *DesktopApp) startWeixinBridge() {
 	a.weixinMu.Unlock()
 
 	go func() {
+		reportDesktopBackendEvent(a.dataDir, "desktop.weixinBridge.start", nil)
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				reportDesktopBackendPanic(a.dataDir, "desktop.weixinBridge.run", recovered, debug.Stack())
@@ -224,6 +225,9 @@ func (a *DesktopApp) startWeixinBridge() {
 		}()
 
 		err := a.weixinBridge.Run(runCtx)
+		reportDesktopBackendEvent(a.dataDir, "desktop.weixinBridge.exit", map[string]string{
+			"error": strings.TrimSpace(fmt.Sprint(err)),
+		})
 		if errors.Is(err, context.Canceled) || runCtx.Err() != nil {
 			return
 		}

@@ -32,6 +32,7 @@ type Account struct {
 type BridgeConfig struct {
 	DataDir        string
 	EverythingPath string
+	EventReporter  func(scope string, fields map[string]string)
 	PanicReporter  func(scope string, recovered any, stack []byte)
 }
 
@@ -47,6 +48,7 @@ type Bridge struct {
 	conversationLoaded   bool
 	fileSearch           *filesearch.ShortcutHandler
 	fileSender           *FileSender
+	eventReporter        func(scope string, fields map[string]string)
 	panicReporter        func(scope string, recovered any, stack []byte)
 }
 
@@ -58,9 +60,16 @@ func NewBridge(client *Client, service *app.Service, reminders *reminder.Manager
 		config:        config,
 		fileSearch:    filesearch.NewShortcutHandler(strings.TrimSpace(config.EverythingPath), filesearch.ExecuteWithEverything),
 		fileSender:    NewFileSender(client),
+		eventReporter: config.EventReporter,
 		panicReporter: config.PanicReporter,
 	}
 	return bridge
+}
+
+func (b *Bridge) reportEvent(scope string, fields map[string]string) {
+	if b.eventReporter != nil {
+		b.eventReporter(strings.TrimSpace(scope), fields)
+	}
 }
 
 func (b *Bridge) reportRecoveredPanic(scope string, recovered any) {
@@ -81,9 +90,17 @@ func (b *Bridge) notifyConversationUpdated(update ConversationUpdate) {
 	b.conversationMu.RLock()
 	fn := b.onConversation
 	b.conversationMu.RUnlock()
+	b.reportEvent("conversationUpdated.before", map[string]string{
+		"activate":  fmt.Sprintf("%t", update.Activate),
+		"hasHook":   fmt.Sprintf("%t", fn != nil),
+		"sessionId": strings.TrimSpace(update.SessionID),
+	})
 	if fn != nil {
 		fn(update)
 	}
+	b.reportEvent("conversationUpdated.after", map[string]string{
+		"sessionId": strings.TrimSpace(update.SessionID),
+	})
 }
 
 func (b *Bridge) StartLogin() (*QRCodeResponse, error) {
@@ -174,11 +191,15 @@ func (b *Bridge) Logout() error {
 }
 
 func (b *Bridge) Run(ctx context.Context) (err error) {
+	b.reportEvent("bridge.run.start", nil)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			b.reportRecoveredPanic("bridge.run", recovered)
 			err = fmt.Errorf("weixin bridge panic: %v", recovered)
 		}
+		b.reportEvent("bridge.run.exit", map[string]string{
+			"error": strings.TrimSpace(fmt.Sprint(err)),
+		})
 	}()
 
 	log.Printf("[weixin] bridge started, polling for messages")
@@ -234,6 +255,11 @@ func (b *Bridge) handleMessage(ctx context.Context, msg WeixinMessage) {
 	}()
 
 	text := extractText(msg)
+	b.reportEvent("handleMessage.start", map[string]string{
+		"contextToken": strings.TrimSpace(msg.ContextToken),
+		"fromUser":     strings.TrimSpace(msg.FromUserID),
+		"text":         truncate(text, 120),
+	})
 	log.Printf("[weixin] inbound from=%s text=%s", msg.FromUserID, truncate(text, 80))
 	inputPolicy := app.InspectInputPolicy(text)
 	if inputPolicy.IsConversationControl && inputPolicy.Command == "/new" {
@@ -299,8 +325,20 @@ func (b *Bridge) handleMessage(ctx context.Context, msg WeixinMessage) {
 				}
 			}()
 
+			b.reportEvent("reminder.notify.before", map[string]string{
+				"contextToken": strings.TrimSpace(contextToken),
+				"id":           strings.TrimSpace(item.ID),
+				"message":      truncate(item.Message, 120),
+				"user":         strings.TrimSpace(userID),
+			})
 			text := fmt.Sprintf("提醒时间到了：%s", item.Message)
-			return b.sendChunkedReply(ctx, userID, contextToken, text)
+			err = b.sendChunkedReply(ctx, userID, contextToken, text)
+			b.reportEvent("reminder.notify.after", map[string]string{
+				"error": strings.TrimSpace(fmt.Sprint(err)),
+				"id":    strings.TrimSpace(item.ID),
+				"user":  strings.TrimSpace(userID),
+			})
+			return err
 		}))
 	}
 
@@ -318,6 +356,12 @@ func (b *Bridge) handleMessage(ctx context.Context, msg WeixinMessage) {
 		log.Printf("[weixin] handle message failed: %v", err)
 		reply = "处理失败，请稍后重试。"
 	}
+	b.reportEvent("handleMessage.replyReady", map[string]string{
+		"contextToken": strings.TrimSpace(msg.ContextToken),
+		"fromUser":     strings.TrimSpace(msg.FromUserID),
+		"reply":        truncate(reply, 160),
+		"sessionId":    strings.TrimSpace(messageContext.SessionID),
+	})
 	reply = prefixConversationNotice(conversationNotice, reply)
 	if b.service != nil && strings.TrimSpace(text) != "" && strings.TrimSpace(reply) != "" {
 		b.service.RecordConversationTurn(ctx, messageContext, text, reply)
@@ -347,10 +391,20 @@ func (b *Bridge) sendChunkedReply(ctx context.Context, toUserID, contextToken, t
 	if len(chunks) == 0 {
 		chunks = []string{"已处理，但没有可返回的文本。"}
 	}
-	for _, chunk := range chunks {
+	for index, chunk := range chunks {
+		b.reportEvent("sendChunkedReply.before", map[string]string{
+			"chunkIndex":   fmt.Sprintf("%d", index),
+			"chunkRunes":   fmt.Sprintf("%d", len([]rune(chunk))),
+			"contextToken": strings.TrimSpace(contextToken),
+			"toUser":       strings.TrimSpace(toUserID),
+		})
 		if err := b.client.SendTextMessage(ctx, toUserID, chunk, contextToken); err != nil {
 			return err
 		}
+		b.reportEvent("sendChunkedReply.after", map[string]string{
+			"chunkIndex": fmt.Sprintf("%d", index),
+			"toUser":     strings.TrimSpace(toUserID),
+		})
 	}
 	return nil
 }

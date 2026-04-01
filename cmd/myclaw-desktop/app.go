@@ -262,6 +262,11 @@ func (a *DesktopApp) emitChatChanged(update weixin.ConversationUpdate) {
 			a.rememberChatSession(project, sessionID)
 		}
 	}
+	reportDesktopBackendEvent(a.dataDir, "desktop.emitChatChanged.before", map[string]string{
+		"activate":  fmt.Sprintf("%t", update.Activate),
+		"ctxReady":  fmt.Sprintf("%t", a.ctx != nil),
+		"sessionId": strings.TrimSpace(update.SessionID),
+	})
 	if a.ctx == nil {
 		return
 	}
@@ -269,10 +274,16 @@ func (a *DesktopApp) emitChatChanged(update weixin.ConversationUpdate) {
 		"source":    "weixin",
 		"sessionId": strings.TrimSpace(update.SessionID),
 	})
+	reportDesktopBackendEvent(a.dataDir, "desktop.emitChatChanged.after", map[string]string{
+		"sessionId": strings.TrimSpace(update.SessionID),
+	})
 }
 
 func (a *DesktopApp) startup(ctx context.Context) {
 	a.ctx = ctx
+	reportDesktopBackendEvent(a.dataDir, "desktop.startup", map[string]string{
+		"ctxReady": "true",
+	})
 	runtime.WindowCenter(ctx)
 	a.initTrayController()
 	a.startBackgroundServices()
@@ -305,6 +316,7 @@ func (a *DesktopApp) startBackgroundServices() {
 }
 
 func (a *DesktopApp) shutdown(context.Context) {
+	reportDesktopBackendEvent(a.dataDir, "desktop.shutdown", nil)
 	a.disposeTrayController()
 	a.stopBackgroundServices()
 }
@@ -319,9 +331,17 @@ func (a *DesktopApp) beforeClose(ctx context.Context) bool {
 	a.trayMu.Unlock()
 
 	if allowClose || !trayReady {
+		reportDesktopBackendEvent(a.dataDir, "desktop.beforeClose.pass", map[string]string{
+			"allowClose": fmt.Sprintf("%t", allowClose),
+			"trayReady":  fmt.Sprintf("%t", trayReady),
+		})
 		return false
 	}
 
+	reportDesktopBackendEvent(a.dataDir, "desktop.beforeClose.hide", map[string]string{
+		"allowClose": fmt.Sprintf("%t", allowClose),
+		"trayReady":  fmt.Sprintf("%t", trayReady),
+	})
 	runtime.WindowHide(ctx)
 	return true
 }

@@ -67,6 +67,9 @@ func main() {
 	weixinBridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{
 		DataDir:        dataDir,
 		EverythingPath: envOrDefault("MYCLAW_WEIXIN_EVERYTHING_PATH", ""),
+		EventReporter: func(scope string, fields map[string]string) {
+			reportDesktopBackendEvent(dataDir, "weixin."+strings.TrimSpace(scope), fields)
+		},
 		PanicReporter: func(scope string, recovered any, stack []byte) {
 			reportDesktopBackendPanic(dataDir, "weixin."+strings.TrimSpace(scope), recovered, stack)
 		},

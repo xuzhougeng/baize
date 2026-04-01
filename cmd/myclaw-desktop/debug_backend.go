@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,6 +73,40 @@ func reportDesktopBackendStartup(dataDir string) {
 		"event=backend-debug-enabled",
 	})
 	log.Printf("[desktop-debug] backend debug enabled: %s", path)
+}
+
+func reportDesktopBackendEvent(dataDir, scope string, fields map[string]string) {
+	if !desktopDebugBuildEnabled() {
+		return
+	}
+
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "event"
+	}
+
+	lines := []string{
+		"timestamp=" + time.Now().UTC().Format(time.RFC3339Nano),
+		"buildMode=" + strings.TrimSpace(desktopBuildMode),
+		"scope=" + scope,
+	}
+
+	if len(fields) > 0 {
+		keys := make([]string, 0, len(fields))
+		for key := range fields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			field := strings.TrimSpace(key)
+			if field == "" {
+				continue
+			}
+			lines = append(lines, field+"="+strings.TrimSpace(fields[key]))
+		}
+	}
+
+	appendDesktopBackendDebugEntry(dataDir, lines)
 }
 
 func reportDesktopBackendPanic(dataDir, scope string, recovered any, stack []byte) {
