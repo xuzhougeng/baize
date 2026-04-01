@@ -49,14 +49,14 @@ func specWithLevel(s AgentToolSpec, level ToolSideEffectLevel) AgentToolSpec {
 
 func (p *localAgentToolProvider) ExecuteAgentTool(ctx context.Context, mc MessageContext, toolName, rawInput string) (string, error) {
 	handlers := map[string]func(context.Context, MessageContext, string) (string, error){
-		"knowledge_search": p.executeKnowledgeSearch,
-		"remember":         p.executeRemember,
-		"append_knowledge": p.executeAppendKnowledge,
-		"forget_knowledge": p.executeForgetKnowledge,
+		"knowledge_search":  p.executeKnowledgeSearch,
+		"remember":          p.executeRemember,
+		"append_knowledge":  p.executeAppendKnowledge,
+		"forget_knowledge":  p.executeForgetKnowledge,
 		filesearch.ToolName: p.executeFileSearch,
-		"reminder_list":   p.executeReminderList,
-		"reminder_add":    p.executeReminderAdd,
-		"reminder_remove": p.executeReminderRemove,
+		"reminder_list":     p.executeReminderList,
+		"reminder_add":      p.executeReminderAdd,
+		"reminder_remove":   p.executeReminderRemove,
 	}
 	name := strings.ToLower(strings.TrimSpace(toolName))
 	handler, ok := handlers[name]
@@ -162,11 +162,11 @@ func (p *localAgentToolProvider) executeReminderList(ctx context.Context, mc Mes
 	if p.service.reminders == nil {
 		return "提醒功能未启用。", nil
 	}
-	items, err := p.service.reminders.List(ctx, reminder.Target{Interface: mc.Interface, UserID: mc.UserID})
+	items, err := p.service.ListVisibleReminders(ctx, mc)
 	if err != nil {
 		return "", err
 	}
-	return formatReminderList(items), nil
+	return formatReminderListForContext(mc, items), nil
 }
 
 func (p *localAgentToolProvider) executeReminderAdd(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
@@ -199,7 +199,7 @@ func (p *localAgentToolProvider) executeReminderRemove(ctx context.Context, mc M
 	if p.service.reminders == nil {
 		return "提醒功能未启用。", nil
 	}
-	item, ok, err := p.service.reminders.Remove(ctx, reminder.Target{Interface: mc.Interface, UserID: mc.UserID}, args.ID)
+	item, ok, err := p.service.RemoveVisibleReminder(ctx, mc, args.ID)
 	if err != nil {
 		return "", err
 	}
@@ -274,8 +274,8 @@ func localForgetKnowledgeContract() toolcontract.Spec {
 func localReminderListContract() toolcontract.Spec {
 	return toolcontract.Spec{
 		Name:             "reminder_list",
-		Purpose:          "List reminders for the current interface and user.",
-		Description:      "Read the reminder list bound to the current conversation target.",
+		Purpose:          "List reminders visible from the current runtime context.",
+		Description:      "Read the reminder list for the current conversation target; desktop primary may aggregate reminders from other interfaces.",
 		InputContract:    `Provide {}.`,
 		OutputContract:   "Returns the current reminder list in plain text.",
 		Usage:            "Use when the user asks what reminders are currently scheduled.",
@@ -299,7 +299,7 @@ func localReminderRemoveContract() toolcontract.Spec {
 	return toolcontract.Spec{
 		Name:             "reminder_remove",
 		Purpose:          "Delete a reminder by ID or prefix.",
-		Description:      "Remove one reminder from the current interface and user scope.",
+		Description:      "Remove one reminder from the current visible reminder scope.",
 		InputContract:    `Provide {"id":"..."}.`,
 		OutputContract:   "Returns deletion confirmation for the removed reminder.",
 		Usage:            "Use only when the user explicitly identifies a reminder to remove.",

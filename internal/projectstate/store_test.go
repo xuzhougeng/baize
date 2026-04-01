@@ -9,7 +9,7 @@ import (
 func TestStoreLoadDefaultsToDefaultProject(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "active.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	snapshot, err := store.Load(context.Background())
 	if err != nil {
 		t.Fatalf("load: %v", err)
@@ -22,7 +22,7 @@ func TestStoreLoadDefaultsToDefaultProject(t *testing.T) {
 func TestStoreSaveAndLoad(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "active.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	if _, err := store.Save(context.Background(), "FastClaw"); err != nil {
 		t.Fatalf("save: %v", err)
 	}

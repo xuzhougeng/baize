@@ -44,20 +44,21 @@ func main() {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		log.Fatalf("create data dir: %v", err)
 	}
-	if err := migrateLegacyData(dataDir); err != nil {
-		log.Printf("migrate legacy data: %v", err)
-	}
 
-	store := knowledge.NewStore(filepath.Join(dataDir, "knowledge", "entries.json"))
-	promptStore := promptlib.NewStore(filepath.Join(dataDir, "prompts", "items.json"))
+	appDBPath := filepath.Join(dataDir, "app.db")
+	store := knowledge.NewStore(appDBPath)
+	promptStore := promptlib.NewStore(appDBPath)
 	if err := promptlib.SeedDefaultPrompts(context.Background(), promptStore, promptlib.DefaultPromptSeedMarker(dataDir)); err != nil {
 		log.Fatalf("seed default prompts: %v", err)
 	}
-	modelStore := modelconfig.NewStore(filepath.Join(dataDir, "model", "profiles.db"))
+	modelStore := modelconfig.NewStore(
+		appDBPath,
+		filepath.Join(dataDir, "model", "secret.key"),
+	)
 	aiService := ai.NewService(modelStore)
-	reminderStore := reminder.NewStore(filepath.Join(dataDir, "reminders", "items.json"))
+	reminderStore := reminder.NewStore(appDBPath)
 	reminderManager := reminder.NewManager(reminderStore)
-	sessionStore := sessionstate.NewStore(filepath.Join(dataDir, "sessions", "items.json"))
+	sessionStore := sessionstate.NewStore(appDBPath)
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
 	service := app.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
 	service.SetFileSearchEverythingPath(envOrDefault("MYCLAW_WEIXIN_EVERYTHING_PATH", ""))
@@ -129,131 +130,6 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-var migratableDataFiles = []string{
-	filepath.Join("knowledge", "entries.json"),
-	filepath.Join("prompts", "items.json"),
-	filepath.Join("projects", "active.json"),
-	filepath.Join("model", "config.json"),
-	filepath.Join("model", "profiles.db"),
-	filepath.Join("model", "secret.key"),
-	filepath.Join("reminders", "items.json"),
-	filepath.Join("weixin-bridge", "account.json"),
-	filepath.Join("weixin-bridge", "sync_buf"),
-}
-
-func migrateLegacyData(targetDataDir string) error {
-	legacyRoots, err := legacyDataRoots(targetDataDir)
-	if err != nil {
-		return err
-	}
-	for _, legacyRoot := range legacyRoots {
-		if err := migrateLegacyDataFiles(legacyRoot, targetDataDir); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func legacyDataRoots(targetDataDir string) ([]string, error) {
-	paths := make([]string, 0, 2)
-
-	executable, err := os.Executable()
-	if err == nil {
-		paths = append(paths, filepath.Join(filepath.Dir(executable), "data"))
-	}
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	paths = append(paths, filepath.Join(workingDir, "data"))
-
-	targetAbs, err := filepath.Abs(targetDataDir)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := map[string]struct{}{}
-	roots := make([]string, 0, len(paths))
-	for _, path := range paths {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return nil, err
-		}
-		if absPath == targetAbs {
-			continue
-		}
-		if _, ok := seen[absPath]; ok {
-			continue
-		}
-		seen[absPath] = struct{}{}
-		roots = append(roots, absPath)
-	}
-	return roots, nil
-}
-
-func migrateLegacyDataFiles(sourceRoot, targetRoot string) error {
-	for _, relativePath := range migratableDataFiles {
-		sourcePath := filepath.Join(sourceRoot, relativePath)
-		targetPath := filepath.Join(targetRoot, relativePath)
-
-		if _, err := os.Stat(sourcePath); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return err
-		}
-		if _, err := os.Stat(targetPath); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-
-		if err := moveFile(sourcePath, targetPath); err != nil {
-			return err
-		}
-		log.Printf("migrated legacy data: %s -> %s", sourcePath, targetPath)
-	}
-	return nil
-}
-
-func moveFile(sourcePath, targetPath string) error {
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return err
-	}
-	if err := os.Rename(sourcePath, targetPath); err == nil {
-		return nil
-	}
-
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	mode := os.FileMode(0o644)
-	if info, err := os.Stat(sourcePath); err == nil {
-		mode = info.Mode().Perm()
-	}
-	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-
-	_, copyErr := io.Copy(targetFile, sourceFile)
-	closeErr := targetFile.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Remove(sourcePath); err != nil {
-		return err
-	}
-	return nil
 }
 
 func configureLogging(path string) error {

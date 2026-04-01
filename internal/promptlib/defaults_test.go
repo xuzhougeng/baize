@@ -11,7 +11,7 @@ func TestSeedDefaultPromptsAddsBuiltinPromptOnce(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := NewStore(filepath.Join(root, "prompts.json"))
+	store := NewStore(filepath.Join(root, "app.db"))
 	marker := filepath.Join(root, ".seeded-v1")
 
 	if err := SeedDefaultPrompts(context.Background(), store, marker); err != nil {
@@ -46,7 +46,7 @@ func TestSeedDefaultPromptsMergesWithoutDuplicatingTitles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := NewStore(filepath.Join(root, "prompts.json"))
+	store := NewStore(filepath.Join(root, "app.db"))
 	marker := filepath.Join(root, ".seeded-v1")
 
 	if _, err := store.Add(context.Background(), Prompt{

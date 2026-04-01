@@ -26,8 +26,8 @@ func (f agentFakeAI) PlanNext(ctx context.Context, task string, history []ai.Con
 
 func newAgentTestService(t *testing.T, backend aiBackend) *Service {
 	t.Helper()
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	return NewService(store, backend, reminders)
 }
 

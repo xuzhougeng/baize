@@ -29,7 +29,9 @@ type reminderBackend interface {
 	ScheduleAfter(ctx context.Context, target reminder.Target, after time.Duration, message string) (reminder.Reminder, error)
 	ScheduleAt(ctx context.Context, target reminder.Target, at time.Time, message string) (reminder.Reminder, error)
 	ScheduleDaily(ctx context.Context, target reminder.Target, hour, minute int, message string) (reminder.Reminder, error)
+	ListAll(ctx context.Context) ([]reminder.Reminder, error)
 	List(ctx context.Context, target reminder.Target) ([]reminder.Reminder, error)
+	RemoveAny(ctx context.Context, idOrPrefix string) (reminder.Reminder, bool, error)
 	Remove(ctx context.Context, target reminder.Target, idOrPrefix string) (reminder.Reminder, bool, error)
 }
 
@@ -44,21 +46,21 @@ func (s *Service) handleReminderCommand(ctx context.Context, mc MessageContext, 
 	}
 
 	command := strings.ToLower(fields[1])
-	target := reminder.Target{Interface: mc.Interface, UserID: mc.UserID}
+	target := reminderTargetForContext(mc)
 	switch command {
 	case "help":
 		return reminderUsage(), nil
 	case "list":
-		items, err := s.reminders.List(ctx, target)
+		items, err := s.ListVisibleReminders(ctx, mc)
 		if err != nil {
 			return "", err
 		}
-		return formatReminderList(items), nil
+		return formatReminderListForContext(mc, items), nil
 	case "remove", "delete", "rm":
 		if len(fields) < 3 {
 			return "用法: /notice remove <提醒ID前缀>", nil
 		}
-		item, ok, err := s.reminders.Remove(ctx, target, fields[2])
+		item, ok, err := s.RemoveVisibleReminder(ctx, mc, fields[2])
 		if err != nil {
 			return "", err
 		}
@@ -86,9 +88,10 @@ func (s *Service) tryHandleNaturalReminder(ctx context.Context, mc MessageContex
 		return "", false, nil
 	}
 
+	target := reminderTargetForContext(mc)
 	item, err := s.scheduleReminderSpec(ctx, reminder.Target{
-		Interface: mc.Interface,
-		UserID:    mc.UserID,
+		Interface: target.Interface,
+		UserID:    target.UserID,
 	}, spec)
 	if err != nil {
 		return "", true, err
@@ -219,31 +222,7 @@ func formatReminderCreated(item reminder.Reminder) string {
 }
 
 func formatReminderList(items []reminder.Reminder) string {
-	if len(items) == 0 {
-		return "当前没有提醒。"
-	}
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("当前提醒（共 %d 条）:\n", len(items)))
-	for index, item := range items {
-		switch item.Frequency {
-		case reminder.FrequencyDaily:
-			builder.WriteString(fmt.Sprintf("%d. #%s [每天 %02d:%02d] %s\n",
-				index+1,
-				shortID(item.ID),
-				item.DailyHour,
-				item.DailyMinute,
-				item.Message,
-			))
-		default:
-			builder.WriteString(fmt.Sprintf("%d. #%s [%s] %s\n",
-				index+1,
-				shortID(item.ID),
-				item.NextRunAt.Local().Format("2006-01-02 15:04:05"),
-				item.Message,
-			))
-		}
-	}
-	return strings.TrimSpace(builder.String())
+	return formatReminderListInternal(items, false)
 }
 
 func parseClock(value string) (int, int, error) {

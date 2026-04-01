@@ -10,7 +10,7 @@ import (
 func TestStoreAddAndList(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "reminders.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	first, err := store.Add(context.Background(), Reminder{
 		Target:    Target{Interface: "terminal", UserID: "u1"},
 		Message:   "喝水",

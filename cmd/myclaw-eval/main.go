@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"myclaw/internal/ai"
 	"myclaw/eval"
+	"myclaw/internal/ai"
 	"myclaw/internal/modelconfig"
 )
 
@@ -26,7 +26,10 @@ func main() {
 	}
 
 	ctx := context.Background()
-	modelStore := modelconfig.NewStore(filepath.Join(*dataDir, "model", "profiles.db"))
+	modelStore := modelconfig.NewStore(
+		filepath.Join(*dataDir, "app.db"),
+		filepath.Join(*dataDir, "model", "secret.key"),
+	)
 	aiService := ai.NewService(modelStore)
 
 	cfg, err := modelStore.Load(ctx)

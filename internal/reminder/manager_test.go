@@ -10,7 +10,7 @@ import (
 func TestManagerRunDueOnceReminder(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "reminders.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	manager := NewManager(store)
 	now := time.Date(2026, 3, 27, 10, 0, 0, 0, time.Local)
 	manager.now = func() time.Time { return now }
@@ -44,7 +44,7 @@ func TestManagerRunDueOnceReminder(t *testing.T) {
 func TestManagerRunDueDailyReminder(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "reminders.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	manager := NewManager(store)
 	now := time.Date(2026, 3, 27, 8, 0, 0, 0, time.Local)
 	manager.now = func() time.Time { return now }

@@ -3,14 +3,15 @@ package knowledge
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"slices"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	"myclaw/internal/sqliteutil"
 )
 
 type Entry struct {
@@ -29,8 +30,10 @@ type ProjectInfo struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
 }
 
 func NewStore(path string) *Store {
@@ -38,11 +41,7 @@ func NewStore(path string) *Store {
 }
 
 func (s *Store) Add(ctx context.Context, entry Entry) (Entry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureReady(); err != nil {
 		return Entry{}, err
 	}
 
@@ -52,294 +51,361 @@ func (s *Store) Add(ctx context.Context, entry Entry) (Entry, error) {
 	if entry.RecordedAt.IsZero() {
 		entry.RecordedAt = time.Now()
 	}
-	if project := ProjectFromContext(ctx); project != "" {
-		entry.Project = CanonicalProjectName(project)
-	} else if strings.TrimSpace(entry.Project) != "" {
-		entry.Project = CanonicalProjectName(entry.Project)
-	}
+	entry.Source = strings.TrimSpace(entry.Source)
+	entry.Project = canonicalEntryProject(ctx, entry.Project)
 	entry.Keywords = MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
 
-	entries = append(entries, entry)
-	if err := s.writeAllLocked(entries); err != nil {
+	keywordsJSON, err := json.Marshal(entry.Keywords)
+	if err != nil {
+		return Entry{}, err
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO knowledge_entries (id, text, keywords_json, source, project, recorded_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, entry.ID, entry.Text, string(keywordsJSON), entry.Source, entry.Project, formatSQLiteTime(entry.RecordedAt))
+	if err != nil {
 		return Entry{}, err
 	}
 	return entry, nil
 }
 
 func (s *Store) List(ctx context.Context) ([]Entry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureReady(); err != nil {
 		return nil, err
 	}
-	entries = filterEntriesByProject(entries, ProjectFromContext(ctx))
-
-	slices.SortFunc(entries, func(a, b Entry) int {
-		switch {
-		case a.RecordedAt.Before(b.RecordedAt):
-			return -1
-		case a.RecordedAt.After(b.RecordedAt):
-			return 1
-		default:
-			return 0
-		}
-	})
-	return entries, nil
+	return s.listEntries(ctx, ProjectFromContext(ctx))
 }
 
 func (s *Store) Clear(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	project := ProjectFromContext(ctx)
-	if project == "" {
-		return s.writeAllLocked(nil)
-	}
-
-	entries, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureReady(); err != nil {
 		return err
 	}
 
-	filtered := make([]Entry, 0, len(entries))
-	for _, entry := range entries {
-		if sameProject(entry.Project, project) {
-			continue
-		}
-		filtered = append(filtered, entry)
+	project := strings.TrimSpace(ProjectFromContext(ctx))
+	if project == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_entries`)
+		return err
 	}
-	return s.writeAllLocked(filtered)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_entries WHERE project = ?`, CanonicalProjectName(project))
+	return err
 }
 
 func (s *Store) Search(ctx context.Context, query string, extraKeywords []string, limit int) ([]SearchResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
+	if err := s.ensureReady(); err != nil {
+		return nil, err
+	}
+	entries, err := s.listEntries(ctx, ProjectFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
-	entries = filterEntriesByProject(entries, ProjectFromContext(ctx))
 	return RankEntries(entries, query, extraKeywords, limit), nil
 }
 
-func (s *Store) BackfillKeywords(_ context.Context) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) BackfillKeywords(ctx context.Context) (int, error) {
+	if err := s.ensureReady(); err != nil {
+		return 0, err
+	}
 
-	entries, err := s.readAllLocked()
+	entries, err := s.listEntries(ctx, "")
 	if err != nil {
 		return 0, err
 	}
 
 	updated := 0
-	for index, entry := range entries {
-		keywords := MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
-		if slices.Equal(entry.Keywords, keywords) {
-			continue
+	err = sqliteutil.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		for _, entry := range entries {
+			keywords := MergeKeywords(entry.Keywords, GenerateKeywords(entry.Text))
+			if equalStringSlices(entry.Keywords, keywords) {
+				continue
+			}
+			keywordsJSON, err := json.Marshal(keywords)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE knowledge_entries SET keywords_json = ? WHERE id = ?`, string(keywordsJSON), entry.ID); err != nil {
+				return err
+			}
+			updated++
 		}
-		entry.Keywords = keywords
-		entries[index] = entry
-		updated++
-	}
-
-	if updated == 0 {
-		return 0, nil
-	}
-	if err := s.writeAllLocked(entries); err != nil {
+		return nil
+	})
+	if err != nil {
 		return 0, err
 	}
 	return updated, nil
 }
 
 func (s *Store) Remove(ctx context.Context, idOrPrefix string) (Entry, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
-	if err != nil {
+	if err := s.ensureReady(); err != nil {
 		return Entry{}, false, err
 	}
 
-	match := normalizeEntryID(idOrPrefix)
-	project := ProjectFromContext(ctx)
-	for index, entry := range entries {
-		if project != "" && !sameProject(entry.Project, project) {
-			continue
-		}
-		if strings.HasPrefix(normalizeEntryID(entry.ID), match) {
-			removed := entry
-			entries = append(entries[:index], entries[index+1:]...)
-			if err := s.writeAllLocked(entries); err != nil {
-				return Entry{}, false, err
-			}
-			return removed, true, nil
-		}
+	entry, ok, err := s.findByPrefix(ctx, idOrPrefix, ProjectFromContext(ctx), false)
+	if err != nil || !ok {
+		return Entry{}, ok, err
 	}
-	return Entry{}, false, nil
-}
-
-func (s *Store) Append(ctx context.Context, idOrPrefix, addition string) (Entry, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
-	if err != nil {
-		return Entry{}, false, err
-	}
-
-	match := normalizeEntryID(idOrPrefix)
-	project := ProjectFromContext(ctx)
-	for index, entry := range entries {
-		if project != "" && !sameProject(entry.Project, project) {
-			continue
-		}
-		if strings.HasPrefix(normalizeEntryID(entry.ID), match) {
-			entry.Text = mergeEntryText(entry.Text, addition)
-			entry.Keywords = GenerateKeywords(entry.Text)
-			entries[index] = entry
-			if err := s.writeAllLocked(entries); err != nil {
-				return Entry{}, false, err
-			}
-			return entry, true, nil
-		}
-	}
-	return Entry{}, false, nil
-}
-
-func (s *Store) AppendLatest(ctx context.Context, source, addition string) (Entry, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entries, err := s.readAllLocked()
-	if err != nil {
-		return Entry{}, false, err
-	}
-
-	selectedIndex := -1
-	project := ProjectFromContext(ctx)
-	for index, entry := range entries {
-		if strings.TrimSpace(source) != "" && entry.Source != source {
-			continue
-		}
-		if project != "" && !sameProject(entry.Project, project) {
-			continue
-		}
-		if selectedIndex == -1 || entry.RecordedAt.After(entries[selectedIndex].RecordedAt) {
-			selectedIndex = index
-		}
-	}
-
-	if selectedIndex == -1 {
-		return Entry{}, false, nil
-	}
-
-	entry := entries[selectedIndex]
-	entry.Text = mergeEntryText(entry.Text, addition)
-	entry.Keywords = GenerateKeywords(entry.Text)
-	entries[selectedIndex] = entry
-	if err := s.writeAllLocked(entries); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_entries WHERE id = ?`, entry.ID); err != nil {
 		return Entry{}, false, err
 	}
 	return entry, true, nil
 }
 
-func (s *Store) ListProjects(_ context.Context) ([]ProjectInfo, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) Append(ctx context.Context, idOrPrefix, addition string) (Entry, bool, error) {
+	if err := s.ensureReady(); err != nil {
+		return Entry{}, false, err
+	}
 
-	entries, err := s.readAllLocked()
+	entry, ok, err := s.findByPrefix(ctx, idOrPrefix, ProjectFromContext(ctx), false)
+	if err != nil || !ok {
+		return Entry{}, ok, err
+	}
+	entry.Text = mergeEntryText(entry.Text, addition)
+	entry.Keywords = GenerateKeywords(entry.Text)
+	keywordsJSON, err := json.Marshal(entry.Keywords)
 	if err != nil {
+		return Entry{}, false, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE knowledge_entries
+		SET text = ?, keywords_json = ?, source = ?, project = ?, recorded_at = ?
+		WHERE id = ?
+	`, entry.Text, string(keywordsJSON), entry.Source, entry.Project, formatSQLiteTime(entry.RecordedAt), entry.ID); err != nil {
+		return Entry{}, false, err
+	}
+	return entry, true, nil
+}
+
+func (s *Store) AppendLatest(ctx context.Context, source, addition string) (Entry, bool, error) {
+	if err := s.ensureReady(); err != nil {
+		return Entry{}, false, err
+	}
+
+	project := strings.TrimSpace(ProjectFromContext(ctx))
+	source = strings.TrimSpace(source)
+	query := `
+		SELECT id, text, keywords_json, source, project, recorded_at
+		FROM knowledge_entries
+		WHERE (? = '' OR source = ?)
+		  AND (? = '' OR project = ?)
+		ORDER BY recorded_at DESC, id DESC
+		LIMIT 1
+	`
+	row := s.db.QueryRowContext(ctx, query, source, source, canonicalProjectFilter(project), canonicalProjectFilter(project))
+	entry, ok, err := scanKnowledgeEntry(row)
+	if err != nil || !ok {
+		return Entry{}, ok, err
+	}
+
+	entry.Text = mergeEntryText(entry.Text, addition)
+	entry.Keywords = GenerateKeywords(entry.Text)
+	keywordsJSON, err := json.Marshal(entry.Keywords)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		UPDATE knowledge_entries
+		SET text = ?, keywords_json = ?
+		WHERE id = ?
+	`, entry.Text, string(keywordsJSON), entry.ID); err != nil {
+		return Entry{}, false, err
+	}
+	return entry, true, nil
+}
+
+func (s *Store) ListProjects(ctx context.Context) ([]ProjectInfo, error) {
+	if err := s.ensureReady(); err != nil {
 		return nil, err
 	}
 
-	projects := make(map[string]ProjectInfo)
-	for _, entry := range entries {
-		key := normalizedProjectKey(entry.Project)
-		info := projects[key]
-		if info.Name == "" {
-			info.Name = CanonicalProjectName(entry.Project)
-		}
-		info.KnowledgeCount++
-		if entry.RecordedAt.After(info.LatestRecordedAt) {
-			info.LatestRecordedAt = entry.RecordedAt
-		}
-		projects[key] = info
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT project, COUNT(*), MAX(recorded_at)
+		FROM knowledge_entries
+		GROUP BY project
+		ORDER BY MAX(recorded_at) DESC, LOWER(project) ASC
+	`)
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
 
-	if len(projects) == 0 {
+	var out []ProjectInfo
+	for rows.Next() {
+		var (
+			project  string
+			count    int
+			recorded string
+		)
+		if err := rows.Scan(&project, &count, &recorded); err != nil {
+			return nil, err
+		}
+		recordedAt, err := parseSQLiteTime(recorded)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ProjectInfo{
+			Name:             CanonicalProjectName(project),
+			KnowledgeCount:   count,
+			LatestRecordedAt: recordedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
 		return nil, nil
 	}
-
-	out := make([]ProjectInfo, 0, len(projects))
-	for _, info := range projects {
-		out = append(out, info)
-	}
-
-	slices.SortFunc(out, func(a, b ProjectInfo) int {
-		switch {
-		case a.LatestRecordedAt.After(b.LatestRecordedAt):
-			return -1
-		case a.LatestRecordedAt.Before(b.LatestRecordedAt):
-			return 1
-		default:
-			return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		}
-	})
 	return out, nil
 }
 
-func (s *Store) readAllLocked() ([]Entry, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+func (s *Store) ensureReady() error {
+	s.initOnce.Do(func() {
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
 		}
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var entries []Entry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, err
-	}
-	return entries, nil
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS knowledge_entries (
+				id TEXT PRIMARY KEY,
+				text TEXT NOT NULL,
+				keywords_json TEXT NOT NULL DEFAULT '[]',
+				source TEXT NOT NULL DEFAULT '',
+				project TEXT NOT NULL DEFAULT 'default',
+				recorded_at TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS knowledge_entries_project_recorded_idx
+				ON knowledge_entries (project, recorded_at);
+			CREATE INDEX IF NOT EXISTS knowledge_entries_source_recorded_idx
+				ON knowledge_entries (source, recorded_at);
+		`)
+	})
+	return s.initErr
 }
 
-func (s *Store) writeAllLocked(entries []Entry) error {
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(entries, "", "  ")
+func (s *Store) listEntries(ctx context.Context, project string) ([]Entry, error) {
+	query := `
+		SELECT id, text, keywords_json, source, project, recorded_at
+		FROM knowledge_entries
+		WHERE (? = '' OR project = ?)
+		ORDER BY recorded_at ASC, id ASC
+	`
+	project = canonicalProjectFilter(project)
+	rows, err := s.db.QueryContext(ctx, query, project, project)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	defer rows.Close()
 
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	var out []Entry
+	for rows.Next() {
+		entry, err := scanKnowledgeRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
 	}
-	return os.Rename(tmp, s.path)
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-func filterEntriesByProject(entries []Entry, project string) []Entry {
+func (s *Store) findByPrefix(ctx context.Context, idOrPrefix, project string, newest bool) (Entry, bool, error) {
+	prefix := normalizeEntryID(idOrPrefix)
+	if prefix == "" {
+		return Entry{}, false, nil
+	}
+
+	order := "ASC"
+	if newest {
+		order = "DESC"
+	}
+	query := fmt.Sprintf(`
+		SELECT id, text, keywords_json, source, project, recorded_at
+		FROM knowledge_entries
+		WHERE LOWER(id) LIKE ?
+		  AND (? = '' OR project = ?)
+		ORDER BY recorded_at %s, id %s
+		LIMIT 1
+	`, order, order)
+	project = canonicalProjectFilter(project)
+	row := s.db.QueryRowContext(ctx, query, prefix+"%", project, project)
+	return scanKnowledgeEntry(row)
+}
+
+func scanKnowledgeRows(scanner interface{ Scan(...any) error }) (Entry, error) {
+	var (
+		entry        Entry
+		keywordsJSON string
+		recordedAt   string
+	)
+	if err := scanner.Scan(&entry.ID, &entry.Text, &keywordsJSON, &entry.Source, &entry.Project, &recordedAt); err != nil {
+		return Entry{}, err
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(keywordsJSON)), &entry.Keywords); err != nil {
+		return Entry{}, err
+	}
+	t, err := parseSQLiteTime(recordedAt)
+	if err != nil {
+		return Entry{}, err
+	}
+	entry.RecordedAt = t
+	entry.Project = CanonicalProjectName(entry.Project)
+	return entry, nil
+}
+
+func scanKnowledgeEntry(row *sql.Row) (Entry, bool, error) {
+	entry, err := scanKnowledgeRows(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Entry{}, false, nil
+		}
+		return Entry{}, false, err
+	}
+	return entry, true, nil
+}
+
+func canonicalEntryProject(ctx context.Context, project string) string {
+	switch {
+	case strings.TrimSpace(ProjectFromContext(ctx)) != "":
+		return CanonicalProjectName(ProjectFromContext(ctx))
+	case strings.TrimSpace(project) != "":
+		return CanonicalProjectName(project)
+	default:
+		return CanonicalProjectName("")
+	}
+}
+
+func canonicalProjectFilter(project string) string {
 	project = strings.TrimSpace(project)
 	if project == "" {
-		return append([]Entry(nil), entries...)
+		return ""
 	}
+	return CanonicalProjectName(project)
+}
 
-	filtered := make([]Entry, 0, len(entries))
-	for _, entry := range entries {
-		if sameProject(entry.Project, project) {
-			filtered = append(filtered, entry)
+func formatSQLiteTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseSQLiteTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
 		}
 	}
-	return filtered
+	return true
 }
 
 func newID() string {

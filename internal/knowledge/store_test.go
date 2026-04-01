@@ -2,8 +2,6 @@ package knowledge
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -13,7 +11,7 @@ import (
 func TestStoreAddListAndClear(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	if _, err := store.Add(ctx, Entry{
@@ -55,7 +53,7 @@ func TestStoreAddListAndClear(t *testing.T) {
 func TestStoreRemoveByPrefix(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	entry, err := store.Add(ctx, Entry{
@@ -90,7 +88,7 @@ func TestStoreRemoveByPrefix(t *testing.T) {
 func TestStoreAppendByPrefix(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	if _, err := store.Add(ctx, Entry{
@@ -116,7 +114,7 @@ func TestStoreAppendByPrefix(t *testing.T) {
 func TestStoreAppendLatestBySource(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	if _, err := store.Add(ctx, Entry{
@@ -162,7 +160,7 @@ func TestStoreAppendLatestBySource(t *testing.T) {
 func TestStoreScopesEntriesByProject(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 	alphaCtx := WithProject(ctx, "Alpha")
 	betaCtx := WithProject(ctx, "Beta")
@@ -216,7 +214,7 @@ func TestStoreScopesEntriesByProject(t *testing.T) {
 func TestStoreAppendLatestAndProjectsRespectProjectScope(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 	alphaCtx := WithProject(ctx, "Alpha")
 	betaCtx := WithProject(ctx, "Beta")
@@ -297,7 +295,7 @@ func TestGenerateKeywordsAvoidsBrokenChineseFragments(t *testing.T) {
 func TestStoreSearchFindsRelevantEntryFromMixedQuery(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	macEntry, err := store.Add(ctx, Entry{
@@ -334,19 +332,17 @@ func TestStoreSearchFindsRelevantEntryFromMixedQuery(t *testing.T) {
 func TestStoreBackfillKeywords(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "entries.json")
-	data := []byte(`[
-  {
-    "id": "11111111aaaa1111",
-    "text": "未来需要支持 macOS。",
-    "recorded_at": "2026-03-27T10:00:00Z"
-  }
-]`)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	store := NewStore(filepath.Join(t.TempDir(), "entries.db"))
+	if err := store.ensureReady(); err != nil {
+		t.Fatalf("ensure store ready: %v", err)
+	}
+	if _, err := store.db.Exec(`
+		INSERT INTO knowledge_entries (id, text, keywords_json, source, project, recorded_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, "11111111aaaa1111", "未来需要支持 macOS。", "[]", "", DefaultProjectName, "2026-03-27T10:00:00Z"); err != nil {
 		t.Fatalf("seed entries: %v", err)
 	}
 
-	store := NewStore(path)
 	updated, err := store.BackfillKeywords(context.Background())
 	if err != nil {
 		t.Fatalf("backfill keywords: %v", err)
@@ -355,13 +351,9 @@ func TestStoreBackfillKeywords(t *testing.T) {
 		t.Fatalf("expected 1 updated entry, got %d", updated)
 	}
 
-	raw, err := os.ReadFile(path)
+	entries, err := store.List(context.Background())
 	if err != nil {
-		t.Fatalf("read entries: %v", err)
-	}
-	var entries []Entry
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		t.Fatalf("decode entries: %v", err)
+		t.Fatalf("list entries: %v", err)
 	}
 	if len(entries) != 1 || !slices.Contains(entries[0].Keywords, "macos") {
 		t.Fatalf("expected backfilled keywords, got %#v", entries)

@@ -13,7 +13,7 @@ import (
 func TestLocalToolSideEffectLabels(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
 	service := NewService(store, nil, nil)
 	ctx := context.Background()
 	mc := MessageContext{}
@@ -34,14 +34,14 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"knowledge_search":    string(ToolSideEffectReadOnly),
-		filesearch.ToolName:   string(ToolSideEffectReadOnly),
-		"reminder_list":       string(ToolSideEffectReadOnly),
-		"remember":            string(ToolSideEffectSoftWrite),
-		"append_knowledge":    string(ToolSideEffectSoftWrite),
-		"reminder_add":        string(ToolSideEffectSoftWrite),
-		"forget_knowledge":    string(ToolSideEffectDestructive),
-		"reminder_remove":     string(ToolSideEffectDestructive),
+		"knowledge_search":  string(ToolSideEffectReadOnly),
+		filesearch.ToolName: string(ToolSideEffectReadOnly),
+		"reminder_list":     string(ToolSideEffectReadOnly),
+		"remember":          string(ToolSideEffectSoftWrite),
+		"append_knowledge":  string(ToolSideEffectSoftWrite),
+		"reminder_add":      string(ToolSideEffectSoftWrite),
+		"forget_knowledge":  string(ToolSideEffectDestructive),
+		"reminder_remove":   string(ToolSideEffectDestructive),
 	}
 
 	for tool, wantLevel := range want {

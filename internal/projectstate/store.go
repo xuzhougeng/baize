@@ -2,82 +2,78 @@ package projectstate
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
+	"database/sql"
 	"strings"
 	"sync"
 
 	"myclaw/internal/knowledge"
+	"myclaw/internal/sqliteutil"
 )
+
+const projectStateRowID = "primary"
 
 type Snapshot struct {
 	ActiveProject string `json:"activeProject"`
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
 }
 
 func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-func (s *Store) Load(_ context.Context) (Snapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.loadLocked()
-}
-
-func (s *Store) Save(_ context.Context, project string) (Snapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	snapshot := Snapshot{
-		ActiveProject: canonicalProject(project),
-	}
-	if err := s.writeLocked(snapshot); err != nil {
+func (s *Store) Load(ctx context.Context) (Snapshot, error) {
+	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, err
 	}
-	return snapshot, nil
-}
 
-func (s *Store) loadLocked() (Snapshot, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
+	row := s.db.QueryRowContext(ctx, `SELECT active_project FROM project_state WHERE id = ?`, projectStateRowID)
+	var project string
+	if err := row.Scan(&project); err != nil {
+		if err == sql.ErrNoRows {
 			return Snapshot{ActiveProject: knowledge.DefaultProjectName}, nil
 		}
 		return Snapshot{}, err
 	}
-	if len(data) == 0 {
-		return Snapshot{ActiveProject: knowledge.DefaultProjectName}, nil
-	}
+	return Snapshot{ActiveProject: canonicalProject(project)}, nil
+}
 
-	var snapshot Snapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
+func (s *Store) Save(ctx context.Context, project string) (Snapshot, error) {
+	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, err
 	}
-	snapshot.ActiveProject = canonicalProject(snapshot.ActiveProject)
+
+	snapshot := Snapshot{ActiveProject: canonicalProject(project)}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO project_state (id, active_project)
+		VALUES (?, ?)
+		ON CONFLICT(id) DO UPDATE SET active_project = excluded.active_project
+	`, projectStateRowID, snapshot.ActiveProject)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	return snapshot, nil
 }
 
-func (s *Store) writeLocked(snapshot Snapshot) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.path)
+func (s *Store) ensureReady() error {
+	s.initOnce.Do(func() {
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
+		}
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS project_state (
+				id TEXT PRIMARY KEY,
+				active_project TEXT NOT NULL
+			)
+		`)
+	})
+	return s.initErr
 }
 
 func canonicalProject(project string) string {

@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/gen2brain/go-fitz v1.24.15
+	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/wailsapp/wails/v2 v2.11.0
 	rsc.io/qr v0.2.0
 )

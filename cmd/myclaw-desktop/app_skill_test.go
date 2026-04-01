@@ -33,9 +33,9 @@ description: 帮助输出更清晰的中文写作
 	}
 
 	service := appsvc.NewServiceWithSkills(
-		knowledge.NewStore(filepath.Join(root, "entries.json")),
+		knowledge.NewStore(filepath.Join(root, "app.db")),
 		nil,
-		reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json"))),
+		reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db"))),
 		skilllib.NewLoader(filepath.Join(root, "skills")),
 	)
 	app := &DesktopApp{

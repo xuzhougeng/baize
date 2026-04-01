@@ -22,11 +22,11 @@ func TestDesktopChatSessionsCanBeCreatedAndSwitched(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -74,11 +74,11 @@ func TestDesktopSendMessageNewConversationReturnsSessionChanged(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -103,11 +103,11 @@ func TestDesktopSendMessageReturnsAndPersistsUsage(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{
 			Command:  "answer",
@@ -165,11 +165,11 @@ func TestDesktopSendMessageUsesFileSearchTool(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route:             ai.RouteDecision{Command: "answer"},
 		toolOpportunities: []ai.ToolOpportunity{{ToolName: filesearch.ToolName, Goal: "查找 D 盘 csv 文件"}},
@@ -224,11 +224,11 @@ func TestDesktopSendMessageReusesCurrentSession(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	var histories [][]ai.ConversationMessage
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{Command: "answer"},
@@ -269,11 +269,11 @@ func TestDesktopChatStatePersistsAcrossAppRestart(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{Command: "answer"},
 		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
@@ -306,11 +306,11 @@ func TestDesktopAppRestartRestoresLastSelectedDesktopSession(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -345,11 +345,11 @@ func TestDesktopChatStateIncludesWeixinConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -410,11 +410,11 @@ func TestDesktopEmitChatChangedActivatesWeixinConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -449,11 +449,11 @@ func TestDesktopSendMessageContinuesWeixinConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{Command: "answer"},
 		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
@@ -505,11 +505,11 @@ func TestDesktopChatSessionCanBeRenamed(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -539,11 +539,11 @@ func TestDesktopDeleteChatSessionFallsBackToRemainingConversation(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -575,11 +575,11 @@ func TestDesktopRefreshChatResponseReplacesLatestAssistantReply(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	callCount := 0
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{
@@ -633,11 +633,11 @@ func TestDesktopRefreshChatResponseRestoresPreviousReplyOnFailure(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	callCount := 0
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{
@@ -684,11 +684,11 @@ func TestDesktopChatStateSurvivesNewSessionSwitchAndRestart(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
 		route: ai.RouteDecision{Command: "answer"},
 		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
@@ -780,11 +780,11 @@ func TestBuildCurrentChatMarkdownExportFormatsConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -836,11 +836,11 @@ func TestBuildCurrentChatMarkdownExportFormatsWrappedOptionPayload(t *testing.T)
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -881,11 +881,11 @@ func TestBuildCurrentChatMarkdownExportFormatsAskUserInputPayload(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 
@@ -937,11 +937,11 @@ func TestBuildCurrentChatMarkdownExportRejectsEmptyConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "knowledge.json"))
-	projectStore := projectstate.NewStore(filepath.Join(root, "project.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
 	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
 

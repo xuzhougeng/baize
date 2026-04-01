@@ -10,7 +10,7 @@ import (
 func TestStoreListReturnsNewestSnapshotsFirst(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "sessions.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 
 	if _, err := store.Save(context.Background(), Snapshot{Key: "session:oldest"}); err != nil {
 		t.Fatalf("save oldest: %v", err)

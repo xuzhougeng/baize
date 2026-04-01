@@ -24,8 +24,8 @@ import (
 func TestHandleMessageRememberAndList(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 	ctx := context.Background()
 
@@ -49,8 +49,8 @@ func TestHandleMessageRememberAndList(t *testing.T) {
 func TestHandleMessageQuestionUsesReviewedKnowledgeSubset(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		route: ai.RouteDecision{
@@ -128,8 +128,8 @@ Use concise Chinese writing.
 		t.Fatalf("write skill file: %v", err)
 	}
 
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
 	service := NewServiceWithSkills(store, nil, reminders, skilllib.NewLoader(filepath.Join(root, "skills")))
 	mc := MessageContext{UserID: "u1", Interface: "terminal"}
 
@@ -201,8 +201,8 @@ Preserve technical terms whenever possible.
 		t.Fatalf("write skill file: %v", err)
 	}
 
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
 	service := NewServiceWithSkills(store, fakeAI{
 		configured: true,
 		translationFunc: func(ctx context.Context, input string) string {
@@ -250,8 +250,8 @@ Use concise Chinese writing.
 		t.Fatalf("write skill file: %v", err)
 	}
 
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
 	service := NewServiceWithSkills(store, nil, reminders, skilllib.NewLoader(filepath.Join(root, "skills")))
 
 	mcA := MessageContext{UserID: "u1", Interface: "desktop", SessionID: "page-a"}
@@ -285,8 +285,8 @@ Use concise Chinese writing.
 func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		route: ai.RouteDecision{
@@ -320,8 +320,8 @@ func TestHandleMessageDefaultsToDirectMode(t *testing.T) {
 func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 
 	if _, err := store.Add(knowledge.WithProject(context.Background(), "Alpha"), knowledge.Entry{
 		ID:         "11111111aaaa1111",
@@ -374,8 +374,8 @@ func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 func TestDebugSearchShowsKeywordsCandidatesAndReviewedSelection(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 
 	macEntry, err := store.Add(context.Background(), knowledge.Entry{
 		ID:         "11111111aaaa1111",
@@ -416,8 +416,8 @@ func TestDebugSearchShowsKeywordsCandidatesAndReviewedSelection(t *testing.T) {
 func TestHandleMessageUsesAIIntentRecognition(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		route: ai.RouteDecision{
@@ -446,8 +446,8 @@ func TestHandleMessageUsesAIIntentRecognition(t *testing.T) {
 func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	if _, err := store.Add(context.Background(), knowledge.Entry{
 		ID:         "11111111aaaa1111",
 		Text:       "未来需要支持 macOS。",
@@ -500,8 +500,8 @@ func TestModeOverrideUsesKnowledgeWithoutPersisting(t *testing.T) {
 func TestAppendCommandUpdatesExistingKnowledge(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	if _, err := store.Add(context.Background(), knowledge.Entry{
@@ -535,8 +535,8 @@ func TestAppendCommandUpdatesExistingKnowledge(t *testing.T) {
 func TestNaturalAppendByIDUpdatesExistingKnowledge(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	if _, err := store.Add(context.Background(), knowledge.Entry{
@@ -567,8 +567,8 @@ func TestNaturalAppendByIDUpdatesExistingKnowledge(t *testing.T) {
 func TestTranslateCommandUsesAITranslator(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured:  true,
 		translation: "Puppeteer 是一个浏览器自动化工具。",
@@ -586,8 +586,8 @@ func TestTranslateCommandUsesAITranslator(t *testing.T) {
 func TestRememberFileCommandStoresImageSummary(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured:   true,
 		imageSummary: "- 这是一张 Puppeteer 截图",
@@ -623,8 +623,8 @@ func TestRememberFileCommandStoresImageSummary(t *testing.T) {
 }
 
 func TestDirectPDFPathStoresSummary(t *testing.T) {
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		pdfSummary: "- 这份 PDF 讲了 Puppeteer 基础用法",
@@ -666,8 +666,8 @@ func TestDirectPDFPathStoresSummary(t *testing.T) {
 func TestNaturalRememberMessageDoesNotTripDirectFileDetect(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	input := "记住 brwap的安装方法：git clone https://github.com/containers/bubblewrap.git\ncd bubblewrap\nmeson _builddir\nmeson compile -C _builddir\nmeson test -C _builddir\nmeson install -C _builddir"
@@ -692,8 +692,8 @@ func TestNaturalRememberMessageDoesNotTripDirectFileDetect(t *testing.T) {
 }
 
 func TestRememberFileReturnsFriendlyMessageWhenPDFUnavailable(t *testing.T) {
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{configured: true}, reminders)
 
 	originalExtractPDFText := extractPDFText
@@ -732,8 +732,8 @@ func TestRememberFileReturnsFriendlyMessageWhenPDFUnavailable(t *testing.T) {
 func TestHandleMessageRequiresConfiguredModelForNaturalLanguage(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{configured: false}, reminders)
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "帮我看看知识库里有什么")
@@ -748,8 +748,8 @@ func TestHandleMessageRequiresConfiguredModelForNaturalLanguage(t *testing.T) {
 func TestNoticeCreatesReminder(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{
@@ -775,8 +775,8 @@ func TestNoticeCreatesReminder(t *testing.T) {
 func TestNaturalAppendLastUpdatesLatestKnowledgeFromSameSource(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	if _, err := store.Add(context.Background(), knowledge.Entry{
@@ -833,8 +833,8 @@ func TestNaturalAppendLastUpdatesLatestKnowledgeFromSameSource(t *testing.T) {
 func TestNaturalReminderCreatesReminder(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{
@@ -868,8 +868,8 @@ func TestNaturalReminderCreatesReminder(t *testing.T) {
 func TestNoticeListAndRemove(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	item, err := reminders.ScheduleDaily(context.Background(), reminder.Target{
@@ -903,11 +903,81 @@ func TestNoticeListAndRemove(t *testing.T) {
 	}
 }
 
+func TestDesktopPrimaryNoticeListAggregatesReminderSources(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
+	service := NewService(store, nil, reminders)
+
+	if _, err := reminders.ScheduleAt(context.Background(), reminder.Target{
+		Interface: "weixin",
+		UserID:    "user-a",
+	}, time.Date(2099, 4, 1, 11, 29, 16, 0, time.Local), "做下行程管理"); err != nil {
+		t.Fatalf("seed weixin reminder: %v", err)
+	}
+	if _, err := reminders.ScheduleDaily(context.Background(), reminder.Target{
+		Interface: "desktop",
+		UserID:    "primary",
+	}, 20, 0, "完成三代的全长数据处理"); err != nil {
+		t.Fatalf("seed desktop reminder: %v", err)
+	}
+
+	listReply, err := service.HandleMessage(context.Background(), MessageContext{
+		UserID:    "primary",
+		Interface: "desktop",
+	}, "/notice list")
+	if err != nil {
+		t.Fatalf("list reminders: %v", err)
+	}
+	if !strings.Contains(listReply, "做下行程管理") || !strings.Contains(listReply, "完成三代的全长数据处理") {
+		t.Fatalf("expected aggregated reminders, got %q", listReply)
+	}
+	if !strings.Contains(listReply, "来源: 微信") || !strings.Contains(listReply, "来源: 桌面") {
+		t.Fatalf("expected source labels in aggregated list, got %q", listReply)
+	}
+}
+
+func TestDesktopPrimaryNoticeRemoveCanDeleteRemoteReminder(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
+	service := NewService(store, nil, reminders)
+
+	item, err := reminders.ScheduleDaily(context.Background(), reminder.Target{
+		Interface: "weixin",
+		UserID:    "user-a",
+	}, 20, 0, "完成三代的全长数据处理")
+	if err != nil {
+		t.Fatalf("seed weixin reminder: %v", err)
+	}
+
+	removeReply, err := service.HandleMessage(context.Background(), MessageContext{
+		UserID:    "primary",
+		Interface: "desktop",
+	}, "/notice remove "+item.ID[:8])
+	if err != nil {
+		t.Fatalf("remove reminder: %v", err)
+	}
+	if !strings.Contains(removeReply, "已删除提醒") {
+		t.Fatalf("unexpected remove reply: %q", removeReply)
+	}
+
+	items, err := reminders.List(context.Background(), reminder.Target{Interface: "weixin", UserID: "user-a"})
+	if err != nil {
+		t.Fatalf("list weixin reminders: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected remote reminder to be removed, got %#v", items)
+	}
+}
+
 func TestCronAliasCreatesDateReminder(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	reply, err := service.HandleMessage(context.Background(), MessageContext{
@@ -936,8 +1006,8 @@ func TestCronAliasCreatesDateReminder(t *testing.T) {
 func TestForgetRemovesKnowledge(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 
 	_, err := store.Add(context.Background(), knowledge.Entry{
@@ -969,8 +1039,8 @@ func TestForgetRemovesKnowledge(t *testing.T) {
 func TestHandleMessageUsesAIRouteForReminderList(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		route: ai.RouteDecision{
@@ -993,8 +1063,8 @@ func TestHandleMessageUsesAIRouteForReminderList(t *testing.T) {
 func TestHandleMessageUsesAIRouteForAppendLast(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured: true,
 		route: ai.RouteDecision{
@@ -1035,8 +1105,8 @@ func TestHandleMessageUsesAIRouteForAppendLast(t *testing.T) {
 func TestAgentModeCanUseKnowledgeSearchTool(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	if _, err := store.Add(context.Background(), knowledge.Entry{
 		ID:         "11111111aaaa1111",
 		Text:       "未来需要支持 macOS。",
@@ -1102,8 +1172,8 @@ func TestAgentModeCanUseKnowledgeSearchTool(t *testing.T) {
 func TestAgentToolProvidersExposeProtocolTools(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{configured: true}, reminders)
 	service.RegisterMCPToolProvider("docs", fakeProtocolToolClient{
 		tools: []ProtocolToolSpec{{
@@ -1162,8 +1232,8 @@ func TestAgentToolProvidersExposeProtocolTools(t *testing.T) {
 func TestAgentToolDefinitionsCarryUnifiedContracts(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{configured: true}, reminders)
 	service.RegisterMCPToolProvider("docs", fakeProtocolToolClient{
 		tools: []ProtocolToolSpec{{
@@ -1207,8 +1277,8 @@ func TestAgentToolDefinitionsCarryUnifiedContracts(t *testing.T) {
 func TestAgentModeCanUseMCPToolProvider(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 
 	var executed bool
 	service := NewService(store, fakeAI{
@@ -1283,9 +1353,9 @@ func TestModePersistsAcrossServiceRestarts(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, fakeAI{configured: true}, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1", Project: "alpha"}
 
@@ -1307,9 +1377,9 @@ func TestSetModePreservesConversationHistory(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1", Project: "alpha"}
 
 	service := NewServiceWithSkillsAndSessions(store, fakeAI{
@@ -1376,9 +1446,9 @@ Use concise Chinese writing.
 		t.Fatalf("write skill file: %v", err)
 	}
 
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	loader := skilllib.NewLoader(filepath.Join(root, "skills"))
 	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
 
@@ -1398,10 +1468,10 @@ func TestPromptProfilePersistsAndInjectsIntoConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	promptStore := promptlib.NewStore(filepath.Join(root, "prompts.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	profile, err := promptStore.Add(context.Background(), promptlib.Prompt{
 		Title:      "Architect",
 		Content:    "Always answer with architecture-first tradeoff analysis.",
@@ -1448,9 +1518,9 @@ func TestDirectModeConversationHistoryPersistsAcrossRestarts(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
 
 	service := NewServiceWithSkillsAndSessions(store, fakeAI{
@@ -1506,14 +1576,62 @@ func TestDirectModeConversationHistoryPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
+func TestDesktopPrimaryDirectChatIncludesReminderRuntimeSummary(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
+	mc := MessageContext{Interface: "desktop", UserID: "primary", SessionID: "desktop-1"}
+
+	if _, err := reminders.ScheduleAt(context.Background(), reminder.Target{
+		Interface: "weixin",
+		UserID:    "user-a",
+	}, time.Date(2099, 4, 1, 11, 29, 16, 0, time.Local), "做下行程管理"); err != nil {
+		t.Fatalf("seed weixin reminder: %v", err)
+	}
+
+	service := NewServiceWithSkillsAndSessions(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "我今天要做什么事情？",
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "我今天要做什么事情？" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 1 {
+				t.Fatalf("expected runtime reminder summary history, got %#v", history)
+			}
+			if history[0].Role != "assistant" ||
+				!strings.Contains(history[0].Content, "系统同步的当前提醒摘要") ||
+				!strings.Contains(history[0].Content, "做下行程管理") ||
+				!strings.Contains(history[0].Content, "来源: 微信") {
+				t.Fatalf("unexpected reminder summary: %#v", history)
+			}
+			return "你今天要做下行程管理。"
+		},
+	}, reminders, nil, stateStore)
+
+	reply, err := service.HandleMessage(context.Background(), mc, "我今天要做什么事情？")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "你今天要做下行程管理。" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
 func TestWeixinConversationHistoryUsesEnvLimits(t *testing.T) {
 	t.Setenv(envWeixinHistoryMessages, "4")
 	t.Setenv(envWeixinHistoryRunes, "5")
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "weixin", UserID: "u1", SessionID: "s1"}
 
@@ -1558,9 +1676,9 @@ func TestDesktopConversationHistoryIgnoresWeixinEnvLimits(t *testing.T) {
 	t.Setenv(envWeixinHistoryRunes, "5")
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
 
@@ -1599,9 +1717,9 @@ func TestDesktopConversationHistoryUsesGenericEnvLimits(t *testing.T) {
 	t.Setenv(envConversationHistoryRunes, "5")
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
 
@@ -1640,9 +1758,9 @@ func TestConversationHistoryUsesAssistantContextSummary(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
 
@@ -1674,9 +1792,9 @@ func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
 
 	service := NewServiceWithSkillsAndSessions(store, fakeStreamingAI{
@@ -1729,8 +1847,8 @@ func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
 func TestResolveFileSearchUsesToolPlanner(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured:        true,
 		toolOpportunities: []ai.ToolOpportunity{{ToolName: filesearch.ToolName, Goal: "查找下载目录下的 pdf 文件"}},
@@ -1780,8 +1898,8 @@ func TestResolveFileSearchUsesToolPlanner(t *testing.T) {
 func TestHandleMessageNaturalFileSearchRefinesAcrossRounds(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	planCalls := 0
 	service := NewService(store, fakeAI{
 		configured:        true,
@@ -1860,8 +1978,8 @@ func TestHandleMessageNaturalFileSearchRefinesAcrossRounds(t *testing.T) {
 func TestHandleMessageNaturalFileSearchExecutesTool(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, fakeAI{
 		configured:        true,
 		toolOpportunities: []ai.ToolOpportunity{{ToolName: filesearch.ToolName, Goal: "查找 D 盘 csv 文件"}},
@@ -1902,8 +2020,8 @@ func TestHandleMessageNaturalFileSearchExecutesTool(t *testing.T) {
 func TestHandleMessageSlashFindExecutesToolOutsideWeixin(t *testing.T) {
 	t.Parallel()
 
-	store := knowledge.NewStore(filepath.Join(t.TempDir(), "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminders.json")))
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
 	service := NewService(store, nil, reminders)
 	service.SetFileSearchEverythingPath("es.exe")
 	service.SetFileSearchExecutor(func(_ context.Context, everythingPath string, input filesearch.ToolInput) (filesearch.ToolResult, error) {

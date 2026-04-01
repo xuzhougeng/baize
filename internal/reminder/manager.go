@@ -82,6 +82,10 @@ func (m *Manager) ScheduleDaily(ctx context.Context, target Target, hour, minute
 	})
 }
 
+func (m *Manager) ListAll(ctx context.Context) ([]Reminder, error) {
+	return m.store.List(ctx)
+}
+
 func (m *Manager) List(ctx context.Context, target Target) ([]Reminder, error) {
 	items, err := m.store.List(ctx)
 	if err != nil {
@@ -97,6 +101,18 @@ func (m *Manager) List(ctx context.Context, target Target) ([]Reminder, error) {
 }
 
 func (m *Manager) Remove(ctx context.Context, target Target, idOrPrefix string) (Reminder, bool, error) {
+	return m.remove(ctx, idOrPrefix, func(item Reminder) bool {
+		return item.Target == target
+	})
+}
+
+func (m *Manager) RemoveAny(ctx context.Context, idOrPrefix string) (Reminder, bool, error) {
+	return m.remove(ctx, idOrPrefix, func(Reminder) bool {
+		return true
+	})
+}
+
+func (m *Manager) remove(ctx context.Context, idOrPrefix string, match func(Reminder) bool) (Reminder, bool, error) {
 	items, err := m.store.List(ctx)
 	if err != nil {
 		return Reminder{}, false, err
@@ -105,7 +121,7 @@ func (m *Manager) Remove(ctx context.Context, target Target, idOrPrefix string) 
 	var matched *Reminder
 	filtered := make([]Reminder, 0, len(items))
 	for _, item := range items {
-		if item.Target == target && strings.HasPrefix(item.ID, idOrPrefix) {
+		if match(item) && strings.HasPrefix(item.ID, idOrPrefix) {
 			if matched != nil {
 				return Reminder{}, false, fmt.Errorf("multiple reminders match prefix %q", idOrPrefix)
 			}

@@ -74,6 +74,7 @@ flowchart TD
 - 普通问题默认走 direct 模式，直接调用 AI；切到 knowledge 模式后才会走“AI 检索计划 -> 本地候选检索 -> 模型复核 -> 回答”
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持单次提醒和每天重复提醒
+- 桌面主会话与提醒面板会聚合显示当前运行时里的提醒，并标注来源（如桌面、微信）
 - 微信桥接只保留扫码登录、长轮询、文本/语音文字收发
 - 不做向量检索、权限隔离或多租户隔离
 
@@ -137,7 +138,8 @@ go run ./cmd/myclaw-desktop
 
 模型配置现在只从本地模型数据库读取，不再从 `MYCLAW_MODEL_*` 环境变量读取。
 
-- 桌面端会把模型 profile 保存到数据目录下的 `model/profiles.db`
+- 桌面端和 terminal 的核心状态现在统一保存在数据目录下的 `app.db`
+- 模型 API Key 会配套写入 `model/secret.key`，密钥文件与数据库分离
 - API Key 会单独加密后保存，前端只显示掩码，不会回填明文
 - 支持多 profile，并可切换当前活跃模型
 - OpenAI 支持 `responses` 和 `chat_completions`
@@ -368,7 +370,6 @@ Windows zip 包内会包含：
 - `%LOCALAPPDATA%\myclaw\logs`
 
 这样在 Windows 上解压后就可以直接复制整个目录并运行脚本，不需要 Go 源码环境，也不会因为换了解压目录而丢失微信登录状态。
-如果你之前在旧版本里把登录态存在解压目录下的 `data/weixin-bridge/account.json`，第一次切到新目录启动时也会自动迁移过去。
 
 ### GitHub Actions NSIS 桌面安装包
 
@@ -521,8 +522,8 @@ Windows PowerShell:
 
 ## 数据文件
 
-- `data/knowledge/entries.json`: 知识库
-- `data/reminders/items.json`: 提醒数据
+- `data/app.db`: 知识库、提醒、会话、prompt、项目状态、桌面设置、微信会话绑定等核心状态
+- `data/model/secret.key`: 模型 API Key 的本地加密主密钥
 - `data/weixin-bridge/account.json`: 微信登录凭证
 - `data/weixin-bridge/sync_buf`: 微信长轮询游标
 

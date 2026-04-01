@@ -3,14 +3,13 @@ package promptlib
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"myclaw/internal/sqliteutil"
 )
 
 type Prompt struct {
@@ -21,20 +20,18 @@ type Prompt struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
 }
 
 func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-func (s *Store) Add(_ context.Context, prompt Prompt) (Prompt, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prompts, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) Add(ctx context.Context, prompt Prompt) (Prompt, error) {
+	if err := s.ensureReady(); err != nil {
 		return Prompt{}, err
 	}
 
@@ -47,115 +44,144 @@ func (s *Store) Add(_ context.Context, prompt Prompt) (Prompt, error) {
 	prompt.Title = strings.TrimSpace(prompt.Title)
 	prompt.Content = strings.TrimSpace(prompt.Content)
 
-	prompts = append(prompts, prompt)
-	if err := s.writeAllLocked(prompts); err != nil {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO prompts (id, title, content, recorded_at)
+		VALUES (?, ?, ?, ?)
+	`, prompt.ID, prompt.Title, prompt.Content, formatSQLiteTime(prompt.RecordedAt))
+	if err != nil {
 		return Prompt{}, err
 	}
 	return prompt, nil
 }
 
-func (s *Store) List(_ context.Context) ([]Prompt, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prompts, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) List(ctx context.Context) ([]Prompt, error) {
+	if err := s.ensureReady(); err != nil {
 		return nil, err
 	}
 
-	slices.SortFunc(prompts, func(a, b Prompt) int {
-		switch {
-		case a.RecordedAt.Before(b.RecordedAt):
-			return -1
-		case a.RecordedAt.After(b.RecordedAt):
-			return 1
-		default:
-			return 0
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, title, content, recorded_at
+		FROM prompts
+		ORDER BY recorded_at ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Prompt
+	for rows.Next() {
+		item, err := scanPrompt(rows)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) Resolve(ctx context.Context, idOrPrefix string) (Prompt, bool, error) {
+	if err := s.ensureReady(); err != nil {
+		return Prompt{}, false, err
+	}
+
+	match := normalizeID(idOrPrefix)
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, title, content, recorded_at
+		FROM prompts
+		WHERE LOWER(id) LIKE ?
+		ORDER BY recorded_at ASC, id ASC
+		LIMIT 1
+	`, match+"%")
+	item, ok, err := scanPromptRow(row)
+	if err != nil || !ok {
+		return Prompt{}, ok, err
+	}
+	return item, true, nil
+}
+
+func (s *Store) Remove(ctx context.Context, idOrPrefix string) (Prompt, bool, error) {
+	if err := s.ensureReady(); err != nil {
+		return Prompt{}, false, err
+	}
+
+	item, ok, err := s.Resolve(ctx, idOrPrefix)
+	if err != nil || !ok {
+		return Prompt{}, ok, err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM prompts WHERE id = ?`, item.ID); err != nil {
+		return Prompt{}, false, err
+	}
+	return item, true, nil
+}
+
+func (s *Store) Clear(ctx context.Context) error {
+	if err := s.ensureReady(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM prompts`)
+	return err
+}
+
+func (s *Store) ensureReady() error {
+	s.initOnce.Do(func() {
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
+		}
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS prompts (
+				id TEXT PRIMARY KEY,
+				title TEXT NOT NULL,
+				content TEXT NOT NULL,
+				recorded_at TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS prompts_recorded_idx
+				ON prompts (recorded_at, id);
+		`)
 	})
-	return prompts, nil
+	return s.initErr
 }
 
-func (s *Store) Resolve(_ context.Context, idOrPrefix string) (Prompt, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prompts, err := s.readAllLocked()
+func scanPrompt(scanner interface{ Scan(...any) error }) (Prompt, error) {
+	var (
+		item       Prompt
+		recordedAt string
+	)
+	if err := scanner.Scan(&item.ID, &item.Title, &item.Content, &recordedAt); err != nil {
+		return Prompt{}, err
+	}
+	parsed, err := parseSQLiteTime(recordedAt)
 	if err != nil {
+		return Prompt{}, err
+	}
+	item.RecordedAt = parsed
+	return item, nil
+}
+
+func scanPromptRow(row *sql.Row) (Prompt, bool, error) {
+	item, err := scanPrompt(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Prompt{}, false, nil
+		}
 		return Prompt{}, false, err
 	}
-
-	match := normalizeID(idOrPrefix)
-	for _, prompt := range prompts {
-		if strings.HasPrefix(normalizeID(prompt.ID), match) {
-			return prompt, true, nil
-		}
-	}
-	return Prompt{}, false, nil
+	return item, true, nil
 }
 
-func (s *Store) Remove(_ context.Context, idOrPrefix string) (Prompt, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prompts, err := s.readAllLocked()
-	if err != nil {
-		return Prompt{}, false, err
-	}
-
-	match := normalizeID(idOrPrefix)
-	for index, prompt := range prompts {
-		if strings.HasPrefix(normalizeID(prompt.ID), match) {
-			removed := prompt
-			prompts = append(prompts[:index], prompts[index+1:]...)
-			if err := s.writeAllLocked(prompts); err != nil {
-				return Prompt{}, false, err
-			}
-			return removed, true, nil
-		}
-	}
-	return Prompt{}, false, nil
+func formatSQLiteTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
-func (s *Store) Clear(_ context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeAllLocked(nil)
-}
-
-func (s *Store) readAllLocked() ([]Prompt, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+func parseSQLiteTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
 	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var prompts []Prompt
-	if err := json.Unmarshal(data, &prompts); err != nil {
-		return nil, err
-	}
-	return prompts, nil
-}
-
-func (s *Store) writeAllLocked(prompts []Prompt) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(prompts, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.path)
+	return time.Parse(time.RFC3339Nano, value)
 }
 
 func newID() string {

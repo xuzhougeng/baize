@@ -118,9 +118,9 @@ func TestHandleMessageFileFindDoesNotCreateConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, bridgeTestAI{
 		toolOpportunities: []aicore.ToolOpportunity{{ToolName: filesearch.ToolName, Goal: "查找 D 盘 pdf 文件"}},
 		toolPlanDecision: aicore.ToolPlanDecision{
@@ -218,9 +218,9 @@ func TestHandleMessageRecordsSlashCommandConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, nil)
 	if _, err := store.Add(context.Background(), knowledge.Entry{Text: "第一条知识"}); err != nil {
 		t.Fatalf("add knowledge: %v", err)
@@ -290,9 +290,9 @@ func TestHandleMessageStatelessCommandsDoNotCreateConversation(t *testing.T) {
 			t.Parallel()
 
 			root := t.TempDir()
-			store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-			reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-			sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+			store := knowledge.NewStore(filepath.Join(root, "app.db"))
+			reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+			sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 			service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, nil)
 			if tc.seedKnowledge {
 				if _, err := store.Add(context.Background(), knowledge.Entry{Text: "第一条知识"}); err != nil {
@@ -341,9 +341,9 @@ func TestHandleMessageReusesConversationAcrossContextTokens(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, bridgeTestAI{
 		route: aicore.RouteDecision{Command: "answer"},
 		chatFunc: func(_ context.Context, input string, history []aicore.ConversationMessage) string {
@@ -390,9 +390,9 @@ func TestHandleMessageNewCommandStartsDistinctConversation(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, nil)
 
 	var sent SendMessageRequest
@@ -431,9 +431,9 @@ func TestHandleMessageAfterDeletedConversationStartsNewSession(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	sessionStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, nil)
 	if _, err := store.Add(context.Background(), knowledge.Entry{Text: "第一条知识"}); err != nil {
 		t.Fatalf("add knowledge: %v", err)

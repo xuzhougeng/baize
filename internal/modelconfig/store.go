@@ -3,17 +3,18 @@ package modelconfig
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"myclaw/internal/sqliteutil"
 )
 
 const (
@@ -83,15 +84,16 @@ type SaveOptions struct {
 }
 
 type Store struct {
-	path       string
-	keyPath    string
-	legacyPath string
-	mu         sync.Mutex
+	path     string
+	keyPath  string
+	db       *sql.DB
+	mu       sync.Mutex
+	initOnce sync.Once
+	initErr  error
 }
 
 type databaseFile struct {
 	Version         int             `json:"version"`
-	LegacyImported  bool            `json:"legacy_imported"`
 	ActiveProfileID string          `json:"active_profile_id,omitempty"`
 	Profiles        []storedProfile `json:"profiles"`
 }
@@ -124,16 +126,10 @@ func NewStore(path ...string) *Store {
 	if len(path) > 1 {
 		store.keyPath = strings.TrimSpace(path[1])
 	}
-	if len(path) > 2 {
-		store.legacyPath = strings.TrimSpace(path[2])
-	}
 	if store.path != "" {
 		dir := filepath.Dir(store.path)
 		if store.keyPath == "" {
 			store.keyPath = filepath.Join(dir, "secret.key")
-		}
-		if store.legacyPath == "" {
-			store.legacyPath = filepath.Join(dir, "config.json")
 		}
 	}
 	return store
@@ -355,7 +351,6 @@ func (s *Store) Clear(_ context.Context) error {
 
 	db := databaseFile{
 		Version:         currentDatabaseVersion,
-		LegacyImported:  true,
 		ActiveProfileID: "",
 		Profiles:        nil,
 	}
@@ -447,38 +442,107 @@ func SharedMaxOutputTokens(text, json *int) *int {
 	return text
 }
 
+func (s *Store) ensureReadyLocked() error {
+	s.initOnce.Do(func() {
+		if strings.TrimSpace(s.path) == "" {
+			return
+		}
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
+		}
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS modelconfig_meta (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			);
+			CREATE TABLE IF NOT EXISTS modelconfig_profiles (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL,
+				provider TEXT NOT NULL,
+				api_type TEXT NOT NULL,
+				base_url TEXT NOT NULL,
+				encrypted_api_key TEXT NOT NULL DEFAULT '',
+				model TEXT NOT NULL,
+				request_timeout_seconds INTEGER,
+				max_output_tokens_text INTEGER,
+				max_output_tokens_json INTEGER,
+				temperature REAL,
+				top_p REAL,
+				frequency_penalty REAL,
+				presence_penalty REAL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)
+		`)
+	})
+	return s.initErr
+}
+
 func (s *Store) readDatabaseLocked() (databaseFile, error) {
 	if strings.TrimSpace(s.path) == "" {
 		return databaseFile{
-			Version:        currentDatabaseVersion,
-			LegacyImported: true,
+			Version: currentDatabaseVersion,
 		}, nil
+	}
+	if err := s.ensureReadyLocked(); err != nil {
+		return databaseFile{}, err
 	}
 
 	db := databaseFile{
 		Version: currentDatabaseVersion,
 	}
-	data, err := os.ReadFile(s.path)
+
+	metaRows, err := s.db.Query(`SELECT key, value FROM modelconfig_meta`)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+		return databaseFile{}, err
+	}
+	defer metaRows.Close()
+	meta := map[string]string{}
+	for metaRows.Next() {
+		var key, value string
+		if err := metaRows.Scan(&key, &value); err != nil {
 			return databaseFile{}, err
 		}
-	} else if len(data) > 0 {
-		if err := json.Unmarshal(data, &db); err != nil {
-			return databaseFile{}, err
-		}
+		meta[key] = value
+	}
+	if err := metaRows.Err(); err != nil {
+		return databaseFile{}, err
 	}
 
-	changed := normalizeDatabase(&db)
-	if !db.LegacyImported {
-		imported, err := s.importLegacyConfigLocked(&db)
+	if value := strings.TrimSpace(meta["version"]); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			db.Version = parsed
+		}
+	}
+	db.ActiveProfileID = strings.TrimSpace(meta["active_profile_id"])
+
+	rows, err := s.db.Query(`
+		SELECT
+			id, name, provider, api_type, base_url, encrypted_api_key, model,
+			request_timeout_seconds, max_output_tokens_text, max_output_tokens_json,
+			temperature, top_p, frequency_penalty, presence_penalty,
+			created_at, updated_at
+		FROM modelconfig_profiles
+		ORDER BY created_at ASC, id ASC
+	`)
+	if err != nil {
+		return databaseFile{}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		profile, err := scanStoredProfile(rows)
 		if err != nil {
 			return databaseFile{}, err
 		}
-		changed = changed || imported
-		db.LegacyImported = true
-		changed = true
+		db.Profiles = append(db.Profiles, profile)
 	}
+	if err := rows.Err(); err != nil {
+		return databaseFile{}, err
+	}
+
+	changed := normalizeDatabase(&db)
 	if repairActiveProfile(&db) {
 		changed = true
 	}
@@ -494,18 +558,59 @@ func (s *Store) writeDatabaseLocked(db databaseFile) error {
 	if strings.TrimSpace(s.path) == "" {
 		return errors.New("model config store is read-only")
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+	if err := s.ensureReadyLocked(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(db, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.path)
+
+	return sqliteutil.WithTx(context.Background(), s.db, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM modelconfig_meta`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM modelconfig_profiles`); err != nil {
+			return err
+		}
+
+		meta := map[string]string{
+			"version":           strconv.Itoa(db.Version),
+			"active_profile_id": strings.TrimSpace(db.ActiveProfileID),
+		}
+		for key, value := range meta {
+			if _, err := tx.Exec(`INSERT INTO modelconfig_meta (key, value) VALUES (?, ?)`, key, value); err != nil {
+				return err
+			}
+		}
+
+		for _, profile := range db.Profiles {
+			if _, err := tx.Exec(`
+				INSERT INTO modelconfig_profiles (
+					id, name, provider, api_type, base_url, encrypted_api_key, model,
+					request_timeout_seconds, max_output_tokens_text, max_output_tokens_json,
+					temperature, top_p, frequency_penalty, presence_penalty,
+					created_at, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`,
+				profile.ID,
+				profile.Name,
+				profile.Provider,
+				profile.APIType,
+				profile.BaseURL,
+				profile.EncryptedAPIKey,
+				profile.Model,
+				nullableInt(profile.RequestTimeoutSeconds),
+				nullableInt(profile.MaxOutputTokensText),
+				nullableInt(profile.MaxOutputTokensJSON),
+				nullableFloat(profile.Temperature),
+				nullableFloat(profile.TopP),
+				nullableFloat(profile.FrequencyPenalty),
+				nullableFloat(profile.PresencePenalty),
+				formatSQLiteTime(profile.CreatedAt),
+				formatSQLiteTime(profile.UpdatedAt),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) profileConfigLocked(profile storedProfile) (Config, error) {
@@ -619,10 +724,102 @@ func indexOfProfile(profiles []storedProfile, id string) int {
 	return -1
 }
 
+func scanStoredProfile(scanner interface{ Scan(...any) error }) (storedProfile, error) {
+	var (
+		profile          storedProfile
+		requestTimeout   sql.NullInt64
+		maxText          sql.NullInt64
+		maxJSON          sql.NullInt64
+		temperature      sql.NullFloat64
+		topP             sql.NullFloat64
+		frequencyPenalty sql.NullFloat64
+		presencePenalty  sql.NullFloat64
+		createdAt        string
+		updatedAt        string
+	)
+	if err := scanner.Scan(
+		&profile.ID,
+		&profile.Name,
+		&profile.Provider,
+		&profile.APIType,
+		&profile.BaseURL,
+		&profile.EncryptedAPIKey,
+		&profile.Model,
+		&requestTimeout,
+		&maxText,
+		&maxJSON,
+		&temperature,
+		&topP,
+		&frequencyPenalty,
+		&presencePenalty,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return storedProfile{}, err
+	}
+	profile.RequestTimeoutSeconds = intPtrFromNull(requestTimeout)
+	profile.MaxOutputTokensText = intPtrFromNull(maxText)
+	profile.MaxOutputTokensJSON = intPtrFromNull(maxJSON)
+	profile.Temperature = floatPtrFromNull(temperature)
+	profile.TopP = floatPtrFromNull(topP)
+	profile.FrequencyPenalty = floatPtrFromNull(frequencyPenalty)
+	profile.PresencePenalty = floatPtrFromNull(presencePenalty)
+	var err error
+	if profile.CreatedAt, err = parseSQLiteTime(createdAt); err != nil {
+		return storedProfile{}, err
+	}
+	if profile.UpdatedAt, err = parseSQLiteTime(updatedAt); err != nil {
+		return storedProfile{}, err
+	}
+	return profile, nil
+}
+
+func nullableInt(value *int) sql.NullInt64 {
+	if value == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*value), Valid: true}
+}
+
+func nullableFloat(value *float64) sql.NullFloat64 {
+	if value == nil {
+		return sql.NullFloat64{}
+	}
+	return sql.NullFloat64{Float64: *value, Valid: true}
+}
+
+func intPtrFromNull(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	out := int(value.Int64)
+	return &out
+}
+
+func floatPtrFromNull(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	out := value.Float64
+	return &out
+}
+
+func formatSQLiteTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseSQLiteTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, value)
+}
+
 func newID() string {
 	var buf [8]byte
-	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
-		return time.Now().UTC().Format("20060102150405")
+	if _, err := rand.Read(buf[:]); err != nil {
+		return time.Now().Format("20060102150405")
 	}
 	return hex.EncodeToString(buf[:])
 }

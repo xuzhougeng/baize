@@ -44,17 +44,21 @@ func main() {
 		log.Fatalf("prepare data dir: %v", err)
 	}
 
-	store := knowledge.NewStore(filepath.Join(dataDir, "knowledge", "entries.json"))
-	promptStore := promptlib.NewStore(filepath.Join(dataDir, "prompts", "items.json"))
+	appDBPath := filepath.Join(dataDir, "app.db")
+	store := knowledge.NewStore(appDBPath)
+	promptStore := promptlib.NewStore(appDBPath)
 	if err := promptlib.SeedDefaultPrompts(context.Background(), promptStore, promptlib.DefaultPromptSeedMarker(dataDir)); err != nil {
 		log.Fatalf("seed default prompts: %v", err)
 	}
-	projectStore := projectstate.NewStore(filepath.Join(dataDir, "projects", "active.json"))
-	modelStore := modelconfig.NewStore(filepath.Join(dataDir, "model", "profiles.db"))
+	projectStore := projectstate.NewStore(appDBPath)
+	modelStore := modelconfig.NewStore(
+		appDBPath,
+		filepath.Join(dataDir, "model", "secret.key"),
+	)
 	aiService := ai.NewService(modelStore)
-	reminderStore := reminder.NewStore(filepath.Join(dataDir, "reminders", "items.json"))
+	reminderStore := reminder.NewStore(appDBPath)
 	reminderManager := reminder.NewManager(reminderStore)
-	sessionStore := sessionstate.NewStore(filepath.Join(dataDir, "sessions", "items.json"))
+	sessionStore := sessionstate.NewStore(appDBPath)
 	skillLoader := skilllib.NewLoader(skilllib.DefaultDirs(dataDir)...)
 	service := appsvc.NewServiceWithRuntime(store, aiService, reminderManager, skillLoader, sessionStore, promptStore)
 	weixinBridge := weixin.NewBridge(weixin.NewClient("", ""), service, reminderManager, weixin.BridgeConfig{

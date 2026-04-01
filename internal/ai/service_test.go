@@ -51,7 +51,7 @@ func streamResponse(body string) *http.Response {
 func newConfiguredStore(t *testing.T, cfg modelconfig.Config) *modelconfig.Store {
 	t.Helper()
 
-	store := modelconfig.NewStore(filepath.Join(t.TempDir(), "model", "profiles.db"))
+	store := modelconfig.NewStore(filepath.Join(t.TempDir(), "model", "app.db"))
 	if _, err := store.Save(context.Background(), cfg, modelconfig.SaveOptions{SetActive: true}); err != nil {
 		t.Fatalf("save model config: %v", err)
 	}

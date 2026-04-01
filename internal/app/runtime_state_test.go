@@ -14,9 +14,9 @@ func TestAppendWithExplicitFinalSummary(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "terminal", UserID: "u1", SessionID: "s1"}
 
@@ -46,9 +46,9 @@ func TestAppendFallsBackToReplyWhenSummaryEmpty(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	store := knowledge.NewStore(filepath.Join(root, "entries.json"))
-	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "reminders.json")))
-	stateStore := sessionstate.NewStore(filepath.Join(root, "sessions.json"))
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
 	service := NewServiceWithSkillsAndSessions(store, nil, reminders, nil, stateStore)
 	mc := MessageContext{Interface: "terminal", UserID: "u2", SessionID: "s2"}
 

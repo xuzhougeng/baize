@@ -2,15 +2,14 @@ package sessionstate
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"myclaw/internal/ai"
+	"myclaw/internal/sqliteutil"
 )
 
 type Snapshot struct {
@@ -32,127 +31,168 @@ type Message struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
 }
 
 func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-func (s *Store) Load(_ context.Context, key string) (Snapshot, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) Load(ctx context.Context, key string) (Snapshot, bool, error) {
+	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, false, err
 	}
 
-	snapshot, ok := items[normalizeKey(key)]
-	if !ok {
-		return Snapshot{}, false, nil
+	row := s.db.QueryRowContext(ctx, `
+		SELECT key, title, mode, loaded_skills_json, prompt_id, history_json, updated_at
+		FROM session_snapshots
+		WHERE key = ?
+	`, normalizeKey(key))
+	snapshot, ok, err := scanSnapshot(row)
+	if err != nil || !ok {
+		return Snapshot{}, ok, err
 	}
 	return snapshot, true, nil
 }
 
-func (s *Store) Save(_ context.Context, snapshot Snapshot) (Snapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) Save(ctx context.Context, snapshot Snapshot) (Snapshot, error) {
+	if err := s.ensureReady(); err != nil {
 		return Snapshot{}, err
 	}
 
 	snapshot.Key = normalizeKey(snapshot.Key)
 	snapshot.Title = strings.TrimSpace(snapshot.Title)
 	snapshot.Mode = strings.TrimSpace(snapshot.Mode)
+	snapshot.PromptID = strings.TrimSpace(snapshot.PromptID)
 	snapshot.UpdatedAt = time.Now()
-	items[snapshot.Key] = snapshot
 
-	if err := s.writeAllLocked(items); err != nil {
+	loadedSkillsJSON, err := json.Marshal(snapshot.LoadedSkills)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	historyJSON, err := json.Marshal(snapshot.History)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO session_snapshots (key, title, mode, loaded_skills_json, prompt_id, history_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			title = excluded.title,
+			mode = excluded.mode,
+			loaded_skills_json = excluded.loaded_skills_json,
+			prompt_id = excluded.prompt_id,
+			history_json = excluded.history_json,
+			updated_at = excluded.updated_at
+	`, snapshot.Key, snapshot.Title, snapshot.Mode, string(loadedSkillsJSON), snapshot.PromptID, string(historyJSON), formatSQLiteTime(snapshot.UpdatedAt))
+	if err != nil {
 		return Snapshot{}, err
 	}
 	return snapshot, nil
 }
 
-func (s *Store) List(_ context.Context) ([]Snapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) List(ctx context.Context) ([]Snapshot, error) {
+	if err := s.ensureReady(); err != nil {
 		return nil, err
 	}
 
-	out := make([]Snapshot, 0, len(items))
-	for _, snapshot := range items {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, title, mode, loaded_skills_json, prompt_id, history_json, updated_at
+		FROM session_snapshots
+		ORDER BY updated_at DESC, key ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Snapshot
+	for rows.Next() {
+		snapshot, _, err := scanSnapshot(rows)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, snapshot)
 	}
-	slices.SortFunc(out, func(left, right Snapshot) int {
-		switch {
-		case left.UpdatedAt.After(right.UpdatedAt):
-			return -1
-		case left.UpdatedAt.Before(right.UpdatedAt):
-			return 1
-		default:
-			return strings.Compare(left.Key, right.Key)
-		}
-	})
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
-func (s *Store) Delete(_ context.Context, key string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	items, err := s.readAllLocked()
-	if err != nil {
+func (s *Store) Delete(ctx context.Context, key string) error {
+	if err := s.ensureReady(); err != nil {
 		return err
 	}
 
-	delete(items, normalizeKey(key))
-	return s.writeAllLocked(items)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM session_snapshots WHERE key = ?`, normalizeKey(key))
+	return err
 }
 
-func (s *Store) readAllLocked() (map[string]Snapshot, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]Snapshot{}, nil
+func (s *Store) ensureReady() error {
+	s.initOnce.Do(func() {
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
 		}
-		return nil, err
-	}
-	if len(data) == 0 {
-		return map[string]Snapshot{}, nil
-	}
-
-	var items map[string]Snapshot
-	if err := json.Unmarshal(data, &items); err != nil {
-		return nil, err
-	}
-	if items == nil {
-		items = map[string]Snapshot{}
-	}
-	return items, nil
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS session_snapshots (
+				key TEXT PRIMARY KEY,
+				title TEXT NOT NULL DEFAULT '',
+				mode TEXT NOT NULL DEFAULT '',
+				loaded_skills_json TEXT NOT NULL DEFAULT '[]',
+				prompt_id TEXT NOT NULL DEFAULT '',
+				history_json TEXT NOT NULL DEFAULT '[]',
+				updated_at TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS session_snapshots_updated_idx
+				ON session_snapshots (updated_at DESC, key ASC);
+		`)
+	})
+	return s.initErr
 }
 
-func (s *Store) writeAllLocked(items map[string]Snapshot) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
+func scanSnapshot(scanner interface{ Scan(...any) error }) (Snapshot, bool, error) {
+	var (
+		snapshot         Snapshot
+		loadedSkillsJSON string
+		historyJSON      string
+		updatedAt        string
+	)
+	if err := scanner.Scan(&snapshot.Key, &snapshot.Title, &snapshot.Mode, &loadedSkillsJSON, &snapshot.PromptID, &historyJSON, &updatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return Snapshot{}, false, nil
+		}
+		return Snapshot{}, false, err
 	}
-
-	data, err := json.MarshalIndent(items, "", "  ")
+	if err := json.Unmarshal([]byte(strings.TrimSpace(loadedSkillsJSON)), &snapshot.LoadedSkills); err != nil {
+		return Snapshot{}, false, err
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(historyJSON)), &snapshot.History); err != nil {
+		return Snapshot{}, false, err
+	}
+	parsed, err := parseSQLiteTime(updatedAt)
 	if err != nil {
-		return err
+		return Snapshot{}, false, err
 	}
+	snapshot.UpdatedAt = parsed
+	return snapshot, true, nil
+}
 
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return err
+func formatSQLiteTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseSQLiteTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
 	}
-	return os.Rename(tmpPath, s.path)
+	return time.Parse(time.RFC3339Nano, value)
 }
 
 func normalizeKey(key string) string {

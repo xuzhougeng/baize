@@ -25,7 +25,7 @@ File ingest:
 Default data and logs:
 - Data: %LOCALAPPDATA%\myclaw\data
 - Logs: %LOCALAPPDATA%\myclaw\logs
-- If an older package stored login data under .\data\weixin-bridge, the first run will migrate it automatically.
+- WeChat login state is stored under %LOCALAPPDATA%\myclaw\data\weixin-bridge.
 
 Autostart:
 - install-autostart.ps1 installs a hidden Startup-folder launcher

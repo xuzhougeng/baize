@@ -2,23 +2,19 @@ package weixin
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"myclaw/internal/app"
+	"myclaw/internal/sqliteutil"
 )
 
 type ConversationUpdate struct {
 	SessionID string
 	Activate  bool
-}
-
-type conversationSessionState struct {
-	Sessions map[string]string `json:"sessions,omitempty"`
 }
 
 func (b *Bridge) conversationSlotKey(msg WeixinMessage) string {
@@ -34,8 +30,25 @@ func (b *Bridge) conversationSlotKey(msg WeixinMessage) string {
 	}
 }
 
-func (b *Bridge) conversationSessionStatePath() string {
-	return filepath.Join(b.config.DataDir, "weixin-bridge", "conversation_sessions.json")
+func (b *Bridge) conversationSessionDBPath() string {
+	return filepath.Join(b.config.DataDir, "app.db")
+}
+
+func (b *Bridge) conversationSessionDB() (*sql.DB, error) {
+	db, err := sqliteutil.Open(b.conversationSessionDBPath())
+	if err != nil {
+		return nil, err
+	}
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS weixin_conversation_sessions (
+			slot TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 func (b *Bridge) ensureConversationSessionsLocked() error {
@@ -49,23 +62,21 @@ func (b *Bridge) ensureConversationSessionsLocked() error {
 	b.conversationLoaded = true
 	b.conversationSessions = make(map[string]string)
 
-	path := b.conversationSessionStatePath()
-	data, err := os.ReadFile(path)
+	db, err := b.conversationSessionDB()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-	if len(data) == 0 {
-		return nil
+	rows, err := db.Query(`SELECT slot, session_id FROM weixin_conversation_sessions`)
+	if err != nil {
+		return err
 	}
+	defer rows.Close()
 
-	var state conversationSessionState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return err
-	}
-	for slot, sessionID := range state.Sessions {
+	for rows.Next() {
+		var slot, sessionID string
+		if err := rows.Scan(&slot, &sessionID); err != nil {
+			return err
+		}
 		slot = strings.TrimSpace(slot)
 		sessionID = strings.TrimSpace(sessionID)
 		if slot == "" || sessionID == "" {
@@ -73,33 +84,30 @@ func (b *Bridge) ensureConversationSessionsLocked() error {
 		}
 		b.conversationSessions[slot] = sessionID
 	}
-	return nil
+	return rows.Err()
 }
 
 func (b *Bridge) saveConversationSessionsLocked() error {
-	if err := os.MkdirAll(filepath.Dir(b.conversationSessionStatePath()), 0o755); err != nil {
-		return err
-	}
-	state := conversationSessionState{
-		Sessions: make(map[string]string, len(b.conversationSessions)),
-	}
-	for slot, sessionID := range b.conversationSessions {
-		slot = strings.TrimSpace(slot)
-		sessionID = strings.TrimSpace(sessionID)
-		if slot == "" || sessionID == "" {
-			continue
-		}
-		state.Sessions[slot] = sessionID
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	db, err := b.conversationSessionDB()
 	if err != nil {
 		return err
 	}
-	tmpPath := b.conversationSessionStatePath() + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, b.conversationSessionStatePath())
+	return sqliteutil.WithTx(context.Background(), db, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM weixin_conversation_sessions`); err != nil {
+			return err
+		}
+		for slot, sessionID := range b.conversationSessions {
+			slot = strings.TrimSpace(slot)
+			sessionID = strings.TrimSpace(sessionID)
+			if slot == "" || sessionID == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT INTO weixin_conversation_sessions (slot, session_id) VALUES (?, ?)`, slot, sessionID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (b *Bridge) conversationContext(msg WeixinMessage, sessionID string) app.MessageContext {

@@ -3,13 +3,12 @@ package reminder
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"slices"
 	"sync"
 	"time"
+
+	"myclaw/internal/sqliteutil"
 )
 
 type Frequency string
@@ -37,46 +36,68 @@ type Reminder struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
 }
 
 func NewStore(path string) *Store {
 	return &Store{path: path}
 }
 
-func (s *Store) List(_ context.Context) ([]Reminder, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) List(ctx context.Context) ([]Reminder, error) {
+	if err := s.ensureReady(); err != nil {
+		return nil, err
+	}
 
-	items, err := s.readAllLocked()
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, target_interface, target_user_id, message, frequency, next_run_at, daily_hour, daily_minute, created_at, updated_at
+		FROM reminders
+		ORDER BY next_run_at ASC, id ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(items, func(a, b Reminder) int {
-		switch {
-		case a.NextRunAt.Before(b.NextRunAt):
-			return -1
-		case a.NextRunAt.After(b.NextRunAt):
-			return 1
-		default:
-			return 0
+	defer rows.Close()
+
+	var out []Reminder
+	for rows.Next() {
+		item, err := scanReminder(rows)
+		if err != nil {
+			return nil, err
 		}
-	})
-	return items, nil
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
-func (s *Store) SaveAll(_ context.Context, items []Reminder) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeAllLocked(items)
+func (s *Store) SaveAll(ctx context.Context, items []Reminder) error {
+	if err := s.ensureReady(); err != nil {
+		return err
+	}
+
+	return sqliteutil.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM reminders`); err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := insertReminder(ctx, tx, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) Add(ctx context.Context, item Reminder) (Reminder, error) {
-	items, err := s.List(ctx)
-	if err != nil {
+	if err := s.ensureReady(); err != nil {
 		return Reminder{}, err
 	}
+
 	if item.ID == "" {
 		item.ID = newID()
 	}
@@ -85,44 +106,101 @@ func (s *Store) Add(ctx context.Context, item Reminder) (Reminder, error) {
 		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
-	items = append(items, item)
-	if err := s.SaveAll(ctx, items); err != nil {
+
+	if err := insertReminder(ctx, s.db, item); err != nil {
 		return Reminder{}, err
 	}
 	return item, nil
 }
 
-func (s *Store) readAllLocked() ([]Reminder, error) {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+func (s *Store) ensureReady() error {
+	s.initOnce.Do(func() {
+		s.db, s.initErr = sqliteutil.Open(s.path)
+		if s.initErr != nil {
+			return
 		}
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var items []Reminder
-	if err := json.Unmarshal(data, &items); err != nil {
-		return nil, err
-	}
-	return items, nil
+		_, s.initErr = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS reminders (
+				id TEXT PRIMARY KEY,
+				target_interface TEXT NOT NULL DEFAULT '',
+				target_user_id TEXT NOT NULL DEFAULT '',
+				message TEXT NOT NULL,
+				frequency TEXT NOT NULL,
+				next_run_at TEXT NOT NULL,
+				daily_hour INTEGER NOT NULL DEFAULT 0,
+				daily_minute INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);
+			CREATE INDEX IF NOT EXISTS reminders_target_next_run_idx
+				ON reminders (target_interface, target_user_id, next_run_at);
+		`)
+	})
+	return s.initErr
 }
 
-func (s *Store) writeAllLocked(items []Reminder) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
+type reminderExec interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertReminder(ctx context.Context, exec reminderExec, item Reminder) error {
+	_, err := exec.ExecContext(ctx, `
+		INSERT INTO reminders (
+			id, target_interface, target_user_id, message, frequency,
+			next_run_at, daily_hour, daily_minute, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, item.ID, item.Target.Interface, item.Target.UserID, item.Message, item.Frequency,
+		formatSQLiteTime(item.NextRunAt), item.DailyHour, item.DailyMinute,
+		formatSQLiteTime(item.CreatedAt), formatSQLiteTime(item.UpdatedAt))
+	return err
+}
+
+func scanReminder(scanner interface{ Scan(...any) error }) (Reminder, error) {
+	var (
+		item            Reminder
+		nextRunAt       string
+		createdAt       string
+		updatedAt       string
+		targetInterface string
+		targetUserID    string
+	)
+	if err := scanner.Scan(
+		&item.ID,
+		&targetInterface,
+		&targetUserID,
+		&item.Message,
+		&item.Frequency,
+		&nextRunAt,
+		&item.DailyHour,
+		&item.DailyMinute,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return Reminder{}, err
 	}
-	data, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		return err
+	item.Target = Target{Interface: targetInterface, UserID: targetUserID}
+	var err error
+	if item.NextRunAt, err = parseSQLiteTime(nextRunAt); err != nil {
+		return Reminder{}, err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
+	if item.CreatedAt, err = parseSQLiteTime(createdAt); err != nil {
+		return Reminder{}, err
 	}
-	return os.Rename(tmp, s.path)
+	if item.UpdatedAt, err = parseSQLiteTime(updatedAt); err != nil {
+		return Reminder{}, err
+	}
+	return item, nil
+}
+
+func formatSQLiteTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseSQLiteTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, value)
 }
 
 func newID() string {

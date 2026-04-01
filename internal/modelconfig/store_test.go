@@ -41,7 +41,7 @@ func TestDefaultConfigUsesOpenAIDefaults(t *testing.T) {
 func TestStoreSaveLoadListAndSwitchActiveProfile(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "model", "profiles.db"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	first, err := store.Save(ctx, Config{
@@ -139,7 +139,7 @@ func TestStoreSaveLoadListAndSwitchActiveProfile(t *testing.T) {
 func TestSavePreservesExistingAPIKeyWhenRequested(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "model", "profiles.db"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	saved, err := store.Save(ctx, Config{
@@ -177,7 +177,7 @@ func TestSavePreservesExistingAPIKeyWhenRequested(t *testing.T) {
 func TestDeleteActiveProfilePromotesNextProfile(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "model", "profiles.db"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	first, err := store.Save(ctx, Config{
@@ -223,7 +223,7 @@ func TestDeleteActiveProfilePromotesNextProfile(t *testing.T) {
 func TestClearRemovesAllProfiles(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "model", "profiles.db"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 	ctx := context.Background()
 
 	if _, err := store.Save(ctx, Config{
@@ -260,39 +260,34 @@ func TestClearRemovesAllProfiles(t *testing.T) {
 	}
 }
 
-func TestStoreMigratesLegacyPlaintextConfigIntoEncryptedDatabase(t *testing.T) {
+func TestStoreEncryptsAPIKeysAtRest(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "model", "profiles.db")
+	dbPath := filepath.Join(root, "app.db")
 	keyPath := filepath.Join(root, "model", "secret.key")
-	legacyPath := filepath.Join(root, "model", "config.json")
-	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
-		t.Fatalf("mkdir legacy dir: %v", err)
-	}
-	if err := os.WriteFile(legacyPath, []byte(`{
-  "provider":"openai",
-  "base_url":"https://legacy.example/v1",
-  "api_key":"legacy-secret",
-  "model":"gpt-legacy"
-}`), 0o600); err != nil {
-		t.Fatalf("write legacy config: %v", err)
-	}
+	store := NewStore(dbPath, keyPath)
 
-	store := NewStore(dbPath, keyPath, legacyPath)
-	loaded, err := store.Load(context.Background())
+	loaded, err := store.Save(context.Background(), Config{
+		Name:     "Primary",
+		Provider: ProviderOpenAI,
+		APIType:  APITypeResponses,
+		BaseURL:  "https://example.com/v1",
+		APIKey:   "secret-at-rest",
+		Model:    "gpt-4.1-mini",
+	}, SaveOptions{SetActive: true})
 	if err != nil {
-		t.Fatalf("load migrated config: %v", err)
+		t.Fatalf("save profile: %v", err)
 	}
-	if loaded.Model != "gpt-legacy" || loaded.APIKey != "legacy-secret" {
-		t.Fatalf("unexpected migrated config: %#v", loaded)
+	if loaded.APIKey != "secret-at-rest" {
+		t.Fatalf("expected decrypted api key after save, got %#v", loaded)
 	}
 
 	rawDB, err := os.ReadFile(dbPath)
 	if err != nil {
 		t.Fatalf("read db file: %v", err)
 	}
-	if strings.Contains(string(rawDB), "legacy-secret") {
+	if strings.Contains(string(rawDB), "secret-at-rest") {
 		t.Fatal("database should not contain plaintext api key")
 	}
 
@@ -303,51 +298,29 @@ func TestStoreMigratesLegacyPlaintextConfigIntoEncryptedDatabase(t *testing.T) {
 	if len(keyData) != 32 {
 		t.Fatalf("unexpected key length: %d", len(keyData))
 	}
-
-	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
-		t.Fatalf("expected legacy plaintext config to be retired, got err=%v", err)
-	}
 }
 
-func TestStoreMigratesLegacySingleMaxOutputTokensIntoSplitFields(t *testing.T) {
+func TestStoreSaveSplitsLegacySingleMaxOutputTokensIntoSplitFields(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "model", "profiles.db")
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("mkdir db dir: %v", err)
-	}
-	if err := os.WriteFile(dbPath, []byte(`{
-  "version": 1,
-  "legacy_imported": true,
-  "active_profile_id": "legacy-profile",
-  "profiles": [
-    {
-      "id": "legacy-profile",
-      "name": "Legacy",
-      "provider": "openai",
-      "api_type": "responses",
-      "base_url": "https://example.com/v1",
-      "model": "gpt-legacy",
-      "max_output_tokens": 2048,
-      "created_at": "2024-01-01T00:00:00Z",
-      "updated_at": "2024-01-01T00:00:00Z"
-    }
-  ]
-}`), 0o600); err != nil {
-		t.Fatalf("write legacy db: %v", err)
-	}
-
-	store := NewStore(dbPath)
-	loaded, err := store.Load(context.Background())
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
+	loaded, err := store.Save(context.Background(), Config{
+		Name:            "Legacy",
+		Provider:        "openai",
+		APIType:         "responses",
+		BaseURL:         "https://example.com/v1",
+		APIKey:          "secret",
+		Model:           "gpt-legacy",
+		MaxOutputTokens: intPtr(2048),
+	}, SaveOptions{SetActive: true})
 	if err != nil {
-		t.Fatalf("load migrated profile: %v", err)
+		t.Fatalf("save profile: %v", err)
 	}
 	if loaded.MaxOutputTokensText == nil || *loaded.MaxOutputTokensText != 2048 {
-		t.Fatalf("expected migrated text tokens, got %#v", loaded.MaxOutputTokensText)
+		t.Fatalf("expected split text tokens, got %#v", loaded.MaxOutputTokensText)
 	}
 	if loaded.MaxOutputTokensJSON == nil || *loaded.MaxOutputTokensJSON != 2048 {
-		t.Fatalf("expected migrated json tokens, got %#v", loaded.MaxOutputTokensJSON)
+		t.Fatalf("expected split json tokens, got %#v", loaded.MaxOutputTokensJSON)
 	}
 	if loaded.MaxOutputTokens != nil {
 		t.Fatalf("expected legacy max tokens field to be cleared, got %#v", loaded.MaxOutputTokens)
@@ -355,27 +328,12 @@ func TestStoreMigratesLegacySingleMaxOutputTokensIntoSplitFields(t *testing.T) {
 
 	snapshot, err := store.List(context.Background())
 	if err != nil {
-		t.Fatalf("list migrated profile: %v", err)
+		t.Fatalf("list profile: %v", err)
 	}
 	if len(snapshot.Profiles) != 1 {
-		t.Fatalf("expected 1 migrated profile, got %d", len(snapshot.Profiles))
+		t.Fatalf("expected 1 profile, got %d", len(snapshot.Profiles))
 	}
 	if snapshot.Profiles[0].MaxOutputTokens == nil || *snapshot.Profiles[0].MaxOutputTokens != 2048 {
-		t.Fatalf("expected shared legacy summary field for equal split values, got %#v", snapshot.Profiles[0].MaxOutputTokens)
-	}
-
-	rawDB, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatalf("read migrated db: %v", err)
-	}
-	rawText := string(rawDB)
-	if !strings.Contains(rawText, `"max_output_tokens_text": 2048`) {
-		t.Fatalf("expected migrated db to persist text tokens, got %s", rawText)
-	}
-	if !strings.Contains(rawText, `"max_output_tokens_json": 2048`) {
-		t.Fatalf("expected migrated db to persist json tokens, got %s", rawText)
-	}
-	if strings.Contains(rawText, `"max_output_tokens": 2048`) {
-		t.Fatalf("expected legacy max_output_tokens field to be removed, got %s", rawText)
+		t.Fatalf("expected shared summary field for equal split values, got %#v", snapshot.Profiles[0].MaxOutputTokens)
 	}
 }

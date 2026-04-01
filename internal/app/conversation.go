@@ -267,7 +267,7 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 		case ModeDirect:
 			fallthrough
 		default:
-			history := s.conversationHistory(ctx, mc)
+			history := s.chatHistoryWithRuntimeState(ctx, mc)
 			addProcessTrace(ctx, "执行模式", "mode=direct\nhistory="+fmt.Sprintf("%d", len(history)))
 			reply, err := s.streamOrChat(ctx, question, history, onDelta)
 			if err == nil {

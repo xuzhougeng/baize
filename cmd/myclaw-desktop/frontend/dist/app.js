@@ -2652,6 +2652,7 @@ function renderReminders() {
           <div>
             <div class="memory-meta">
               <span class="memory-badge id">#${escapeHTML(item.shortId)}</span>
+              ${item.sourceLabel ? `<span class="memory-badge source">${escapeHTML(item.sourceLabel)}</span>` : ''}
               <span class="memory-badge source">${escapeHTML(item.frequencyLabel)}</span>
               <span class="memory-badge source">${escapeHTML(item.scheduleLabel)}</span>
             </div>
@@ -4281,6 +4282,8 @@ function normalizeReminders(payload) {
     id: item.id || '',
     shortId: item.shortId || (item.id || '').slice(0, 8),
     message: item.message || '',
+    source: item.source || '',
+    sourceLabel: item.sourceLabel || '',
     frequency: item.frequency || 'once',
     frequencyLabel: item.frequencyLabel || (item.frequency === 'daily' ? '每天' : '单次'),
     scheduleLabel: item.scheduleLabel || (item.frequency === 'daily' ? '每天' : '单次'),

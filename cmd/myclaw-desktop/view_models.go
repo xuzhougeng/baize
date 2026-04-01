@@ -47,11 +47,14 @@ func toReminderItem(item reminder.Reminder) ReminderItem {
 		frequencyLabel = "每天"
 		scheduleLabel = fmt.Sprintf("每天 %02d:%02d", item.DailyHour, item.DailyMinute)
 	}
+	source := reminderSource(item.Target)
 
 	return ReminderItem{
 		ID:             item.ID,
 		ShortID:        shortID(item.ID),
 		Message:        strings.TrimSpace(item.Message),
+		Source:         source,
+		SourceLabel:    conversationSourceLabel(source),
 		Frequency:      frequency,
 		FrequencyLabel: frequencyLabel,
 		ScheduleLabel:  scheduleLabel,
@@ -59,6 +62,19 @@ func toReminderItem(item reminder.Reminder) ReminderItem {
 		NextRunAtUnix:  item.NextRunAt.Unix(),
 		CreatedAt:      item.CreatedAt.Local().Format("2006-01-02 15:04:05"),
 		CreatedAtUnix:  item.CreatedAt.Unix(),
+	}
+}
+
+func reminderSource(target reminder.Target) string {
+	name := strings.TrimSpace(target.Interface)
+	userID := strings.TrimSpace(target.UserID)
+	switch {
+	case name == "" && userID == "":
+		return ""
+	case userID == "":
+		return name
+	default:
+		return name + ":" + userID
 	}
 }
 

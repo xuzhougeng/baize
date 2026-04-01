@@ -217,6 +217,8 @@ type ReminderItem struct {
 	ID             string `json:"id"`
 	ShortID        string `json:"shortId"`
 	Message        string `json:"message"`
+	Source         string `json:"source"`
+	SourceLabel    string `json:"sourceLabel"`
 	Frequency      string `json:"frequency"`
 	FrequencyLabel string `json:"frequencyLabel"`
 	ScheduleLabel  string `json:"scheduleLabel"`
@@ -435,10 +437,20 @@ func (a *DesktopApp) ListReminders() ([]ReminderItem, error) {
 		return []ReminderItem{}, nil
 	}
 
-	items, err := a.reminders.List(context.Background(), reminder.Target{
+	ctx := context.Background()
+	mc := appsvc.MessageContext{
 		Interface: desktopInterface,
 		UserID:    desktopUserID,
-	})
+	}
+	var (
+		items []reminder.Reminder
+		err   error
+	)
+	if a.service != nil {
+		items, err = a.service.ListVisibleReminders(ctx, mc)
+	} else {
+		items, err = a.reminders.ListAll(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}

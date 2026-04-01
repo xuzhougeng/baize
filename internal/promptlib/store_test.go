@@ -10,7 +10,7 @@ import (
 func TestStoreAddListRemoveAndClear(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore(filepath.Join(t.TempDir(), "prompts.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "app.db"))
 
 	first, err := store.Add(context.Background(), Prompt{
 		Title:      "日报整理",

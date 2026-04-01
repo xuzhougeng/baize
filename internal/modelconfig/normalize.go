@@ -1,9 +1,6 @@
 package modelconfig
 
 import (
-	"encoding/json"
-	"errors"
-	"os"
 	"strings"
 	"time"
 )
@@ -78,73 +75,6 @@ func repairActiveProfile(db *databaseFile) bool {
 	}
 	db.ActiveProfileID = db.Profiles[0].ID
 	return true
-}
-
-func (s *Store) importLegacyConfigLocked(db *databaseFile) (bool, error) {
-	if strings.TrimSpace(s.legacyPath) == "" {
-		return false, nil
-	}
-	data, err := os.ReadFile(s.legacyPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	if len(data) == 0 {
-		return false, retireLegacyConfig(s.legacyPath)
-	}
-
-	var legacy struct {
-		Provider string `json:"provider"`
-		BaseURL  string `json:"base_url"`
-		APIKey   string `json:"api_key"`
-		Model    string `json:"model"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return false, err
-	}
-
-	if len(db.Profiles) == 0 {
-		key, err := s.loadMasterKeyLocked()
-		if err != nil {
-			return false, err
-		}
-		cfg := Config{
-			Name:     strings.TrimSpace(legacy.Model),
-			Provider: legacy.Provider,
-			APIType:  DefaultAPIType,
-			BaseURL:  legacy.BaseURL,
-			APIKey:   legacy.APIKey,
-			Model:    legacy.Model,
-		}.Normalize()
-		if cfg.ID == "" {
-			cfg.ID = newID()
-		}
-		profile, err := newStoredProfile(cfg, key, time.Now().UTC())
-		if err != nil {
-			return false, err
-		}
-		db.Profiles = append(db.Profiles, profile)
-		if strings.TrimSpace(db.ActiveProfileID) == "" {
-			db.ActiveProfileID = profile.ID
-		}
-	}
-
-	return true, retireLegacyConfig(s.legacyPath)
-}
-
-func retireLegacyConfig(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	if err := os.WriteFile(path, []byte(`{"migrated":true}`), 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
 }
 
 func normalizeProvider(value string) string {
