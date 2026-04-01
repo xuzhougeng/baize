@@ -26,6 +26,12 @@ window.navigateTo = function(viewName, sectionId) {
     targetView.classList.add('active');
   }
 
+  if (normalizedView === 'reminders' && state.backend) {
+    void refreshReminders().catch((error) => {
+      showBanner(asMessage(error), true);
+    });
+  }
+
   if (targetView && normalizedSectionId) {
     const targetSection = document.getElementById(normalizedSectionId);
     if (targetSection && targetView.contains(targetSection)) {

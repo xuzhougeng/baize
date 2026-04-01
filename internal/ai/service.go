@@ -778,10 +778,19 @@ func newTextMessage(role, text string) responseInputMessage {
 		Role: role,
 		Content: []responseContentInput{
 			{
-				Type: "input_text",
+				Type: responseTextContentType(role),
 				Text: text,
 			},
 		},
+	}
+}
+
+func responseTextContentType(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "assistant":
+		return "output_text"
+	default:
+		return "input_text"
 	}
 }
 
@@ -1118,13 +1127,13 @@ func buildChatCompletionMessages(req generationRequest) []chatCompletionsMessage
 }
 
 func chatCompletionContent(content []responseContentInput) any {
-	if len(content) == 1 && content[0].Type == "input_text" {
+	if len(content) == 1 && isTextContentType(content[0].Type) {
 		return content[0].Text
 	}
 	parts := make([]chatCompletionsContentPart, 0, len(content))
 	for _, item := range content {
 		switch item.Type {
-		case "input_text":
+		case "input_text", "output_text":
 			parts = append(parts, chatCompletionsContentPart{
 				Type: "text",
 				Text: item.Text,
@@ -1212,7 +1221,7 @@ func anthropicContent(content []responseContentInput) ([]anthropicContentPart, e
 	parts := make([]anthropicContentPart, 0, len(content))
 	for _, item := range content {
 		switch item.Type {
-		case "input_text":
+		case "input_text", "output_text":
 			parts = append(parts, anthropicContentPart{
 				Type: "text",
 				Text: item.Text,
@@ -1233,6 +1242,15 @@ func anthropicContent(content []responseContentInput) ([]anthropicContentPart, e
 		}
 	}
 	return parts, nil
+}
+
+func isTextContentType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "input_text", "output_text":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseDataURL(value string) (string, string, error) {

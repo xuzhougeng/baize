@@ -138,6 +138,48 @@ func TestChatUsesTextMaxOutputTokensOverride(t *testing.T) {
 	}
 }
 
+func TestChatUsesAssistantOutputTextInResponsesHistory(t *testing.T) {
+	store := newConfiguredStore(t, modelconfig.Config{
+		Provider: modelconfig.ProviderOpenAI,
+		APIType:  modelconfig.APITypeResponses,
+		BaseURL:  "http://example.invalid/v1",
+		APIKey:   "secret",
+		Model:    "gpt-test",
+	})
+
+	service := NewService(store)
+	service.httpClient = newTestClient(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(req.Input) != 3 {
+			t.Fatalf("expected 3 messages, got %#v", req.Input)
+		}
+		if req.Input[0].Role != "user" || req.Input[0].Content[0].Type != "input_text" {
+			t.Fatalf("unexpected first history item: %#v", req.Input[0])
+		}
+		if req.Input[1].Role != "assistant" || req.Input[1].Content[0].Type != "output_text" {
+			t.Fatalf("unexpected assistant history item: %#v", req.Input[1])
+		}
+		if req.Input[2].Role != "user" || req.Input[2].Content[0].Type != "input_text" {
+			t.Fatalf("unexpected latest user item: %#v", req.Input[2])
+		}
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"你好"}]}]}`), nil
+	})
+
+	reply, err := service.Chat(context.Background(), "继续", []ConversationMessage{
+		{Role: "user", Content: "第一句"},
+		{Role: "assistant", Content: "第一句回复"},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if reply != "你好" {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
 func TestServiceUsesConfiguredRequestTimeout(t *testing.T) {
 	store := newConfiguredStore(t, modelconfig.Config{
 		Provider:              modelconfig.ProviderOpenAI,
