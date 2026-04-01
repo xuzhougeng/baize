@@ -443,6 +443,23 @@ workflow 上传的 artifact 现在只包含 NSIS 安装器：
 
 `-DebugMode` 会把前端桌面运行时自诊断一起打进产物，在页面右下角显示 `Desktop Diagnostics` 面板，并记录 `window.WailsInvoke`、`window.chrome.webview.postMessage`、`window.external.invoke` 等桥接状态。GitHub Actions 里手动触发 `windows-nsis-installer` 时也会自动启用这个模式；tag push 的自动发布构建保持普通模式。
 
+桌面端出现“只在 Windows 安装包里复现、`make dev` 正常”的问题时，推荐按下面的顺序排查：
+
+1. 先用 `-DebugMode` 或手动触发 GitHub Actions 的 `workflow_dispatch` 产出 Debug 包，不要先猜 Wails bridge、WebView2 或前端拆分本身有问题。
+2. 先看右下角 `Desktop Diagnostics` 面板，再决定问题层级。优先看：
+   - `window.WailsInvoke`
+   - `window.chrome.webview.postMessage`
+   - `window.external.invoke`
+   - `outboundMessages`
+   - `init-failed`、`wailsinvoke-throw`、`runtime-event-bind-failed` 这类 reason
+3. 如果 Diagnostics 显示 bridge 是正常的，再沿着 stack trace 回到具体前端函数，不要继续把问题归因到 Wails。
+4. 如果页面上消息“先出现后消失”，先检查该命令在 `internal/runtimepolicy/commands.go` 里的 `PersistHistory`。像 `/help`、`/find`、`/send` 这类命令本来就可能不写入持久历史，前端不能假设 `refreshChatState()` 后还能从后端把它们读回来。
+
+这次实际踩到的两个根因，后续改前端时要特别注意：
+
+- JS 模板字符串里不要直接写 Markdown 风格的反引号代码片段，例如 `` `/find` ``、`` `/send <序号>` ``。在模板字符串里它们会被当成 JS 表达式或 tagged template 参与求值，可能在运行时触发 `ReferenceError`。如果要显示命令示例，统一写成 `<code>/find</code>` 这种 HTML。
+- 对话页如果要临时展示“不入历史”的命令结果，必须把“是否持久化历史”当成后端返回的一部分处理，而不是只做乐观渲染后立即用 `GetChatState()` 覆盖。
+
 这两个脚本会优先使用 `PATH` 里的 `wails`；如果没找到，会自动回退到仓库 `go.mod` 锁定版本的 `go run github.com/wailsapp/wails/v2/cmd/wails@<version>`。
 
 桌面脚本会强制使用 `CGO_ENABLED=1`，因为桌面端运行依赖 SQLite；如果你的 shell 里全局设置了 `CGO_ENABLED=0`，脚本也会覆盖它。

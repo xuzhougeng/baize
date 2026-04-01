@@ -20,6 +20,8 @@ This repository is being refactored toward a conversation-first, interface-thin 
 - Treat intermediate material as disposable by default. File listings, fetched page bodies, raw command output, and other execution artifacts should stay in scratchpad unless there is an explicit reason to persist or surface them.
 - A thinner interface may expose fewer capabilities, but it must not redefine the fundamental conversation semantics.
 - When fixing bugs, prefer removing transport-specific special cases and moving logic into `internal/app` or a dedicated `internal/<domain>` package instead of adding more branchy behavior to `internal/weixin`, `internal/terminal`, or desktop UI glue.
+- When a desktop-only Windows bug appears in packaged builds, prefer the existing DebugMode workflow first. Use the desktop diagnostics panel to decide whether the failure is in Wails/WebView2 bridge setup or in app code before changing bridge logic.
+- Frontends must respect runtime command policy instead of inferring persistence locally. If a command is marked `PersistHistory: false` in `internal/runtimepolicy`, desktop/terminal/WeChat adapters should treat its output as transient unless the backend explicitly says otherwise.
 - If a change alters architecture assumptions, update `README.md` and this file in the same change.
 
 ## Build, Test, and Development Commands
@@ -27,6 +29,11 @@ Use `go run ./cmd/myclaw` for the terminal app, `go run ./cmd/myclaw-desktop` fo
 
 ## Coding Style & Naming Conventions
 Target Go 1.24 and let `gofmt` own formatting; do not hand-align whitespace. Follow Go naming: exported identifiers use PascalCase, internal helpers use camelCase, package directories stay lowercase, and platform files use suffixes like `_windows.go` or `_stub.go`. Keep functions small and package boundaries clear; prefer extending existing `internal/*` packages over adding cross-package shortcuts.
+
+For desktop frontend JS that renders HTML via template literals:
+
+- Do not embed Markdown-style backtick code spans like `` `/help` `` or `` `es.exe` `` inside JavaScript template strings. They are parsed as JavaScript syntax, not inert UI text.
+- If UI needs inline command or path examples, render them with HTML such as `<code>/help</code>` instead.
 
 ## Tool Units
 Reusable tool-style modules must be designed as self-descriptive units, so they can be reused by other AI projects without reverse-engineering app-specific code paths.
