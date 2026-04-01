@@ -45,7 +45,9 @@ func Open(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	// Keep no idle connections so temporary databases are not left locked on Windows
+	// after a test has finished using them.
+	db.SetMaxIdleConns(0)
 
 	if err := configure(db); err != nil {
 		_ = db.Close()
@@ -54,6 +56,46 @@ func Open(path string) (*sql.DB, error) {
 
 	dbs[absPath] = db
 	return db, nil
+}
+
+func Close(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
+	dbMu.Lock()
+	db := dbs[absPath]
+	delete(dbs, absPath)
+	dbMu.Unlock()
+
+	if db == nil {
+		return nil
+	}
+	return db.Close()
+}
+
+func CloseAll() error {
+	dbMu.Lock()
+	items := make([]*sql.DB, 0, len(dbs))
+	for path, db := range dbs {
+		delete(dbs, path)
+		items = append(items, db)
+	}
+	dbMu.Unlock()
+
+	var firstErr error
+	for _, db := range items {
+		if err := db.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func configure(db *sql.DB) error {
