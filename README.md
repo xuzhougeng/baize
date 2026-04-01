@@ -97,7 +97,8 @@ internal/terminal     终端接口适配
 internal/toolcontract 统一工具契约定义
 internal/weixin       微信接口适配、消息桥接与文件发送能力
 internal/dirlist      list_directory 工具单元，原生文件系统目录列举
-internal/systemcmd    readonly_system_command 工具单元，允许列表只读系统命令
+internal/bashtool     bash_tool 工具单元，Linux/macOS 只读 shell 命令
+internal/powershelltool powershell_tool 工具单元，Windows 只读 PowerShell 命令
 internal/sessionstate 会话快照持久化（历史消息、模式、已加载技能）
 internal/skilllib     技能加载与管理
 internal/fileingest   图片与 PDF 摄入（视觉总结 / go-fitz 全文提取）

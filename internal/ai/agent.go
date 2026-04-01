@@ -8,6 +8,10 @@ import (
 
 type AgentToolDefinition struct {
 	Name              string
+	FamilyKey         string
+	FamilyTitle       string
+	DisplayTitle      string
+	DisplayOrder      int
 	Provider          string
 	ProviderKind      string
 	Purpose           string
@@ -39,6 +43,15 @@ func appendToolListToPrompt(b *strings.Builder, tools []AgentToolDefinition) {
 	for _, tool := range tools {
 		b.WriteString("- ")
 		b.WriteString(tool.Name)
+		if family := strings.TrimSpace(tool.FamilyKey); family != "" {
+			b.WriteString(" [family=")
+			b.WriteString(family)
+			if title := strings.TrimSpace(tool.FamilyTitle); title != "" {
+				b.WriteString(", title=")
+				b.WriteString(title)
+			}
+			b.WriteString("]")
+		}
 		if provider := strings.TrimSpace(tool.Provider); provider != "" {
 			b.WriteString(" [provider=")
 			b.WriteString(provider)

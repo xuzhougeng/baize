@@ -4,6 +4,10 @@ import "strings"
 
 type Spec struct {
 	Name              string
+	FamilyKey         string
+	FamilyTitle       string
+	DisplayTitle      string
+	DisplayOrder      int
 	Purpose           string
 	Description       string
 	InputContract     string
@@ -15,6 +19,9 @@ type Spec struct {
 
 func (s Spec) Normalized() Spec {
 	s.Name = strings.TrimSpace(s.Name)
+	s.FamilyKey = strings.TrimSpace(s.FamilyKey)
+	s.FamilyTitle = strings.TrimSpace(s.FamilyTitle)
+	s.DisplayTitle = strings.TrimSpace(s.DisplayTitle)
 	s.Purpose = strings.TrimSpace(s.Purpose)
 	s.Description = strings.TrimSpace(s.Description)
 	s.InputContract = strings.TrimSpace(s.InputContract)

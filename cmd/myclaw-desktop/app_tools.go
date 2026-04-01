@@ -10,18 +10,20 @@ import (
 	"myclaw/internal/ai"
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
-	"myclaw/internal/systemcmd"
 )
 
 type ToolItem struct {
 	Name            string `json:"name"`
 	ShortName       string `json:"shortName"`
+	FamilyKey       string `json:"familyKey,omitempty"`
+	FamilyTitle     string `json:"familyTitle,omitempty"`
 	Title           string `json:"title"`
 	Description     string `json:"description"`
 	Purpose         string `json:"purpose"`
 	Provider        string `json:"provider"`
 	ProviderKind    string `json:"providerKind"`
 	SideEffectLevel string `json:"sideEffectLevel"`
+	DisplayOrder    int    `json:"displayOrder,omitempty"`
 	Status          string `json:"status"`
 	StatusTone      string `json:"statusTone"`
 	Enabled         bool   `json:"enabled"`
@@ -57,10 +59,13 @@ func (a *DesktopApp) ListTools() ([]ToolItem, error) {
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
-		left := toolSortOrder(items[i].ShortName)
-		right := toolSortOrder(items[j].ShortName)
+		left := toolSortOrder(items[i])
+		right := toolSortOrder(items[j])
 		if left != right {
 			return left < right
+		}
+		if items[i].FamilyTitle != items[j].FamilyTitle {
+			return strings.ToLower(items[i].FamilyTitle) < strings.ToLower(items[j].FamilyTitle)
 		}
 		return strings.ToLower(items[i].Title) < strings.ToLower(items[j].Title)
 	})
@@ -81,12 +86,15 @@ func toToolItem(definition ai.AgentToolDefinition, settings AppSettings) ToolIte
 	item := ToolItem{
 		Name:            strings.TrimSpace(definition.Name),
 		ShortName:       shortName,
-		Title:           toolTitle(shortName),
+		FamilyKey:       strings.TrimSpace(definition.FamilyKey),
+		FamilyTitle:     strings.TrimSpace(definition.FamilyTitle),
+		Title:           toolTitle(definition),
 		Description:     description,
 		Purpose:         purpose,
 		Provider:        strings.TrimSpace(definition.Provider),
 		ProviderKind:    strings.TrimSpace(definition.ProviderKind),
 		SideEffectLevel: strings.TrimSpace(definition.SideEffectLevel),
+		DisplayOrder:    definition.DisplayOrder,
 		Status:          status,
 		StatusTone:      tone,
 		Enabled:         enabled,
@@ -107,55 +115,29 @@ func toolShortName(name string) string {
 	return trimmed
 }
 
-func toolTitle(name string) string {
-	switch strings.TrimSpace(name) {
+func toolTitle(definition ai.AgentToolDefinition) string {
+	if title := strings.TrimSpace(definition.DisplayTitle); title != "" {
+		return title
+	}
+	switch strings.TrimSpace(toolShortName(definition.Name)) {
 	case filesearch.ToolName:
 		return "文件检索"
 	case dirlist.ToolName:
 		return "目录浏览"
-	case systemcmd.ToolName:
-		return "系统状态检查"
-	case "knowledge_search":
-		return "知识库检索"
-	case "remember":
-		return "保存知识"
-	case "append_knowledge":
-		return "补充知识"
-	case "forget_knowledge":
-		return "删除知识"
-	case "reminder_list":
-		return "查看提醒"
-	case "reminder_add":
-		return "创建提醒"
-	case "reminder_remove":
-		return "删除提醒"
 	default:
-		return strings.ReplaceAll(strings.TrimSpace(name), "_", " ")
+		return strings.ReplaceAll(strings.TrimSpace(toolShortName(definition.Name)), "_", " ")
 	}
 }
 
-func toolSortOrder(name string) int {
-	switch strings.TrimSpace(name) {
+func toolSortOrder(item ToolItem) int {
+	if item.DisplayOrder > 0 {
+		return item.DisplayOrder
+	}
+	switch strings.TrimSpace(item.ShortName) {
 	case filesearch.ToolName:
 		return 10
 	case dirlist.ToolName:
 		return 20
-	case systemcmd.ToolName:
-		return 30
-	case "knowledge_search":
-		return 40
-	case "remember":
-		return 50
-	case "append_knowledge":
-		return 60
-	case "forget_knowledge":
-		return 70
-	case "reminder_list":
-		return 80
-	case "reminder_add":
-		return 90
-	case "reminder_remove":
-		return 100
 	default:
 		return 999
 	}

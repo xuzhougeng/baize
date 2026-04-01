@@ -64,6 +64,15 @@
 9. 必须登记。
    新增、改名、删除 tool unit 后，要更新本文档末尾的 `Registered Tool Units`。
 
+如果多个 tool 明显属于同一类能力，例如 reminder 的 list/add/remove 或 knowledge 的 search/remember/append/forget，建议额外补上家族元数据，至少包括：
+
+- `FamilyKey`
+- `FamilyTitle`
+- `DisplayTitle`
+- `DisplayOrder`
+
+这样运行时可以按“工具家族”注册、排序和展示，而不是在 provider 或 UI 里继续靠工具名硬编码分组。
+
 ## 推荐代码骨架
 
 一个标准 tool unit 推荐至少包含这些元素：
@@ -205,18 +214,6 @@ Flags：
   - search execution and selection state in `internal/filesearch`
   - WeChat file delivery in `internal/weixin/filesender.go`
 
-### `readonly_system_command`
-
-- Package: `internal/systemcmd`
-- Purpose: Run a small allowlisted set of read-only local OS commands for machine inspection in agent mode.
-- Input contract: `command`, `args`, `timeout_seconds`
-- Output contract: tool name, executed command, args, exit code, stdout, stderr, truncation flag
-- Shortcut registration: none; exposed through the shared local agent tool provider and hidden from WeChat contexts
-- Current pipeline split:
-  - tool opportunity detection and planning in `internal/ai`
-  - runtime exposure in `internal/app`
-  - command validation and execution in `internal/systemcmd`
-
 ### `list_directory`
 
 - Package: `internal/dirlist`
@@ -228,3 +225,55 @@ Flags：
   - tool opportunity detection and planning in `internal/ai`
   - runtime exposure in `internal/app`
   - directory enumeration and filtering in `internal/dirlist`
+
+### Shell Family
+
+- Packages:
+  - `internal/bashtool`
+  - `internal/powershelltool`
+- Tools: `bash_tool`, `powershell_tool`
+- Family metadata: `FamilyKey=shell`, `FamilyTitle=Shell`
+- Purpose: Inspect local machine state through platform-native shell command surfaces, while keeping execution inside strict read-only allowlists.
+- Input contract: `command`, optional `args`, optional `timeout_seconds`
+- Output contract: tool name, shell name, executed command, args, exit code, stdout, stderr, truncation flag
+- Shortcut registration: none; exposed through the shared local agent tool provider and filtered by platform/interface
+- Current pipeline split:
+  - tool opportunity detection and tool planning in `internal/ai`
+  - runtime exposure and platform gating in `internal/app`
+  - Bash-oriented execution contract in `internal/bashtool`
+  - PowerShell-oriented execution contract in `internal/powershelltool`
+
+### Knowledge Family
+
+- Package: `internal/knowledge`
+- Tools: `knowledge_search`, `remember`, `append_knowledge`, `forget_knowledge`
+- Family metadata: `FamilyKey=knowledge`, `FamilyTitle=知识库`
+- Purpose: Search, create, extend, and delete knowledge entries in the active project knowledge base.
+- Input contract:
+  - `knowledge_search`: `query`
+  - `remember`: `text`
+  - `append_knowledge`: `id`, `text`
+  - `forget_knowledge`: `id`
+- Output contract: plain-text summaries for search hits, created entries, updated entries, and deletion confirmations.
+- Shortcut registration: `/kb ...` stays in the shared runtime command layer; agent tools are exposed separately through the shared local agent tool provider.
+- Current pipeline split:
+  - tool opportunity detection and tool planning in `internal/ai`
+  - runtime command routing and tool orchestration in `internal/app`
+  - storage, search primitives, and family contracts in `internal/knowledge`
+
+### Reminder Family
+
+- Package: `internal/reminder`
+- Tools: `reminder_list`, `reminder_add`, `reminder_remove`
+- Family metadata: `FamilyKey=reminder`, `FamilyTitle=提醒`
+- Purpose: List, create, and delete reminders visible to the current runtime context.
+- Input contract:
+  - `reminder_list`: no arguments
+  - `reminder_add`: `spec`
+  - `reminder_remove`: `id`
+- Output contract: plain-text summaries for reminder listings, creation confirmation, and deletion confirmation.
+- Shortcut registration: `/notice` and `/cron` remain runtime shortcuts; agent tools are exposed separately through the shared local agent tool provider.
+- Current pipeline split:
+  - tool opportunity detection and tool planning in `internal/ai`
+  - runtime command routing, reminder scoping, and tool orchestration in `internal/app`
+  - reminder persistence, scheduling, and family contracts in `internal/reminder`

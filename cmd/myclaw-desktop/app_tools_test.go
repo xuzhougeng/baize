@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	appsvc "myclaw/internal/app"
+	"myclaw/internal/bashtool"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/powershelltool"
 	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
 	"myclaw/internal/sessionstate"
-	"myclaw/internal/systemcmd"
 )
 
 func TestDesktopListToolsIncludesLocalCapabilities(t *testing.T) {
@@ -31,9 +32,14 @@ func TestDesktopListToolsIncludesLocalCapabilities(t *testing.T) {
 	if _, ok := byName["local::list_directory"]; !ok {
 		t.Fatalf("expected directory listing tool, got %#v", tools)
 	}
-	if systemcmd.SupportedForCurrentPlatform() {
-		if _, ok := byName["local::readonly_system_command"]; !ok {
-			t.Fatalf("expected system inspection tool, got %#v", tools)
+	if bashtool.SupportedForCurrentPlatform() {
+		if _, ok := byName["local::bash_tool"]; !ok {
+			t.Fatalf("expected bash tool, got %#v", tools)
+		}
+	}
+	if powershelltool.SupportedForCurrentPlatform() {
+		if _, ok := byName["local::powershell_tool"]; !ok {
+			t.Fatalf("expected powershell tool, got %#v", tools)
 		}
 	}
 

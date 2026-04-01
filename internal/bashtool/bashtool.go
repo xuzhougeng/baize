@@ -1,4 +1,4 @@
-package systemcmd
+package bashtool
 
 import (
 	"bytes"
@@ -17,10 +17,12 @@ import (
 )
 
 const (
-	ToolName             = "readonly_system_command"
+	ToolName             = "bash_tool"
 	defaultTimeout       = 5 * time.Second
 	maxTimeout           = 10 * time.Second
 	maxOutputPreviewRune = 12000
+	ToolFamilyKey        = "shell"
+	ToolFamilyTitle      = "Shell"
 )
 
 var (
@@ -36,6 +38,7 @@ type ToolInput struct {
 
 type ToolResult struct {
 	Tool      string   `json:"tool"`
+	Shell     string   `json:"shell"`
 	Command   string   `json:"command"`
 	Args      []string `json:"args,omitempty"`
 	ExitCode  int      `json:"exit_code"`
@@ -53,12 +56,16 @@ type commandSpec struct {
 func Definition() toolcontract.Spec {
 	return toolcontract.Spec{
 		Name:              ToolName,
-		Purpose:           "Run a small allowlisted set of read-only local system commands for machine inspection.",
-		Description:       "Execute one approved read-only OS command without a shell. Useful for checking host, user, uptime, processes, disk, or basic platform status.",
-		InputContract:     "Provide {\"command\":\"...\"} and optionally {\"args\":[...],\"timeout_seconds\":5}. Only allowlisted commands and argument variants are accepted for the current OS, and WeChat does not expose this tool.",
-		OutputContract:    "Returns JSON with tool, command, args, exit_code, stdout, stderr, and truncated.",
-		InputJSONExample:  `{"command":"hostname"}`,
-		OutputJSONExample: `{"tool":"readonly_system_command","command":"hostname","args":[],"exit_code":0,"stdout":"my-workstation\n","stderr":""}`,
+		FamilyKey:         ToolFamilyKey,
+		FamilyTitle:       ToolFamilyTitle,
+		DisplayTitle:      "Bash Tool",
+		DisplayOrder:      31,
+		Purpose:           "Run a small allowlisted set of read-only Bash-oriented commands on Linux and macOS.",
+		Description:       "Inspect the local machine on Linux or macOS with one approved read-only command, routed through Bash semantics but still validated against a strict allowlist.",
+		InputContract:     `Provide {"command":"..."} and optionally {"args":[...],"timeout_seconds":5}. Only allowlisted commands and exact argument variants are accepted. This tool is not exposed on Windows or WeChat.`,
+		OutputContract:    "Returns JSON with tool, shell, command, args, exit_code, stdout, stderr, and truncated.",
+		InputJSONExample:  `{"command":"uname","args":["-a"]}`,
+		OutputJSONExample: `{"tool":"bash_tool","shell":"bash","command":"uname","args":["-a"],"exit_code":0,"stdout":"Linux demo-host 6.8.0\n","stderr":""}`,
 		Usage:             UsageText(),
 	}
 }
@@ -66,21 +73,21 @@ func Definition() toolcontract.Spec {
 func UsageText() string {
 	names := availableCommandNames(currentGOOS())
 	if len(names) == 0 {
-		return "No read-only system commands are enabled on this platform."
+		return "Bash Tool is only enabled on Linux and macOS."
 	}
 	return strings.TrimSpace(fmt.Sprintf(`
 Tool: %s
-Purpose: inspect the local machine by running one allowlisted read-only OS command without a shell.
+Purpose: inspect a Linux or macOS machine with one allowlisted read-only command.
 
 Input:
-- command: required allowlisted command name for the current platform
+- command: required allowlisted command name
 - args: optional exact argument variant allowed for that command
 - timeout_seconds: optional timeout in seconds, clamped to 1-10 and defaulting to 5
 
-Current platform command allowlist:
+Current command allowlist:
 - %s
 
-Use this only when the user asks about the current machine state and command output is needed before answering.
+Use this when the user needs current host/process/disk/basic shell-visible state on Linux or macOS.
 `, ToolName, strings.Join(names, "\n- ")))
 }
 
@@ -89,11 +96,16 @@ func AllowedForInterface(name string) bool {
 }
 
 func SupportedForCurrentPlatform() bool {
-	return len(commandCatalog(currentGOOS())) > 0
+	goos := strings.ToLower(strings.TrimSpace(currentGOOS()))
+	return goos == "linux" || goos == "darwin"
 }
 
 func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
 	input = NormalizeInput(input)
+
+	if !SupportedForCurrentPlatform() {
+		return ToolResult{}, fmt.Errorf("%s is not supported on %s", ToolName, currentGOOS())
+	}
 
 	spec, ok := commandCatalog(currentGOOS())[input.Command]
 	if !ok {
@@ -103,20 +115,15 @@ func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
 		return ToolResult{}, err
 	}
 
-	timeout := defaultTimeout
-	if input.TimeoutSeconds > 0 {
-		timeout = time.Duration(input.TimeoutSeconds) * time.Second
-	}
-	if timeout > maxTimeout {
-		timeout = maxTimeout
-	}
-
+	timeout := effectiveTimeout(input.TimeoutSeconds)
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	stdout, stderr, exitCode, err := runCommand(execCtx, spec.Name, input.Args...)
+	commandLine := buildCommandLine(spec.Name, input.Args)
+	stdout, stderr, exitCode, err := runCommand(execCtx, "bash", "-lc", commandLine)
 	result := ToolResult{
 		Tool:     ToolName,
+		Shell:    "bash",
 		Command:  spec.Name,
 		Args:     append([]string(nil), input.Args...),
 		ExitCode: exitCode,
@@ -131,13 +138,13 @@ func Execute(ctx context.Context, input ToolInput) (ToolResult, error) {
 	case errors.Is(execCtx.Err(), context.DeadlineExceeded):
 		return result, fmt.Errorf("command %q timed out after %s", spec.Name, timeout)
 	case errors.Is(err, exec.ErrNotFound):
-		return result, fmt.Errorf("command %q is not available on this machine", spec.Name)
+		return result, fmt.Errorf("bash is not available on this machine")
 	default:
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return result, nil
 		}
-		return result, fmt.Errorf("run command %q: %w", spec.Name, err)
+		return result, fmt.Errorf("run bash command %q: %w", spec.Name, err)
 	}
 }
 
@@ -164,6 +171,24 @@ func NormalizeInput(raw ToolInput) ToolInput {
 	return out
 }
 
+func effectiveTimeout(seconds int) time.Duration {
+	timeout := defaultTimeout
+	if seconds > 0 {
+		timeout = time.Duration(seconds) * time.Second
+	}
+	if timeout > maxTimeout {
+		timeout = maxTimeout
+	}
+	return timeout
+}
+
+func buildCommandLine(command string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, command)
+	parts = append(parts, args...)
+	return strings.Join(parts, " ")
+}
+
 func availableCommandNames(goos string) []string {
 	catalog := commandCatalog(goos)
 	out := make([]string, 0, len(catalog))
@@ -180,36 +205,18 @@ func availableCommandNames(goos string) []string {
 
 func commandCatalog(goos string) map[string]commandSpec {
 	switch strings.ToLower(strings.TrimSpace(goos)) {
-	case "windows":
+	case "darwin", "linux":
 		return map[string]commandSpec{
-			"hostname":   {Name: "hostname", ArgVariants: [][]string{{}}},
-			"whoami":     {Name: "whoami", ArgVariants: [][]string{{}}},
-			"systeminfo": {Name: "systeminfo", ArgVariants: [][]string{{}}},
-			"tasklist":   {Name: "tasklist", ArgVariants: [][]string{{}}},
-			"ipconfig":   {Name: "ipconfig", ArgVariants: [][]string{{}, {"/all"}}, UsageExample: "/all"},
-		}
-	case "darwin":
-		return map[string]commandSpec{
-			"hostname": {Name: "hostname", ArgVariants: [][]string{{}}},
-			"whoami":   {Name: "whoami", ArgVariants: [][]string{{}}},
 			"date":     {Name: "date", ArgVariants: [][]string{{}}},
+			"df":       {Name: "df", ArgVariants: [][]string{{}, {"-h"}}, UsageExample: "-h"},
+			"hostname": {Name: "hostname", ArgVariants: [][]string{{}}},
+			"id":       {Name: "id", ArgVariants: [][]string{{}}},
+			"ls":       {Name: "ls", ArgVariants: [][]string{{}, {"-la"}}, UsageExample: "-la"},
+			"ps":       {Name: "ps", ArgVariants: [][]string{{"-ef"}, {"aux"}}, UsageExample: "-ef"},
+			"pwd":      {Name: "pwd", ArgVariants: [][]string{{}}},
 			"uname":    {Name: "uname", ArgVariants: [][]string{{}, {"-a"}}, UsageExample: "-a"},
 			"uptime":   {Name: "uptime", ArgVariants: [][]string{{}}},
-			"pwd":      {Name: "pwd", ArgVariants: [][]string{{}}},
-			"df":       {Name: "df", ArgVariants: [][]string{{}, {"-h"}}, UsageExample: "-h"},
-			"ps":       {Name: "ps", ArgVariants: [][]string{{"-ef"}, {"aux"}}, UsageExample: "-ef"},
-		}
-	case "linux":
-		return map[string]commandSpec{
-			"hostname": {Name: "hostname", ArgVariants: [][]string{{}}},
 			"whoami":   {Name: "whoami", ArgVariants: [][]string{{}}},
-			"date":     {Name: "date", ArgVariants: [][]string{{}}},
-			"uname":    {Name: "uname", ArgVariants: [][]string{{}, {"-a"}}, UsageExample: "-a"},
-			"uptime":   {Name: "uptime", ArgVariants: [][]string{{}}},
-			"pwd":      {Name: "pwd", ArgVariants: [][]string{{}}},
-			"df":       {Name: "df", ArgVariants: [][]string{{}, {"-h"}}, UsageExample: "-h"},
-			"free":     {Name: "free", ArgVariants: [][]string{{}, {"-h"}}, UsageExample: "-h"},
-			"ps":       {Name: "ps", ArgVariants: [][]string{{"-ef"}, {"aux"}}, UsageExample: "-ef"},
 		}
 	default:
 		return map[string]commandSpec{}
@@ -261,9 +268,9 @@ func execCommand(ctx context.Context, name string, args ...string) (string, stri
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = -1
 		}
+	} else if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
 	}
 	return stdout.String(), stderr.String(), exitCode, err
 }

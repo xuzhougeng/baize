@@ -33,6 +33,10 @@ const (
 
 // AgentToolSpec describes a single tool exposed by an AgentToolProvider.
 type AgentToolSpec struct {
+	FamilyKey            string
+	FamilyTitle          string
+	DisplayTitle         string
+	DisplayOrder         int
 	Purpose              string
 	Name                 string
 	Description          string
@@ -110,6 +114,10 @@ func (r *agentToolProviders) Definitions(ctx context.Context, mc MessageContext)
 			}
 			out = append(out, ai.AgentToolDefinition{
 				Name:              joinProviderToolName(key, name),
+				FamilyKey:         strings.TrimSpace(tool.FamilyKey),
+				FamilyTitle:       strings.TrimSpace(tool.FamilyTitle),
+				DisplayTitle:      strings.TrimSpace(tool.DisplayTitle),
+				DisplayOrder:      tool.DisplayOrder,
 				Provider:          key,
 				ProviderKind:      string(provider.ProviderKind()),
 				Purpose:           strings.TrimSpace(tool.Purpose),
@@ -165,6 +173,10 @@ func normalizeProviderKey(value string) string {
 func agentToolSpecFromContract(spec toolcontract.Spec) AgentToolSpec {
 	spec = spec.Normalized()
 	return AgentToolSpec{
+		FamilyKey:         spec.FamilyKey,
+		FamilyTitle:       spec.FamilyTitle,
+		DisplayTitle:      spec.DisplayTitle,
+		DisplayOrder:      spec.DisplayOrder,
 		Name:              spec.Name,
 		Purpose:           spec.Purpose,
 		Description:       spec.Description,

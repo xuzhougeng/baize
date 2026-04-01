@@ -1,9 +1,24 @@
-package systemcmd
+package bashtool
 
 import (
 	"context"
 	"testing"
 )
+
+func TestDefinitionHasFamilyMetadata(t *testing.T) {
+	t.Parallel()
+
+	spec := Definition().Normalized()
+	if spec.Name != ToolName {
+		t.Fatalf("unexpected tool name: %#v", spec)
+	}
+	if spec.FamilyKey != ToolFamilyKey || spec.FamilyTitle != ToolFamilyTitle {
+		t.Fatalf("unexpected family metadata: %#v", spec)
+	}
+	if spec.DisplayTitle == "" || spec.OutputJSONExample == "" {
+		t.Fatalf("expected display title and output example: %#v", spec)
+	}
+}
 
 func TestExecuteUsesAllowlistedCommand(t *testing.T) {
 	t.Parallel()
@@ -12,10 +27,10 @@ func TestExecuteUsesAllowlistedCommand(t *testing.T) {
 	oldRun := runCommand
 	currentGOOS = func() string { return "linux" }
 	runCommand = func(_ context.Context, name string, args ...string) (string, string, int, error) {
-		if name != "uname" {
-			t.Fatalf("unexpected command: %q", name)
+		if name != "bash" {
+			t.Fatalf("unexpected runner: %q", name)
 		}
-		if len(args) != 1 || args[0] != "-a" {
+		if len(args) != 2 || args[0] != "-lc" || args[1] != "uname -a" {
 			t.Fatalf("unexpected args: %#v", args)
 		}
 		return "Linux test-host\n", "", 0, nil
@@ -32,7 +47,7 @@ func TestExecuteUsesAllowlistedCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if result.Tool != ToolName || result.Command != "uname" || result.ExitCode != 0 {
+	if result.Tool != ToolName || result.Command != "uname" || result.Shell != "bash" || result.ExitCode != 0 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if result.Stdout != "Linux test-host\n" {
@@ -58,20 +73,6 @@ func TestExecuteRejectsDisallowedArgs(t *testing.T) {
 	}
 }
 
-func TestAllowedForInterface(t *testing.T) {
-	t.Parallel()
-
-	if AllowedForInterface("weixin") {
-		t.Fatal("expected weixin to be blocked")
-	}
-	if !AllowedForInterface("desktop") {
-		t.Fatal("expected desktop to be allowed")
-	}
-	if !AllowedForInterface("") {
-		t.Fatal("expected empty interface to be allowed")
-	}
-}
-
 func TestSupportedForCurrentPlatform(t *testing.T) {
 	t.Parallel()
 
@@ -85,8 +86,8 @@ func TestSupportedForCurrentPlatform(t *testing.T) {
 		t.Fatal("expected linux platform to be supported")
 	}
 
-	currentGOOS = func() string { return "plan9" }
+	currentGOOS = func() string { return "windows" }
 	if SupportedForCurrentPlatform() {
-		t.Fatal("expected unsupported platform to be rejected")
+		t.Fatal("expected windows to be unsupported")
 	}
 }

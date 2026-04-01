@@ -5,18 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
+	"myclaw/internal/bashtool"
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
-	"myclaw/internal/knowledge"
-	"myclaw/internal/reminder"
-	"myclaw/internal/systemcmd"
+	"myclaw/internal/powershelltool"
 	"myclaw/internal/toolcontract"
 )
 
 type localAgentToolProvider struct {
 	service *Service
+}
+
+type localToolHandler func(context.Context, MessageContext, string) (string, error)
+
+type localToolSet struct {
+	contracts        []toolcontract.Spec
+	sideEffectByName map[string]ToolSideEffectLevel
+	handlers         map[string]localToolHandler
+	listable         func(MessageContext) bool
 }
 
 func newLocalAgentToolProvider(service *Service) AgentToolProvider {
@@ -31,124 +38,123 @@ func (p *localAgentToolProvider) ProviderKey() string {
 	return string(AgentToolProviderLocal)
 }
 
+func newLocalToolSet(contracts []toolcontract.Spec, sideEffects map[string]ToolSideEffectLevel, handlers map[string]localToolHandler, listable func(MessageContext) bool) localToolSet {
+	normalizedSideEffects := make(map[string]ToolSideEffectLevel, len(sideEffects))
+	for name, level := range sideEffects {
+		name = normalizeLocalToolName(name)
+		if name == "" {
+			continue
+		}
+		normalizedSideEffects[name] = level
+	}
+
+	normalizedHandlers := make(map[string]localToolHandler, len(handlers))
+	for name, handler := range handlers {
+		name = normalizeLocalToolName(name)
+		if name == "" || handler == nil {
+			continue
+		}
+		normalizedHandlers[name] = handler
+	}
+
+	return localToolSet{
+		contracts:        append([]toolcontract.Spec(nil), contracts...),
+		sideEffectByName: normalizedSideEffects,
+		handlers:         normalizedHandlers,
+		listable:         listable,
+	}
+}
+
+func singletonLocalToolSet(contract toolcontract.Spec, level ToolSideEffectLevel, handler localToolHandler, listable func(MessageContext) bool) localToolSet {
+	return newLocalToolSet(
+		[]toolcontract.Spec{contract},
+		map[string]ToolSideEffectLevel{contract.Name: level},
+		map[string]localToolHandler{contract.Name: handler},
+		listable,
+	)
+}
+
+func normalizeLocalToolName(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func (s localToolSet) listableFor(mc MessageContext) bool {
+	if s.listable == nil {
+		return true
+	}
+	return s.listable(mc)
+}
+
+func (s localToolSet) specs() []AgentToolSpec {
+	out := make([]AgentToolSpec, 0, len(s.contracts))
+	for _, contract := range s.contracts {
+		spec := agentToolSpecFromContract(contract)
+		if level, ok := s.sideEffectByName[normalizeLocalToolName(spec.Name)]; ok {
+			spec.SideEffectLevel = level
+		}
+		out = append(out, spec)
+	}
+	return out
+}
+
+func (s localToolSet) handler(toolName string) (localToolHandler, bool) {
+	handler, ok := s.handlers[normalizeLocalToolName(toolName)]
+	return handler, ok
+}
+
+func (p *localAgentToolProvider) localToolSets() []localToolSet {
+	return []localToolSet{
+		p.knowledgeToolSet(),
+		singletonLocalToolSet(filesearch.Definition(), ToolSideEffectReadOnly, p.executeFileSearch, nil),
+		p.reminderToolSet(),
+		singletonLocalToolSet(
+			bashtool.Definition(),
+			ToolSideEffectReadOnly,
+			p.executeBashTool,
+			func(mc MessageContext) bool {
+				return bashtool.AllowedForInterface(mc.Interface) && bashtool.SupportedForCurrentPlatform()
+			},
+		),
+		singletonLocalToolSet(
+			powershelltool.Definition(),
+			ToolSideEffectReadOnly,
+			p.executePowerShellTool,
+			func(mc MessageContext) bool {
+				return powershelltool.AllowedForInterface(mc.Interface) && powershelltool.SupportedForCurrentPlatform()
+			},
+		),
+		singletonLocalToolSet(
+			dirlist.Definition(),
+			ToolSideEffectReadOnly,
+			p.executeListDirectory,
+			func(mc MessageContext) bool {
+				return dirlist.AllowedForInterface(mc.Interface)
+			},
+		),
+	}
+}
+
 func (p *localAgentToolProvider) ListAgentTools(_ context.Context, mc MessageContext) ([]AgentToolSpec, error) {
-	tools := []AgentToolSpec{
-		specWithLevel(agentToolSpecFromContract(localKnowledgeSearchContract()), ToolSideEffectReadOnly),
-		specWithLevel(agentToolSpecFromContract(localRememberContract()), ToolSideEffectSoftWrite),
-		specWithLevel(agentToolSpecFromContract(localAppendKnowledgeContract()), ToolSideEffectSoftWrite),
-		specWithLevel(agentToolSpecFromContract(localForgetKnowledgeContract()), ToolSideEffectDestructive),
-		specWithLevel(agentToolSpecFromContract(filesearch.Definition()), ToolSideEffectReadOnly),
-		specWithLevel(agentToolSpecFromContract(localReminderListContract()), ToolSideEffectReadOnly),
-		specWithLevel(agentToolSpecFromContract(localReminderAddContract()), ToolSideEffectSoftWrite),
-		specWithLevel(agentToolSpecFromContract(localReminderRemoveContract()), ToolSideEffectDestructive),
-	}
-	if dirlist.AllowedForInterface(mc.Interface) {
-		tools = append(tools, specWithLevel(agentToolSpecFromContract(dirlist.Definition()), ToolSideEffectReadOnly))
-	}
-	if systemcmd.AllowedForInterface(mc.Interface) && systemcmd.SupportedForCurrentPlatform() {
-		tools = append(tools, specWithLevel(agentToolSpecFromContract(systemcmd.Definition()), ToolSideEffectReadOnly))
+	sets := p.localToolSets()
+	tools := make([]AgentToolSpec, 0, len(sets)*2)
+	for _, set := range sets {
+		if !set.listableFor(mc) {
+			continue
+		}
+		tools = append(tools, set.specs()...)
 	}
 	return tools, nil
 }
 
-func specWithLevel(s AgentToolSpec, level ToolSideEffectLevel) AgentToolSpec {
-	s.SideEffectLevel = level
-	return s
-}
-
 func (p *localAgentToolProvider) ExecuteAgentTool(ctx context.Context, mc MessageContext, toolName, rawInput string) (string, error) {
-	handlers := map[string]func(context.Context, MessageContext, string) (string, error){
-		"knowledge_search":  p.executeKnowledgeSearch,
-		"remember":          p.executeRemember,
-		"append_knowledge":  p.executeAppendKnowledge,
-		"forget_knowledge":  p.executeForgetKnowledge,
-		dirlist.ToolName:    p.executeListDirectory,
-		filesearch.ToolName: p.executeFileSearch,
-		systemcmd.ToolName:  p.executeReadonlySystemCommand,
-		"reminder_list":     p.executeReminderList,
-		"reminder_add":      p.executeReminderAdd,
-		"reminder_remove":   p.executeReminderRemove,
+	for _, set := range p.localToolSets() {
+		handler, ok := set.handler(toolName)
+		if !ok {
+			continue
+		}
+		return handler(ctx, mc, rawInput)
 	}
-	name := strings.ToLower(strings.TrimSpace(toolName))
-	handler, ok := handlers[name]
-	if !ok {
-		return "", fmt.Errorf("unknown local tool %q", toolName)
-	}
-	return handler(ctx, mc, rawInput)
-}
-
-func (p *localAgentToolProvider) executeKnowledgeSearch(ctx context.Context, _ MessageContext, rawInput string) (string, error) {
-	var args struct {
-		Query string `json:"query"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	args.Query = strings.TrimSpace(args.Query)
-	if args.Query == "" {
-		return "", fmt.Errorf("knowledge_search requires query")
-	}
-	results, err := p.service.searchCandidates(ctx, []string{args.Query}, nil, retrievalCandidateLimit)
-	if err != nil {
-		return "", err
-	}
-	if len(results) == 0 {
-		return "没有命中的知识。", nil
-	}
-	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("命中 %d 条知识：\n", len(results)))
-	for index, result := range results {
-		builder.WriteString(fmt.Sprintf("%d. #%s score=%d %s\n",
-			index+1,
-			shortID(result.Entry.ID),
-			result.Score,
-			preview(result.Entry.Text, maxReplyPreviewRunes),
-		))
-	}
-	return strings.TrimSpace(builder.String()), nil
-}
-
-func (p *localAgentToolProvider) executeRemember(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
-	var args struct {
-		Text string `json:"text"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	args.Text = strings.TrimSpace(args.Text)
-	if args.Text == "" {
-		return "", fmt.Errorf("remember requires text")
-	}
-	entry, err := p.service.store.Add(ctx, knowledge.Entry{
-		Text:       args.Text,
-		Source:     sourceLabel(mc),
-		RecordedAt: time.Now(),
-	})
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("已记住 #%s\n%s", shortID(entry.ID), preview(entry.Text, maxReplyPreviewRunes)), nil
-}
-
-func (p *localAgentToolProvider) executeAppendKnowledge(ctx context.Context, _ MessageContext, rawInput string) (string, error) {
-	var args struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	return p.service.appendKnowledge(ctx, args.ID, args.Text)
-}
-
-func (p *localAgentToolProvider) executeForgetKnowledge(ctx context.Context, _ MessageContext, rawInput string) (string, error) {
-	var args struct {
-		ID string `json:"id"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	return p.service.forgetKnowledge(ctx, args.ID)
+	return "", fmt.Errorf("unknown local tool %q", toolName)
 }
 
 func (p *localAgentToolProvider) executeFileSearch(ctx context.Context, _ MessageContext, rawInput string) (string, error) {
@@ -182,76 +188,6 @@ func (p *localAgentToolProvider) executeListDirectory(_ context.Context, mc Mess
 	return dirlist.FormatResult(result)
 }
 
-func (p *localAgentToolProvider) executeReadonlySystemCommand(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
-	if !systemcmd.AllowedForInterface(mc.Interface) {
-		return "", fmt.Errorf("%s is not available for interface %q", systemcmd.ToolName, strings.TrimSpace(mc.Interface))
-	}
-
-	var args systemcmd.ToolInput
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	result, err := systemcmd.Execute(ctx, args)
-	if err != nil {
-		return "", err
-	}
-	return systemcmd.FormatResult(result)
-}
-
-func (p *localAgentToolProvider) executeReminderList(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
-	if err := decodeAgentToolInput(rawInput, &struct{}{}); err != nil {
-		return "", err
-	}
-	if p.service.reminders == nil {
-		return "提醒功能未启用。", nil
-	}
-	items, err := p.service.ListVisibleReminders(ctx, mc)
-	if err != nil {
-		return "", err
-	}
-	return formatReminderListForContext(mc, items), nil
-}
-
-func (p *localAgentToolProvider) executeReminderAdd(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
-	var args struct {
-		Spec string `json:"spec"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	if p.service.reminders == nil {
-		return "提醒功能未启用。", nil
-	}
-	item, err := p.service.scheduleReminderSpec(ctx, reminder.Target{
-		Interface: mc.Interface,
-		UserID:    mc.UserID,
-	}, args.Spec)
-	if err != nil {
-		return "", err
-	}
-	return formatReminderCreated(item), nil
-}
-
-func (p *localAgentToolProvider) executeReminderRemove(ctx context.Context, mc MessageContext, rawInput string) (string, error) {
-	var args struct {
-		ID string `json:"id"`
-	}
-	if err := decodeAgentToolInput(rawInput, &args); err != nil {
-		return "", err
-	}
-	if p.service.reminders == nil {
-		return "提醒功能未启用。", nil
-	}
-	item, ok, err := p.service.RemoveVisibleReminder(ctx, mc, args.ID)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return fmt.Sprintf("没有找到提醒 %q。", args.ID), nil
-	}
-	return fmt.Sprintf("已删除提醒 #%s\n内容: %s", shortID(item.ID), item.Message), nil
-}
-
 func decodeAgentToolInput(raw string, out any) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -264,88 +200,4 @@ func decodeAgentToolInput(raw string, out any) error {
 		return fmt.Errorf("decode tool input: %w", err)
 	}
 	return nil
-}
-
-func localKnowledgeSearchContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "knowledge_search",
-		Purpose:          "Search the current project's knowledge base for relevant entries.",
-		Description:      "Retrieve the most relevant knowledge entries from the active project.",
-		InputContract:    `Provide {"query":"..."}.`,
-		OutputContract:   "Returns a ranked plain-text list of matched knowledge entries.",
-		Usage:            "Use when the user asks what is already known before answering directly.",
-		InputJSONExample: `{"query":"macOS 计划"}`,
-	}
-}
-
-func localRememberContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "remember",
-		Purpose:          "Save a new knowledge entry in the current project.",
-		Description:      "Create one new knowledge record under the active project.",
-		InputContract:    `Provide {"text":"..."}.`,
-		OutputContract:   "Returns the created knowledge ID and preview text.",
-		Usage:            "Use only when the user explicitly wants to save new information.",
-		InputJSONExample: `{"text":"未来要支持 macOS"}`,
-	}
-}
-
-func localAppendKnowledgeContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "append_knowledge",
-		Purpose:          "Append content to an existing knowledge entry by ID or prefix.",
-		Description:      "Extend one existing knowledge record with new text.",
-		InputContract:    `Provide {"id":"...","text":"..."}.`,
-		OutputContract:   "Returns the updated knowledge entry preview.",
-		Usage:            "Use only when the target knowledge entry is already known.",
-		InputJSONExample: `{"id":"6d2d7724","text":"补充说明"}`,
-	}
-}
-
-func localForgetKnowledgeContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "forget_knowledge",
-		Purpose:          "Delete a knowledge entry by ID or prefix.",
-		Description:      "Remove one knowledge record from the active project.",
-		InputContract:    `Provide {"id":"..."}.`,
-		OutputContract:   "Returns deletion confirmation for the removed knowledge entry.",
-		Usage:            "Use only when the user explicitly asks to delete stored knowledge.",
-		InputJSONExample: `{"id":"6d2d7724"}`,
-	}
-}
-
-func localReminderListContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "reminder_list",
-		Purpose:          "List reminders visible from the current runtime context.",
-		Description:      "Read the reminder list for the current conversation target; desktop primary may aggregate reminders from other interfaces.",
-		InputContract:    `Provide {}.`,
-		OutputContract:   "Returns the current reminder list in plain text.",
-		Usage:            "Use when the user asks what reminders are currently scheduled.",
-		InputJSONExample: `{}`,
-	}
-}
-
-func localReminderAddContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "reminder_add",
-		Purpose:          "Create a reminder using the same syntax as /notice.",
-		Description:      "Schedule a new reminder for the current interface and user.",
-		InputContract:    `Provide {"spec":"..."}.`,
-		OutputContract:   "Returns the created reminder summary and next run time.",
-		Usage:            "Use when the user clearly provides reminder timing and message.",
-		InputJSONExample: `{"spec":"2小时后 喝水"}`,
-	}
-}
-
-func localReminderRemoveContract() toolcontract.Spec {
-	return toolcontract.Spec{
-		Name:             "reminder_remove",
-		Purpose:          "Delete a reminder by ID or prefix.",
-		Description:      "Remove one reminder from the current visible reminder scope.",
-		InputContract:    `Provide {"id":"..."}.`,
-		OutputContract:   "Returns deletion confirmation for the removed reminder.",
-		Usage:            "Use only when the user explicitly identifies a reminder to remove.",
-		InputJSONExample: `{"id":"abcd1234"}`,
-	}
 }

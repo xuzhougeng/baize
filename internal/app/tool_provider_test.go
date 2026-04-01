@@ -6,9 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"myclaw/internal/bashtool"
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/powershelltool"
+	"myclaw/internal/reminder"
 )
 
 func TestLocalToolSideEffectLabels(t *testing.T) {
@@ -35,16 +38,21 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"knowledge_search":        string(ToolSideEffectReadOnly),
-		dirlist.ToolName:          string(ToolSideEffectReadOnly),
-		filesearch.ToolName:       string(ToolSideEffectReadOnly),
-		"readonly_system_command": string(ToolSideEffectReadOnly),
-		"reminder_list":           string(ToolSideEffectReadOnly),
-		"remember":                string(ToolSideEffectSoftWrite),
-		"append_knowledge":        string(ToolSideEffectSoftWrite),
-		"reminder_add":            string(ToolSideEffectSoftWrite),
-		"forget_knowledge":        string(ToolSideEffectDestructive),
-		"reminder_remove":         string(ToolSideEffectDestructive),
+		"knowledge_search":  string(ToolSideEffectReadOnly),
+		dirlist.ToolName:    string(ToolSideEffectReadOnly),
+		filesearch.ToolName: string(ToolSideEffectReadOnly),
+		"reminder_list":     string(ToolSideEffectReadOnly),
+		"remember":          string(ToolSideEffectSoftWrite),
+		"append_knowledge":  string(ToolSideEffectSoftWrite),
+		"reminder_add":      string(ToolSideEffectSoftWrite),
+		"forget_knowledge":  string(ToolSideEffectDestructive),
+		"reminder_remove":   string(ToolSideEffectDestructive),
+	}
+	if bashtool.SupportedForCurrentPlatform() {
+		want[bashtool.ToolName] = string(ToolSideEffectReadOnly)
+	}
+	if powershelltool.SupportedForCurrentPlatform() {
+		want[powershelltool.ToolName] = string(ToolSideEffectReadOnly)
 	}
 
 	for tool, wantLevel := range want {
@@ -55,6 +63,53 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 		}
 		if got != wantLevel {
 			t.Errorf("tool %q SideEffectLevel = %q, want %q", tool, got, wantLevel)
+		}
+	}
+}
+
+func TestLocalToolFamiliesAreExposed(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	service := NewService(store, nil, nil)
+
+	defs, err := service.toolProviders.Definitions(context.Background(), MessageContext{})
+	if err != nil {
+		t.Fatalf("Definitions() failed: %v", err)
+	}
+
+	familyByTool := make(map[string]string, len(defs))
+	titleByTool := make(map[string]string, len(defs))
+	for _, def := range defs {
+		_, name, ok := strings.Cut(def.Name, "::")
+		if !ok {
+			name = def.Name
+		}
+		familyByTool[name] = def.FamilyKey
+		titleByTool[name] = def.DisplayTitle
+	}
+
+	wantFamilies := map[string]string{
+		knowledge.SearchToolName:   knowledge.ToolFamilyKey,
+		knowledge.RememberToolName: knowledge.ToolFamilyKey,
+		knowledge.AppendToolName:   knowledge.ToolFamilyKey,
+		knowledge.ForgetToolName:   knowledge.ToolFamilyKey,
+		reminder.ListToolName:      reminder.ToolFamilyKey,
+		reminder.AddToolName:       reminder.ToolFamilyKey,
+		reminder.RemoveToolName:    reminder.ToolFamilyKey,
+	}
+	if bashtool.SupportedForCurrentPlatform() {
+		wantFamilies[bashtool.ToolName] = bashtool.ToolFamilyKey
+	}
+	if powershelltool.SupportedForCurrentPlatform() {
+		wantFamilies[powershelltool.ToolName] = powershelltool.ToolFamilyKey
+	}
+	for tool, wantFamily := range wantFamilies {
+		if got := familyByTool[tool]; got != wantFamily {
+			t.Errorf("tool %q FamilyKey = %q, want %q", tool, got, wantFamily)
+		}
+		if strings.TrimSpace(titleByTool[tool]) == "" {
+			t.Errorf("tool %q missing DisplayTitle", tool)
 		}
 	}
 }
@@ -70,8 +125,11 @@ func TestReadonlySystemCommandNotExposedOnWeixin(t *testing.T) {
 		t.Fatalf("Definitions() failed: %v", err)
 	}
 	for _, def := range defs {
-		if strings.HasSuffix(def.Name, "::readonly_system_command") {
-			t.Fatalf("unexpected readonly system tool in weixin definitions: %#v", def)
+		if strings.HasSuffix(def.Name, "::bash_tool") {
+			t.Fatalf("unexpected bash tool in weixin definitions: %#v", def)
+		}
+		if strings.HasSuffix(def.Name, "::powershell_tool") {
+			t.Fatalf("unexpected powershell tool in weixin definitions: %#v", def)
 		}
 		if strings.HasSuffix(def.Name, "::list_directory") {
 			t.Fatalf("unexpected directory listing tool in weixin definitions: %#v", def)
