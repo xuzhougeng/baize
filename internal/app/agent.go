@@ -62,5 +62,8 @@ func (s *Service) handleAgentQuestion(ctx context.Context, mc MessageContext, qu
 	runtime := &serviceAgentRuntime{service: s}
 	planner := &serviceAgentPlanner{svc: s.aiService}
 	answer, _, err := ai.RunAgentLoop(ctx, runtime, planner, mc, question, maxAgentToolSteps)
+	if err != nil {
+		addProcessTrace(ctx, "Agent 执行失败", err.Error())
+	}
 	return answer, err
 }

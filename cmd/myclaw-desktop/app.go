@@ -196,18 +196,20 @@ type ChatPromptState struct {
 }
 
 type ChatResponse struct {
-	Reply          string             `json:"reply"`
-	Timestamp      string             `json:"timestamp"`
-	SessionID      string             `json:"sessionId,omitempty"`
-	SessionChanged bool               `json:"sessionChanged,omitempty"`
-	HistoryPersisted bool             `json:"historyPersisted"`
-	Usage          *ai.TokenUsage     `json:"usage,omitempty"`
-	Process        []ai.CallTraceStep `json:"process,omitempty"`
+	Reply            string             `json:"reply"`
+	Timestamp        string             `json:"timestamp"`
+	SessionID        string             `json:"sessionId,omitempty"`
+	SessionChanged   bool               `json:"sessionChanged,omitempty"`
+	HistoryPersisted bool               `json:"historyPersisted"`
+	Usage            *ai.TokenUsage     `json:"usage,omitempty"`
+	Process          []ai.CallTraceStep `json:"process,omitempty"`
 }
 
 type ChatStreamEvent struct {
-	RequestID string `json:"requestId"`
-	Delta     string `json:"delta"`
+	RequestID string            `json:"requestId"`
+	Type      string            `json:"type,omitempty"`
+	Delta     string            `json:"delta,omitempty"`
+	Step      *ai.CallTraceStep `json:"step,omitempty"`
 }
 
 type ReminderItem struct {
@@ -1044,7 +1046,7 @@ func (a *DesktopApp) ImportSkillArchive(path string) (SkillMutation, error) {
 }
 
 func (a *DesktopApp) SendMessage(input string) (ChatResponse, error) {
-	return a.sendMessage(context.Background(), input, nil)
+	return a.sendMessage(context.Background(), input, nil, nil)
 }
 
 func (a *DesktopApp) SendMessageStream(requestID, input string) (ChatResponse, error) {
@@ -1055,13 +1057,27 @@ func (a *DesktopApp) SendMessageStream(requestID, input string) (ChatResponse, e
 		}
 		runtime.EventsEmit(a.ctx, "chat:stream", ChatStreamEvent{
 			RequestID: requestID,
+			Type:      "delta",
 			Delta:     delta,
+		})
+	}, func(step ai.CallTraceStep) {
+		if requestID == "" || a.ctx == nil {
+			return
+		}
+		stepCopy := step
+		runtime.EventsEmit(a.ctx, "chat:stream", ChatStreamEvent{
+			RequestID: requestID,
+			Type:      "process",
+			Step:      &stepCopy,
 		})
 	})
 }
 
-func (a *DesktopApp) sendMessage(ctx context.Context, input string, onDelta func(string)) (ChatResponse, error) {
+func (a *DesktopApp) sendMessage(ctx context.Context, input string, onDelta func(string), onProcess func(ai.CallTraceStep)) (ChatResponse, error) {
 	ctx = ai.WithCallTraceCollector(ai.WithUsageCollector(ctx))
+	if onProcess != nil {
+		ctx = ai.WithCallTraceObserver(ctx, onProcess)
+	}
 	project, err := a.currentProject(ctx)
 	if err != nil {
 		return ChatResponse{}, err

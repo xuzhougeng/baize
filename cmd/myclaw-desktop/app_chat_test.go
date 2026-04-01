@@ -384,6 +384,40 @@ func TestDesktopSendMessageUsesFileSearchTool(t *testing.T) {
 	}
 }
 
+func TestDesktopSendMessageStreamsProcessStepsBeforeError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route:       ai.RouteDecision{Command: "answer"},
+		planNextErr: errors.New("planning step 0: decode structured response: invalid character '{' after top-level value"),
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	var streamed []ai.CallTraceStep
+	result, err := app.sendMessage(context.Background(), "你好", nil, func(step ai.CallTraceStep) {
+		streamed = append(streamed, step)
+	})
+	if err == nil {
+		t.Fatalf("expected planning error, got result=%#v", result)
+	}
+	if len(streamed) < 3 {
+		t.Fatalf("expected streamed process steps before error, got %#v", streamed)
+	}
+	if streamed[0].Title != "AI 路由" || streamed[1].Title != "执行模式" {
+		t.Fatalf("expected route+mode steps first, got %#v", streamed)
+	}
+	last := streamed[len(streamed)-1]
+	if last.Title != "Agent 执行失败" || !strings.Contains(last.Detail, "planning step 0") {
+		t.Fatalf("expected final streamed error step, got %#v", streamed)
+	}
+}
+
 func TestDesktopSendMessageReusesCurrentSession(t *testing.T) {
 	t.Parallel()
 
@@ -1113,6 +1147,7 @@ type desktopTestAI struct {
 	route             ai.RouteDecision
 	toolOpportunities []ai.ToolOpportunity
 	toolPlanDecision  ai.ToolPlanDecision
+	planNextErr       error
 	chatFunc          func(context.Context, string, []ai.ConversationMessage) string
 	chatResultFunc    func(context.Context, string, []ai.ConversationMessage) (string, error)
 }
@@ -1160,6 +1195,9 @@ func (f desktopTestAI) DecideAgentStep(context.Context, string, []ai.Conversatio
 }
 
 func (f desktopTestAI) PlanNext(ctx context.Context, task string, history []ai.ConversationMessage, _ []ai.AgentToolDefinition, state ai.AgentTaskState) (ai.LoopDecision, error) {
+	if f.planNextErr != nil {
+		return ai.LoopDecision{}, f.planNextErr
+	}
 	if len(state.ToolAttempts) == 0 && strings.EqualFold(strings.TrimSpace(f.toolPlanDecision.Action), "tool") {
 		toolName := strings.TrimSpace(f.toolPlanDecision.ToolName)
 		if toolName != "" && !strings.Contains(toolName, "::") {

@@ -7,8 +7,9 @@ import (
 )
 
 type callTraceCollector struct {
-	mu    sync.Mutex
-	steps []CallTraceStep
+	mu        sync.Mutex
+	steps     []CallTraceStep
+	observers []func(CallTraceStep)
 }
 
 type callTraceCollectorKey struct{}
@@ -21,6 +22,21 @@ func WithCallTraceCollector(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, callTraceCollectorKey{}, &callTraceCollector{})
+}
+
+func WithCallTraceObserver(ctx context.Context, observer func(CallTraceStep)) context.Context {
+	if observer == nil {
+		return ctx
+	}
+	ctx = WithCallTraceCollector(ctx)
+	collector, _ := ctx.Value(callTraceCollectorKey{}).(*callTraceCollector)
+	if collector == nil {
+		return ctx
+	}
+	collector.mu.Lock()
+	collector.observers = append(collector.observers, observer)
+	collector.mu.Unlock()
+	return ctx
 }
 
 func CallTraceFromContext(ctx context.Context) []CallTraceStep {
@@ -63,5 +79,11 @@ func AddCallTraceStep(ctx context.Context, step CallTraceStep) {
 	}
 	collector.mu.Lock()
 	collector.steps = append(collector.steps, step)
+	observers := append([]func(CallTraceStep){}, collector.observers...)
 	collector.mu.Unlock()
+	for _, observer := range observers {
+		if observer != nil {
+			observer(step)
+		}
+	}
 }

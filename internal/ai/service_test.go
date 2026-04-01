@@ -240,6 +240,42 @@ func TestOpenAIChatCompletionsStructuredRequest(t *testing.T) {
 	}
 }
 
+func TestDecodeStructuredResponseUsesLastJSONValue(t *testing.T) {
+	var got struct {
+		Command  string `json:"command"`
+		Question string `json:"question"`
+	}
+
+	err := decodeStructuredResponse(
+		`{"command":"answer","question":"first"}{"command":"help","question":"second"}`,
+		&got,
+	)
+	if err != nil {
+		t.Fatalf("decode structured response: %v", err)
+	}
+	if got.Command != "help" || got.Question != "second" {
+		t.Fatalf("unexpected decoded value: %#v", got)
+	}
+}
+
+func TestDecodeStructuredResponseSkipsWrapperText(t *testing.T) {
+	var got struct {
+		Command  string `json:"command"`
+		Question string `json:"question"`
+	}
+
+	err := decodeStructuredResponse(
+		"Here is the result:\n```json\n{\"command\":\"answer\",\"question\":\"整理一下\"}\n```\nDone.",
+		&got,
+	)
+	if err != nil {
+		t.Fatalf("decode structured response: %v", err)
+	}
+	if got.Command != "answer" || got.Question != "整理一下" {
+		t.Fatalf("unexpected decoded value: %#v", got)
+	}
+}
+
 func TestAnthropicMessagesStructuredRequest(t *testing.T) {
 	store := newConfiguredStore(t, modelconfig.Config{
 		Provider: modelconfig.ProviderAnthropic,

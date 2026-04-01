@@ -448,6 +448,10 @@ function createWailsBackend() {
 
       const requestId = newChatStreamRequestID();
       state.chatStreamHandlers[requestId] = (event) => {
+        if ((event?.type === 'process' || event?.step) && typeof handlers.onProcess === 'function') {
+          handlers.onProcess(event.step || null);
+          return;
+        }
         if ((event?.delta || '') && typeof handlers.onDelta === 'function') {
           handlers.onDelta(event.delta);
         }
@@ -599,6 +603,10 @@ async function streamJSON(method, url, body, handlers = {}) {
           if (typeof handlers.onDelta === 'function' && event.delta) {
             handlers.onDelta(event.delta);
           }
+        } else if (event.type === 'process') {
+          if (typeof handlers.onProcess === 'function' && event.step) {
+            handlers.onProcess(event.step);
+          }
         } else if (event.type === 'done') {
           result = event;
         } else if (event.type === 'error') {
@@ -618,6 +626,10 @@ async function streamJSON(method, url, body, handlers = {}) {
       result = event;
     } else if (event.type === 'error') {
       throw new Error(event.message || '流式请求失败');
+    } else if (event.type === 'process') {
+      if (typeof handlers.onProcess === 'function' && event.step) {
+        handlers.onProcess(event.step);
+      }
     } else if (event.type === 'delta' && typeof handlers.onDelta === 'function' && event.delta) {
       handlers.onDelta(event.delta);
     }

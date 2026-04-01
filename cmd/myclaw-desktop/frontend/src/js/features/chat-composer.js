@@ -34,6 +34,7 @@ async function sendMessage(rawText = null, displayText = null) {
     role: 'assistant',
     text: '',
     time: '',
+    process: [],
     streaming: true,
   };
   state.chat.push(placeholder);
@@ -46,6 +47,11 @@ async function sendMessage(rawText = null, displayText = null) {
           onDelta: (delta) => {
             if (!delta) return;
             placeholder.text += delta;
+            syncCurrentChatConversationFromMessages();
+            renderChat();
+          },
+          onProcess: (step) => {
+            if (!appendChatProcessStep(placeholder, step)) return;
             syncCurrentChatConversationFromMessages();
             renderChat();
           },
@@ -204,6 +210,7 @@ async function refreshCurrentChatResponse() {
     role: 'assistant',
     text: '',
     time: '',
+    process: [],
     streaming: true,
   };
 
@@ -234,6 +241,13 @@ async function refreshCurrentChatResponse() {
     renderChatContentActions();
     renderChatComposerState();
   }
+}
+
+function appendChatProcessStep(message, step) {
+  const next = normalizeChatProcess([step]);
+  if (next.length === 0 || !message) return false;
+  message.process = [...normalizeChatProcess(message.process), next[0]];
+  return true;
 }
 
 async function copyTextToClipboard(text) {

@@ -25,8 +25,8 @@ function renderChat() {
         <div class="chat-message ${escapeAttribute(message.role)}">
           <div class="chat-avatar">${message.role === 'user' ? '◐' : message.role === 'system' ? '◇' : '○'}</div>
           <div class="chat-bubble">
-            ${renderChatMessageContent(message)}
             ${renderChatProcess(message)}
+            ${renderChatMessageContent(message)}
             ${renderChatMessageFooter(message, index)}
           </div>
         </div>
@@ -40,9 +40,10 @@ function renderChat() {
 
 function renderChatProcess(message) {
   const steps = normalizeChatProcess(message?.process);
-  if (message?.role !== 'assistant' || steps.length === 0) return '';
+  if (message?.role === 'user' || steps.length === 0) return '';
+  const open = message?.streaming || message?.role === 'system';
   return `
-    <details class="chat-process">
+    <details class="chat-process"${open ? ' open' : ''}>
       <summary>调试过程</summary>
       <ol class="chat-process-list">
         ${steps.map((step) => `

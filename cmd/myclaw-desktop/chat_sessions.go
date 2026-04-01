@@ -212,7 +212,7 @@ func (a *DesktopApp) RefreshChatResponse() (ChatResponse, error) {
 	}
 	a.rememberChatSession(project, session.SessionID)
 
-	result, err := a.sendMessage(context.Background(), input, nil)
+	result, err := a.sendMessage(context.Background(), input, nil, nil)
 	if err != nil {
 		if _, restoreErr := a.sessionStore.Save(context.Background(), session.Snapshot); restoreErr != nil {
 			return ChatResponse{}, fmt.Errorf("%w；恢复原回复失败: %v", err, restoreErr)

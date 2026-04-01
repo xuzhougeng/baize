@@ -155,6 +155,7 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 
 	decision, err := s.aiService.RouteCommand(ctx, text)
 	if err != nil {
+		addProcessTrace(ctx, "AI 路由失败", err.Error())
 		return "", err
 	}
 	rawCommand := strings.TrimSpace(decision.Command)
@@ -278,6 +279,9 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 			}
 			addProcessTrace(ctx, "执行模式", "mode=knowledge\nentries="+fmt.Sprintf("%d", len(entries)))
 			reply, err := s.streamOrAnswer(ctx, question, entries, onDelta)
+			if err != nil {
+				addProcessTrace(ctx, "执行失败", err.Error())
+			}
 			if err == nil {
 				s.maybeAppendConversationHistory(ctx, mc, question, reply)
 			}
@@ -295,6 +299,9 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 			history := s.chatHistoryWithRuntimeState(ctx, mc)
 			addProcessTrace(ctx, "执行模式", "mode=ask\nhistory="+fmt.Sprintf("%d", len(history)))
 			reply, err := s.streamOrChat(ctx, question, history, onDelta)
+			if err != nil {
+				addProcessTrace(ctx, "执行失败", err.Error())
+			}
 			if err == nil {
 				s.maybeAppendConversationHistory(ctx, mc, question, reply)
 			}

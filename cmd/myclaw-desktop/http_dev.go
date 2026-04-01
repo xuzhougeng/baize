@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"myclaw/internal/ai"
 )
 
 type desktopHTTPDevServer struct {
@@ -696,6 +698,13 @@ func (s desktopHTTPDevServer) streamChat(w http.ResponseWriter, r *http.Request,
 		}); err != nil {
 			log.Printf("write chat stream delta: %v", err)
 		}
+	}, func(step ai.CallTraceStep) {
+		if err := writeEvent(map[string]any{
+			"type": "process",
+			"step": step,
+		}); err != nil {
+			log.Printf("write chat stream process: %v", err)
+		}
 	})
 	if err != nil {
 		if writeErr := writeEvent(map[string]any{
@@ -707,18 +716,19 @@ func (s desktopHTTPDevServer) streamChat(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-		if err := writeEvent(map[string]any{
-			"type":           "done",
-			"reply":          result.Reply,
-			"timestamp":      result.Timestamp,
-			"sessionId":      result.SessionID,
-			"sessionChanged": result.SessionChanged,
-			"historyPersisted": result.HistoryPersisted,
-			"usage":          result.Usage,
-		}); err != nil {
-			log.Printf("write chat stream done: %v", err)
-		}
+	if err := writeEvent(map[string]any{
+		"type":             "done",
+		"reply":            result.Reply,
+		"timestamp":        result.Timestamp,
+		"sessionId":        result.SessionID,
+		"sessionChanged":   result.SessionChanged,
+		"historyPersisted": result.HistoryPersisted,
+		"usage":            result.Usage,
+		"process":          result.Process,
+	}); err != nil {
+		log.Printf("write chat stream done: %v", err)
 	}
+}
 
 func decodeJSONBody(r *http.Request, out any) error {
 	defer r.Body.Close()

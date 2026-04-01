@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -1339,21 +1340,18 @@ func parseStreamError(payload []byte) error {
 }
 
 func decodeStructuredResponse(text string, out any) error {
-	candidates := []string{
-		strings.TrimSpace(text),
-		stripCodeFence(text),
-		extractJSONObject(stripCodeFence(text)),
-	}
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if err := json.Unmarshal([]byte(candidate), out); err == nil {
+	var firstErr error
+	for _, candidate := range structuredResponseCandidates(text) {
+		if err := decodeStructuredCandidate(candidate, out); err == nil {
 			return nil
+		} else if firstErr == nil {
+			firstErr = err
 		}
 	}
-	return json.Unmarshal([]byte(strings.TrimSpace(text)), out)
+	if firstErr == nil {
+		firstErr = io.EOF
+	}
+	return firstErr
 }
 
 func stripCodeFence(text string) string {
@@ -1371,12 +1369,85 @@ func stripCodeFence(text string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func extractJSONObject(text string) string {
-	text = strings.TrimSpace(text)
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start == -1 || end == -1 || end <= start {
-		return text
+func structuredResponseCandidates(text string) []string {
+	trimmed := strings.TrimSpace(text)
+	stripped := stripCodeFence(text)
+	candidates := []string{trimmed, stripped}
+
+	if jsonStart := extractJSONStart(trimmed); jsonStart != "" {
+		candidates = append(candidates, jsonStart)
 	}
-	return strings.TrimSpace(text[start : end+1])
+	if jsonStart := extractJSONStart(stripped); jsonStart != "" {
+		candidates = append(candidates, jsonStart)
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		unique = append(unique, candidate)
+	}
+	return unique
+}
+
+func decodeStructuredCandidate(text string, out any) error {
+	if raw, err := decodeStructuredJSONValue(text); err == nil {
+		return json.Unmarshal(raw, out)
+	}
+
+	decoded := newDecodeTarget(out)
+	if err := json.Unmarshal([]byte(text), decoded.Interface()); err != nil {
+		return err
+	}
+	reflect.ValueOf(out).Elem().Set(decoded.Elem())
+	return nil
+}
+
+func decodeStructuredJSONValue(text string) ([]byte, error) {
+	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(text)))
+	var last json.RawMessage
+	for {
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if len(last) > 0 {
+				return last, nil
+			}
+			return nil, err
+		}
+		if len(bytes.TrimSpace(raw)) == 0 {
+			continue
+		}
+		last = append(last[:0], raw...)
+	}
+	if len(last) == 0 {
+		return nil, io.EOF
+	}
+	return last, nil
+}
+
+func extractJSONStart(text string) string {
+	text = strings.TrimSpace(text)
+	start := strings.IndexAny(text, "{[")
+	if start == -1 {
+		return ""
+	}
+	return strings.TrimSpace(text[start:])
+}
+
+func newDecodeTarget(out any) reflect.Value {
+	target := reflect.ValueOf(out)
+	if target.Kind() != reflect.Pointer || target.IsNil() {
+		panic("decode target must be a non-nil pointer")
+	}
+	return reflect.New(target.Elem().Type())
 }

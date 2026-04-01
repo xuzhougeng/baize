@@ -927,8 +927,8 @@ function renderChat() {
         <div class="chat-message ${escapeAttribute(message.role)}">
           <div class="chat-avatar">${message.role === 'user' ? '◐' : message.role === 'system' ? '◇' : '○'}</div>
           <div class="chat-bubble">
-            ${renderChatMessageContent(message)}
             ${renderChatProcess(message)}
+            ${renderChatMessageContent(message)}
             ${renderChatMessageFooter(message, index)}
           </div>
         </div>
@@ -942,9 +942,10 @@ function renderChat() {
 
 function renderChatProcess(message) {
   const steps = normalizeChatProcess(message?.process);
-  if (message?.role !== 'assistant' || steps.length === 0) return '';
+  if (message?.role === 'user' || steps.length === 0) return '';
+  const open = message?.streaming || message?.role === 'system';
   return `
-    <details class="chat-process">
+    <details class="chat-process"${open ? ' open' : ''}>
       <summary>调试过程</summary>
       <ol class="chat-process-list">
         ${steps.map((step) => `
@@ -4100,6 +4101,10 @@ function createWailsBackend() {
 
       const requestId = newChatStreamRequestID();
       state.chatStreamHandlers[requestId] = (event) => {
+        if ((event?.type === 'process' || event?.step) && typeof handlers.onProcess === 'function') {
+          handlers.onProcess(event.step || null);
+          return;
+        }
         if ((event?.delta || '') && typeof handlers.onDelta === 'function') {
           handlers.onDelta(event.delta);
         }
@@ -4251,6 +4256,10 @@ async function streamJSON(method, url, body, handlers = {}) {
           if (typeof handlers.onDelta === 'function' && event.delta) {
             handlers.onDelta(event.delta);
           }
+        } else if (event.type === 'process') {
+          if (typeof handlers.onProcess === 'function' && event.step) {
+            handlers.onProcess(event.step);
+          }
         } else if (event.type === 'done') {
           result = event;
         } else if (event.type === 'error') {
@@ -4270,6 +4279,10 @@ async function streamJSON(method, url, body, handlers = {}) {
       result = event;
     } else if (event.type === 'error') {
       throw new Error(event.message || '流式请求失败');
+    } else if (event.type === 'process') {
+      if (typeof handlers.onProcess === 'function' && event.step) {
+        handlers.onProcess(event.step);
+      }
     } else if (event.type === 'delta' && typeof handlers.onDelta === 'function' && event.delta) {
       handlers.onDelta(event.delta);
     }
@@ -4783,6 +4796,7 @@ async function sendMessage(rawText = null, displayText = null) {
     role: 'assistant',
     text: '',
     time: '',
+    process: [],
     streaming: true,
   };
   state.chat.push(placeholder);
@@ -4795,6 +4809,11 @@ async function sendMessage(rawText = null, displayText = null) {
           onDelta: (delta) => {
             if (!delta) return;
             placeholder.text += delta;
+            syncCurrentChatConversationFromMessages();
+            renderChat();
+          },
+          onProcess: (step) => {
+            if (!appendChatProcessStep(placeholder, step)) return;
             syncCurrentChatConversationFromMessages();
             renderChat();
           },
@@ -4953,6 +4972,7 @@ async function refreshCurrentChatResponse() {
     role: 'assistant',
     text: '',
     time: '',
+    process: [],
     streaming: true,
   };
 
@@ -4983,6 +5003,13 @@ async function refreshCurrentChatResponse() {
     renderChatContentActions();
     renderChatComposerState();
   }
+}
+
+function appendChatProcessStep(message, step) {
+  const next = normalizeChatProcess([step]);
+  if (next.length === 0 || !message) return false;
+  message.process = [...normalizeChatProcess(message.process), next[0]];
+  return true;
 }
 
 async function copyTextToClipboard(text) {
