@@ -377,17 +377,26 @@ function defaultSettingsState() {
     weixinHistoryMessages: 12,
     weixinHistoryRunes: 360,
     weixinEverythingPath: '',
+    disabledToolNames: [],
   };
 }
 
 function normalizeSettingsState(payload) {
   const source = Array.isArray(payload) ? payload[0] : payload;
+  const disabledToolNames = Array.isArray(source?.disabledToolNames)
+    ? source.disabledToolNames
+      .map((item) => String(item || '').trim().toLowerCase())
+      .filter(Boolean)
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .sort((left, right) => left.localeCompare(right, 'en'))
+    : [];
   return {
     ...defaultSettingsState(),
     ...(source || {}),
     weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
     weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
     weixinEverythingPath: String(source?.weixinEverythingPath ?? ''),
+    disabledToolNames,
   };
 }
 

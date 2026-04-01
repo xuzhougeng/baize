@@ -457,17 +457,26 @@ function defaultSettingsState() {
     weixinHistoryMessages: 12,
     weixinHistoryRunes: 360,
     weixinEverythingPath: '',
+    disabledToolNames: [],
   };
 }
 
 function normalizeSettingsState(payload) {
   const source = Array.isArray(payload) ? payload[0] : payload;
+  const disabledToolNames = Array.isArray(source?.disabledToolNames)
+    ? source.disabledToolNames
+      .map((item) => String(item || '').trim().toLowerCase())
+      .filter(Boolean)
+      .filter((item, index, items) => items.indexOf(item) === index)
+      .sort((left, right) => left.localeCompare(right, 'en'))
+    : [];
   return {
     ...defaultSettingsState(),
     ...(source || {}),
     weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
     weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
     weixinEverythingPath: String(source?.weixinEverythingPath ?? ''),
+    disabledToolNames,
   };
 }
 
@@ -1846,6 +1855,8 @@ function normalizeTools(payload) {
     sideEffectLevel: item.sideEffectLevel || '',
     status: item.status || '已就绪',
     statusTone: item.statusTone || 'on',
+    enabled: item.enabled !== false,
+    toggleable: item.toggleable !== false,
     configurable: Boolean(item.configurable),
     configValue: item.configValue || '',
   }));
@@ -1901,6 +1912,21 @@ function renderToolConfig(tool) {
   `;
 }
 
+function renderToolToggle(tool) {
+  if (!tool.toggleable) return '';
+  const nextEnabled = !tool.enabled;
+  return `
+    <button
+      class="btn btn-ghost btn-sm"
+      data-tool-action="toggle-enabled"
+      data-tool-name="${escapeAttribute(tool.name)}"
+      data-tool-enabled="${escapeAttribute(nextEnabled ? 'true' : 'false')}"
+    >
+      ${tool.enabled ? '关闭工具' : '启用工具'}
+    </button>
+  `;
+}
+
 function renderTools() {
   const container = document.getElementById('tool-list');
   if (!container) return;
@@ -1941,6 +1967,9 @@ function renderTools() {
           <p class="tool-card-desc">${escapeHTML(tool.description || '这个工具还没有填写描述。')}</p>
           ${purpose}
           ${renderToolConfig(tool)}
+          <div class="tool-card-actions">
+            ${renderToolToggle(tool)}
+          </div>
         </article>
       `;
     })
@@ -2480,14 +2509,20 @@ function renderWeixin() {
 }
 
 async function saveSettings() {
+  return saveSettingsWithOverrides({});
+}
+
+async function saveSettingsWithOverrides(overrides = {}) {
   try {
-    const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || '0';
-    const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || '0';
+    const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || String(state.settings.weixinHistoryMessages ?? 12);
+    const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || String(state.settings.weixinHistoryRunes ?? 360);
     const everythingPathValue = document.getElementById('tool-everything-path')?.value.trim() || state.settings.weixinEverythingPath || '';
     const payload = {
       weixinHistoryMessages: Number(messagesValue),
       weixinHistoryRunes: Number(runesValue),
       weixinEverythingPath: everythingPathValue,
+      disabledToolNames: Array.isArray(state.settings.disabledToolNames) ? [...state.settings.disabledToolNames] : [],
+      ...overrides,
     };
 
     if (!Number.isInteger(payload.weixinHistoryMessages) || payload.weixinHistoryMessages < 0) {
@@ -2504,6 +2539,21 @@ async function saveSettings() {
   } catch (error) {
     showBanner(asMessage(error), true);
   }
+}
+
+async function setToolEnabled(name, enabled) {
+  const toolName = String(name || '').trim().toLowerCase();
+  if (!toolName) return;
+
+  const disabled = new Set(Array.isArray(state.settings.disabledToolNames) ? state.settings.disabledToolNames : []);
+  if (enabled) {
+    disabled.delete(toolName);
+  } else {
+    disabled.add(toolName);
+  }
+  await saveSettingsWithOverrides({
+    disabledToolNames: Array.from(disabled).sort((left, right) => left.localeCompare(right, 'en')),
+  });
 }
 
 function renderSettings() {
@@ -3291,6 +3341,8 @@ function bindStaticEvents() {
 
       if (actionTarget.dataset.toolAction === 'save-everything-path') {
         void saveSettings();
+      } else if (actionTarget.dataset.toolAction === 'toggle-enabled') {
+        void setToolEnabled(actionTarget.dataset.toolName || '', actionTarget.dataset.toolEnabled === 'true');
       }
     });
   }

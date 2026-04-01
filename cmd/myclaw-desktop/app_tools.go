@@ -24,6 +24,8 @@ type ToolItem struct {
 	SideEffectLevel string `json:"sideEffectLevel"`
 	Status          string `json:"status"`
 	StatusTone      string `json:"statusTone"`
+	Enabled         bool   `json:"enabled"`
+	Toggleable      bool   `json:"toggleable"`
 	Configurable    bool   `json:"configurable"`
 	ConfigValue     string `json:"configValue,omitempty"`
 }
@@ -39,7 +41,7 @@ func (a *DesktopApp) ListTools() ([]ToolItem, error) {
 		return nil, err
 	}
 
-	definitions, err := a.service.ListAgentToolDefinitions(ctx, desktopMessageContext(project, ""))
+	definitions, err := a.service.ListAllAgentToolDefinitions(ctx, desktopMessageContext(project, ""))
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +75,7 @@ func toToolItem(definition ai.AgentToolDefinition, settings AppSettings) ToolIte
 	if description == "" {
 		description = purpose
 	}
+	enabled := toolEnabled(definition.Name, settings)
 	status, tone := toolStatus(definition.Name, settings)
 
 	item := ToolItem{
@@ -86,6 +89,8 @@ func toToolItem(definition ai.AgentToolDefinition, settings AppSettings) ToolIte
 		SideEffectLevel: strings.TrimSpace(definition.SideEffectLevel),
 		Status:          status,
 		StatusTone:      tone,
+		Enabled:         enabled,
+		Toggleable:      true,
 	}
 	if shortName == filesearch.ToolName {
 		item.Configurable = true
@@ -157,6 +162,9 @@ func toolSortOrder(name string) int {
 }
 
 func toolStatus(name string, settings AppSettings) (string, string) {
+	if !toolEnabled(name, settings) {
+		return "已关闭", "off"
+	}
 	if toolShortName(name) != filesearch.ToolName {
 		return "已就绪", "on"
 	}
@@ -167,4 +175,13 @@ func toolStatus(name string, settings AppSettings) (string, string) {
 		return "需配置 es.exe 路径", "pending"
 	}
 	return "已就绪", "on"
+}
+
+func toolEnabled(name string, settings AppSettings) bool {
+	disabled := make(map[string]struct{}, len(settings.DisabledToolNames))
+	for _, item := range settings.DisabledToolNames {
+		disabled[strings.ToLower(strings.TrimSpace(item))] = struct{}{}
+	}
+	_, ok := disabled[strings.ToLower(strings.TrimSpace(name))]
+	return !ok
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	appsvc "myclaw/internal/app"
 	"myclaw/internal/sqliteutil"
 )
 
@@ -24,6 +25,7 @@ type desktopSettingsFile struct {
 	WeixinHistoryMessages int               `json:"weixin_history_messages"`
 	WeixinHistoryRunes    int               `json:"weixin_history_runes"`
 	WeixinEverythingPath  string            `json:"weixin_everything_path"`
+	DisabledToolNames     []string          `json:"disabled_tool_names,omitempty"`
 	DesktopChatSessions   map[string]string `json:"desktop_chat_sessions,omitempty"`
 }
 
@@ -42,18 +44,22 @@ func (s *desktopSettingsStore) Load() (desktopSettingsFile, bool, error) {
 	}
 
 	row := s.db.QueryRowContext(context.Background(), `
-		SELECT weixin_history_messages, weixin_history_runes, weixin_everything_path, desktop_chat_sessions_json
+		SELECT weixin_history_messages, weixin_history_runes, weixin_everything_path, disabled_tool_names_json, desktop_chat_sessions_json
 		FROM desktop_settings
 		WHERE id = ?
 	`, desktopSettingsRowID)
 	var (
-		cfg              desktopSettingsFile
-		chatSessionsJSON string
+		cfg               desktopSettingsFile
+		disabledToolsJSON string
+		chatSessionsJSON  string
 	)
-	if err := row.Scan(&cfg.WeixinHistoryMessages, &cfg.WeixinHistoryRunes, &cfg.WeixinEverythingPath, &chatSessionsJSON); err != nil {
+	if err := row.Scan(&cfg.WeixinHistoryMessages, &cfg.WeixinHistoryRunes, &cfg.WeixinEverythingPath, &disabledToolsJSON, &chatSessionsJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return desktopSettingsFile{}, false, nil
 		}
+		return desktopSettingsFile{}, false, err
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(disabledToolsJSON)), &cfg.DisabledToolNames); err != nil {
 		return desktopSettingsFile{}, false, err
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(chatSessionsJSON)), &cfg.DesktopChatSessions); err != nil {
@@ -72,20 +78,25 @@ func (s *desktopSettingsStore) Save(cfg desktopSettingsFile) error {
 	}
 
 	normalizeDesktopSettings(&cfg)
+	disabledToolsJSON, err := json.Marshal(cfg.DisabledToolNames)
+	if err != nil {
+		return err
+	}
 	chatSessionsJSON, err := json.Marshal(cfg.DesktopChatSessions)
 	if err != nil {
 		return err
 	}
 	_, err = s.db.ExecContext(context.Background(), `
 		INSERT INTO desktop_settings (
-			id, weixin_history_messages, weixin_history_runes, weixin_everything_path, desktop_chat_sessions_json
-		) VALUES (?, ?, ?, ?, ?)
+			id, weixin_history_messages, weixin_history_runes, weixin_everything_path, disabled_tool_names_json, desktop_chat_sessions_json
+		) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			weixin_history_messages = excluded.weixin_history_messages,
 			weixin_history_runes = excluded.weixin_history_runes,
 			weixin_everything_path = excluded.weixin_everything_path,
+			disabled_tool_names_json = excluded.disabled_tool_names_json,
 			desktop_chat_sessions_json = excluded.desktop_chat_sessions_json
-	`, desktopSettingsRowID, cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes, cfg.WeixinEverythingPath, string(chatSessionsJSON))
+	`, desktopSettingsRowID, cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes, cfg.WeixinEverythingPath, string(disabledToolsJSON), string(chatSessionsJSON))
 	return err
 }
 
@@ -101,9 +112,16 @@ func (s *desktopSettingsStore) ensureReady() error {
 				weixin_history_messages INTEGER NOT NULL DEFAULT 0,
 				weixin_history_runes INTEGER NOT NULL DEFAULT 0,
 				weixin_everything_path TEXT NOT NULL DEFAULT '',
+				disabled_tool_names_json TEXT NOT NULL DEFAULT '[]',
 				desktop_chat_sessions_json TEXT NOT NULL DEFAULT '{}'
 			)
 		`)
+		if s.initErr != nil {
+			return
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN disabled_tool_names_json TEXT NOT NULL DEFAULT '[]'`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
 	})
 	return s.initErr
 }
@@ -122,6 +140,7 @@ func normalizeDesktopSettings(cfg *desktopSettingsFile) {
 	if cfg.WeixinEverythingPath == "." {
 		cfg.WeixinEverythingPath = ""
 	}
+	cfg.DisabledToolNames = appsvc.NormalizeAgentToolNames(cfg.DisabledToolNames)
 	cfg.DesktopChatSessions = normalizeDesktopChatSessions(cfg.DesktopChatSessions)
 }
 

@@ -83,6 +83,34 @@ func TestDesktopListToolsReflectsConfiguredEverythingPath(t *testing.T) {
 	}
 }
 
+func TestDesktopListToolsShowsDisabledStatus(t *testing.T) {
+	t.Parallel()
+
+	app := newDesktopAppForToolsTest(t)
+
+	_, err := app.SaveSettings(AppSettingsInput{
+		WeixinHistoryMessages: 12,
+		WeixinHistoryRunes:    360,
+		DisabledToolNames:     []string{"local::everything_file_search"},
+	})
+	if err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+
+	tools, err := app.ListTools()
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+
+	fileSearch := indexToolsByName(tools)["local::everything_file_search"]
+	if fileSearch.Enabled {
+		t.Fatalf("expected tool to be disabled, got %#v", fileSearch)
+	}
+	if fileSearch.Status != "已关闭" || fileSearch.StatusTone != "off" {
+		t.Fatalf("unexpected disabled tool status: %#v", fileSearch)
+	}
+}
+
 func newDesktopAppForToolsTest(t *testing.T) *DesktopApp {
 	t.Helper()
 

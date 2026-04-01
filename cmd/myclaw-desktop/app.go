@@ -178,15 +178,17 @@ type MessageResult struct {
 }
 
 type AppSettings struct {
-	WeixinHistoryMessages int    `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int    `json:"weixinHistoryRunes"`
-	WeixinEverythingPath  string `json:"weixinEverythingPath"`
+	WeixinHistoryMessages int      `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int      `json:"weixinHistoryRunes"`
+	WeixinEverythingPath  string   `json:"weixinEverythingPath"`
+	DisabledToolNames     []string `json:"disabledToolNames,omitempty"`
 }
 
 type AppSettingsInput struct {
-	WeixinHistoryMessages int    `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int    `json:"weixinHistoryRunes"`
-	WeixinEverythingPath  string `json:"weixinEverythingPath"`
+	WeixinHistoryMessages int      `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes    int      `json:"weixinHistoryRunes"`
+	WeixinEverythingPath  string   `json:"weixinEverythingPath"`
+	DisabledToolNames     []string `json:"disabledToolNames,omitempty"`
 }
 
 type ChatPromptState struct {
@@ -513,6 +515,7 @@ func (a *DesktopApp) GetSettings() (AppSettings, error) {
 		WeixinHistoryMessages: messages,
 		WeixinHistoryRunes:    runes,
 		WeixinEverythingPath:  everythingPath,
+		DisabledToolNames:     a.service.DisabledAgentTools(),
 	}, nil
 }
 
@@ -528,6 +531,7 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 	}
 
 	input.WeixinEverythingPath = strings.TrimSpace(input.WeixinEverythingPath)
+	input.DisabledToolNames = appsvc.NormalizeAgentToolNames(input.DisabledToolNames)
 	if a.settingsStore != nil {
 		cfg, _, err := a.settingsStore.Load()
 		if err != nil {
@@ -536,6 +540,7 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 		cfg.WeixinHistoryMessages = input.WeixinHistoryMessages
 		cfg.WeixinHistoryRunes = input.WeixinHistoryRunes
 		cfg.WeixinEverythingPath = input.WeixinEverythingPath
+		cfg.DisabledToolNames = input.DisabledToolNames
 		if sessions := a.persistedDesktopChatSessions(); len(sessions) > 0 {
 			cfg.DesktopChatSessions = sessions
 		}
@@ -545,6 +550,7 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 	}
 	a.service.SetWeixinHistoryLimits(input.WeixinHistoryMessages, input.WeixinHistoryRunes)
 	a.service.SetFileSearchEverythingPath(input.WeixinEverythingPath)
+	a.service.SetDisabledAgentTools(input.DisabledToolNames)
 	if a.weixinBridge != nil {
 		a.weixinBridge.SetEverythingPath(input.WeixinEverythingPath)
 	}
@@ -1157,6 +1163,7 @@ func (a *DesktopApp) applyPersistedSettings() {
 	}
 	a.service.SetWeixinHistoryLimits(cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes)
 	a.service.SetFileSearchEverythingPath(cfg.WeixinEverythingPath)
+	a.service.SetDisabledAgentTools(cfg.DisabledToolNames)
 	if a.weixinBridge != nil {
 		a.weixinBridge.SetEverythingPath(cfg.WeixinEverythingPath)
 	}

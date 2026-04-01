@@ -78,3 +78,50 @@ func TestReadonlySystemCommandNotExposedOnWeixin(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledAgentToolIsFilteredFromDefinitions(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	service := NewService(store, nil, nil)
+	service.SetDisabledAgentTools([]string{"local::everything_file_search"})
+
+	allDefs, err := service.ListAllAgentToolDefinitions(context.Background(), MessageContext{})
+	if err != nil {
+		t.Fatalf("ListAllAgentToolDefinitions() failed: %v", err)
+	}
+	filteredDefs, err := service.ListAgentToolDefinitions(context.Background(), MessageContext{})
+	if err != nil {
+		t.Fatalf("ListAgentToolDefinitions() failed: %v", err)
+	}
+
+	var allHasFileSearch bool
+	for _, def := range allDefs {
+		if def.Name == "local::everything_file_search" {
+			allHasFileSearch = true
+			break
+		}
+	}
+	if !allHasFileSearch {
+		t.Fatalf("expected disabled tool to remain visible in all definitions: %#v", allDefs)
+	}
+
+	for _, def := range filteredDefs {
+		if def.Name == "local::everything_file_search" {
+			t.Fatalf("expected disabled tool to be filtered out: %#v", filteredDefs)
+		}
+	}
+}
+
+func TestExecuteAgentToolRejectsDisabledTool(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	service := NewService(store, nil, nil)
+	service.SetDisabledAgentTools([]string{"local::everything_file_search"})
+
+	_, err := service.ExecuteAgentTool(context.Background(), MessageContext{}, "local::everything_file_search", `{"query":"report.csv"}`)
+	if err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected disabled tool error, got %v", err)
+	}
+}

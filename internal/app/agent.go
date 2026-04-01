@@ -19,11 +19,11 @@ func (r *serviceAgentRuntime) LoadHistory(ctx context.Context, mc any) []ai.Conv
 }
 
 func (r *serviceAgentRuntime) ListTools(ctx context.Context, mc any) ([]ai.AgentToolDefinition, error) {
-	return r.service.toolProviders.Definitions(ctx, mc.(MessageContext))
+	return r.service.ListAgentToolDefinitions(ctx, mc.(MessageContext))
 }
 
 func (r *serviceAgentRuntime) ExecuteTool(ctx context.Context, mc any, toolName, toolInput string) (string, error) {
-	output, err := r.service.toolProviders.Execute(ctx, mc.(MessageContext), toolName, toolInput)
+	output, err := r.service.ExecuteAgentTool(ctx, mc.(MessageContext), toolName, toolInput)
 	if err != nil {
 		return "", err
 	}

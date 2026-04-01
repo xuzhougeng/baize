@@ -191,6 +191,8 @@ function bindStaticEvents() {
 
       if (actionTarget.dataset.toolAction === 'save-everything-path') {
         void saveSettings();
+      } else if (actionTarget.dataset.toolAction === 'toggle-enabled') {
+        void setToolEnabled(actionTarget.dataset.toolName || '', actionTarget.dataset.toolEnabled === 'true');
       }
     });
   }

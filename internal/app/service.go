@@ -62,6 +62,7 @@ type Service struct {
 	modeMap         map[string]Mode
 	loadedSkillsMu  sync.RWMutex
 	loadedSkillsMap map[string]map[string]skilllib.Skill
+	disabledTools   map[string]struct{}
 }
 
 type retrievalPlan struct {
@@ -127,6 +128,7 @@ func NewServiceWithRuntime(store *knowledge.Store, aiService aiBackend, reminder
 		fileSearchExec:  filesearch.ExecuteWithEverything,
 		modeMap:         make(map[string]Mode),
 		loadedSkillsMap: make(map[string]map[string]skilllib.Skill),
+		disabledTools:   make(map[string]struct{}),
 	}
 	service.toolProviders = newAgentToolProviders()
 	service.toolProviders.Register(newLocalAgentToolProvider(service))

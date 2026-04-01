@@ -32,12 +32,16 @@ func TestDesktopSettingsCanBeSavedAndReloaded(t *testing.T) {
 		WeixinHistoryMessages: 22,
 		WeixinHistoryRunes:    888,
 		WeixinEverythingPath:  `C:\Tools\Everything\es.exe`,
+		DisabledToolNames:     []string{"local::everything_file_search", "mcp.docs::lookup"},
 	})
 	if err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 	if saved.WeixinHistoryMessages != 22 || saved.WeixinHistoryRunes != 888 || saved.WeixinEverythingPath != `C:\Tools\Everything\es.exe` {
 		t.Fatalf("unexpected saved settings: %#v", saved)
+	}
+	if strings.Join(saved.DisabledToolNames, ",") != "local::everything_file_search,mcp.docs::lookup" {
+		t.Fatalf("unexpected disabled tools: %#v", saved.DisabledToolNames)
 	}
 
 	messages, runes := service.WeixinHistoryLimits()
@@ -59,6 +63,9 @@ func TestDesktopSettingsCanBeSavedAndReloaded(t *testing.T) {
 	if reloaded.WeixinHistoryMessages != 22 || reloaded.WeixinHistoryRunes != 888 || reloaded.WeixinEverythingPath != `C:\Tools\Everything\es.exe` {
 		t.Fatalf("unexpected reloaded settings: %#v", reloaded)
 	}
+	if strings.Join(reloaded.DisabledToolNames, ",") != "local::everything_file_search,mcp.docs::lookup" {
+		t.Fatalf("unexpected reloaded disabled tools: %#v", reloaded.DisabledToolNames)
+	}
 
 	messages, runes = reloadedService.WeixinHistoryLimits()
 	if messages != 22 || runes != 888 {
@@ -66,6 +73,9 @@ func TestDesktopSettingsCanBeSavedAndReloaded(t *testing.T) {
 	}
 	if reloadedBridge.EverythingPath() != `C:\Tools\Everything\es.exe` {
 		t.Fatalf("expected persisted bridge settings to load, got %q", reloadedBridge.EverythingPath())
+	}
+	if strings.Join(reloadedService.DisabledAgentTools(), ",") != "local::everything_file_search,mcp.docs::lookup" {
+		t.Fatalf("expected persisted disabled tools on service, got %#v", reloadedService.DisabledAgentTools())
 	}
 }
 
