@@ -39,6 +39,8 @@
   }
 
   .tool-card-header,
+  .tool-group-item-header,
+  .tool-group-item-tags,
   .tool-card-tags {
     flex-direction: column;
     align-items: flex-start;

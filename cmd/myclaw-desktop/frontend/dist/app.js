@@ -1848,6 +1848,8 @@ function normalizeTools(payload) {
   return payload.map((item) => ({
     name: item.name || '',
     shortName: item.shortName || '',
+    familyKey: item.familyKey || '',
+    familyTitle: item.familyTitle || '',
     title: item.title || item.shortName || item.name || '',
     description: item.description || item.purpose || '',
     purpose: item.purpose || '',
@@ -1861,6 +1863,52 @@ function normalizeTools(payload) {
     configurable: Boolean(item.configurable),
     configValue: item.configValue || '',
   }));
+}
+
+function formatProviderLabel(provider, providerKind) {
+  const parts = [provider, providerKind]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  if (parts.length === 0) return 'local';
+  if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+    return parts[0];
+  }
+  return parts.join(' / ');
+}
+
+function toolGroupKey(tool) {
+  const provider = String(tool.provider || '').trim().toLowerCase();
+  const familyKey = String(tool.familyKey || '').trim().toLowerCase();
+  if (familyKey) {
+    return `family:${provider}:${familyKey}`;
+  }
+  return `tool:${String(tool.name || '').trim().toLowerCase()}`;
+}
+
+function groupTools(tools) {
+  const groups = [];
+  const index = new Map();
+
+  (tools || []).forEach((tool) => {
+    const key = toolGroupKey(tool);
+    const existing = index.get(key);
+    if (existing) {
+      existing.items.push(tool);
+      return;
+    }
+    const next = {
+      key,
+      familyKey: String(tool.familyKey || '').trim(),
+      familyTitle: String(tool.familyTitle || '').trim(),
+      provider: String(tool.provider || '').trim(),
+      providerKind: String(tool.providerKind || '').trim(),
+      items: [tool],
+    };
+    index.set(key, next);
+    groups.push(next);
+  });
+
+  return groups;
 }
 
 function toolSideEffectLabel(level) {
@@ -1928,6 +1976,87 @@ function renderToolToggle(tool) {
   `;
 }
 
+function renderStandaloneTool(tool) {
+  const purpose = tool.purpose && tool.purpose !== tool.description
+    ? `<p class="tool-card-purpose">${escapeHTML(tool.purpose)}</p>`
+    : '';
+  const providerLabel = formatProviderLabel(tool.provider, tool.providerKind);
+  return `
+    <article class="tool-card">
+      <div class="tool-card-header">
+        <div>
+          <div class="tool-card-title-row">
+            <h3>${escapeHTML(tool.title || tool.shortName || tool.name)}</h3>
+            <span class="status-pill ${escapeAttribute(tool.statusTone || 'on')}">${escapeHTML(tool.status || '已就绪')}</span>
+          </div>
+          <div class="tool-card-name">${escapeHTML(tool.shortName || tool.name)}</div>
+        </div>
+        <div class="tool-card-tags">
+          <span class="tool-meta-pill">${escapeHTML(toolSideEffectLabel(tool.sideEffectLevel))}</span>
+          <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
+        </div>
+      </div>
+      <p class="tool-card-desc">${escapeHTML(tool.description || '这个工具还没有填写描述。')}</p>
+      ${purpose}
+      ${renderToolConfig(tool)}
+      <div class="tool-card-actions">
+        ${renderToolToggle(tool)}
+      </div>
+    </article>
+  `;
+}
+
+function renderToolGroupItem(tool) {
+  const purpose = tool.purpose && tool.purpose !== tool.description
+    ? `<p class="tool-card-purpose">${escapeHTML(tool.purpose)}</p>`
+    : '';
+  return `
+    <section class="tool-group-item">
+      <div class="tool-group-item-header">
+        <div>
+          <div class="tool-group-item-title-row">
+            <h4>${escapeHTML(tool.title || tool.shortName || tool.name)}</h4>
+            <span class="status-pill ${escapeAttribute(tool.statusTone || 'on')}">${escapeHTML(tool.status || '已就绪')}</span>
+          </div>
+          <div class="tool-group-item-name">${escapeHTML(tool.shortName || tool.name)}</div>
+        </div>
+        <div class="tool-group-item-tags">
+          <span class="tool-meta-pill">${escapeHTML(toolSideEffectLabel(tool.sideEffectLevel))}</span>
+        </div>
+      </div>
+      <p class="tool-card-desc">${escapeHTML(tool.description || '这个工具还没有填写描述。')}</p>
+      ${purpose}
+      ${renderToolConfig(tool)}
+      <div class="tool-card-actions">
+        ${renderToolToggle(tool)}
+      </div>
+    </section>
+  `;
+}
+
+function renderToolGroup(group) {
+  const providerLabel = formatProviderLabel(group.provider, group.providerKind);
+  const countLabel = `${group.items.length} 个工具`;
+  return `
+    <article class="tool-card tool-group-card">
+      <div class="tool-card-header">
+        <div>
+          <div class="tool-card-title-row">
+            <h3>${escapeHTML(group.familyTitle || '工具组')}</h3>
+          </div>
+          <div class="tool-card-name">${escapeHTML(countLabel)}</div>
+        </div>
+        <div class="tool-card-tags">
+          <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
+        </div>
+      </div>
+      <div class="tool-group-list">
+        ${group.items.map((tool) => renderToolGroupItem(tool)).join('')}
+      </div>
+    </article>
+  `;
+}
+
 function renderTools() {
   const container = document.getElementById('tool-list');
   if (!container) return;
@@ -1944,35 +2073,12 @@ function renderTools() {
     return;
   }
 
-  container.innerHTML = tools
-    .map((tool) => {
-      const purpose = tool.purpose && tool.purpose !== tool.description
-        ? `<p class="tool-card-purpose">${escapeHTML(tool.purpose)}</p>`
-        : '';
-      const providerLabel = [tool.provider, tool.providerKind].filter(Boolean).join(' / ') || 'local';
-      return `
-        <article class="tool-card">
-          <div class="tool-card-header">
-            <div>
-              <div class="tool-card-title-row">
-                <h3>${escapeHTML(tool.title || tool.shortName || tool.name)}</h3>
-                <span class="status-pill ${escapeAttribute(tool.statusTone || 'on')}">${escapeHTML(tool.status || '已就绪')}</span>
-              </div>
-              <div class="tool-card-name">${escapeHTML(tool.name || tool.shortName)}</div>
-            </div>
-            <div class="tool-card-tags">
-              <span class="tool-meta-pill">${escapeHTML(toolSideEffectLabel(tool.sideEffectLevel))}</span>
-              <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
-            </div>
-          </div>
-          <p class="tool-card-desc">${escapeHTML(tool.description || '这个工具还没有填写描述。')}</p>
-          ${purpose}
-          ${renderToolConfig(tool)}
-          <div class="tool-card-actions">
-            ${renderToolToggle(tool)}
-          </div>
-        </article>
-      `;
+  container.innerHTML = groupTools(tools)
+    .map((group) => {
+      if (group.familyTitle) {
+        return renderToolGroup(group);
+      }
+      return renderStandaloneTool(group.items[0]);
     })
     .join('');
 }

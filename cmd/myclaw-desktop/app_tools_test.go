@@ -47,6 +47,14 @@ func TestDesktopListToolsIncludesLocalCapabilities(t *testing.T) {
 	if fileSearch.Title != "文件检索" {
 		t.Fatalf("unexpected everything search title: %#v", fileSearch)
 	}
+	knowledgeSearch := byName["local::knowledge_search"]
+	if knowledgeSearch.Title != "检索知识" || knowledgeSearch.FamilyTitle != knowledge.ToolFamilyTitle {
+		t.Fatalf("unexpected knowledge search presentation: %#v", knowledgeSearch)
+	}
+	reminderList := byName["local::reminder_list"]
+	if reminderList.Title != "查看提醒" || reminderList.FamilyTitle != reminder.ToolFamilyTitle {
+		t.Fatalf("unexpected reminder list presentation: %#v", reminderList)
+	}
 	if !fileSearch.Configurable {
 		t.Fatalf("expected everything search to be configurable, got %#v", fileSearch)
 	}
