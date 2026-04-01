@@ -4822,6 +4822,7 @@ async function sendMessage(rawText = null, displayText = null) {
   }
 
   const input = document.getElementById('chat-input');
+  const shouldRestoreFocus = rawText == null;
   const text = String(rawText ?? input?.value ?? '').trim();
   if (!text) return;
   const visibleText = String(displayText ?? text).trim() || text;
@@ -4912,6 +4913,9 @@ async function sendMessage(rawText = null, displayText = null) {
     state.chatStreaming = false;
     renderChatContentActions();
     renderChatComposerState();
+    if (shouldRestoreFocus) {
+      focusChatInput();
+    }
   }
 }
 
