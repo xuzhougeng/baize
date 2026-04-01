@@ -1844,16 +1844,16 @@ function renderToolConfig(tool) {
   return `
     <div class="tool-config">
       <label class="form-field form-field-wide">
-        <span>Everything \`es.exe\` 路径</span>
+        <span>Everything <code>es.exe</code> 路径</span>
         <input id="tool-everything-path" type="text" placeholder="例如: C:\\Program Files\\Everything\\es.exe 或 es.exe" value="${escapeAttribute(value)}" />
       </label>
       <div class="tool-card-note">
-        这个配置同时供 agent 文件检索和 `/find` 使用；如果还没安装 ES，可以去
+        这个配置同时供 agent 文件检索和 <code>/find</code> 使用；如果还没安装 ES，可以去
         <a href="https://www.voidtools.com/zh-cn/downloads" target="_blank" rel="noopener noreferrer">Everything 下载页</a>
         下载。
       </div>
       <div class="tool-card-note">
-        `/find` 目前只在 Windows 下生效，desktop / terminal / 微信会复用同一个文件检索模块；微信发送文件仍然使用 `/send &lt;序号&gt;`。
+        <code>/find</code> 目前只在 Windows 下生效，desktop / terminal / 微信会复用同一个文件检索模块；微信发送文件仍然使用 <code>/send &lt;序号&gt;</code>。
       </div>
       <div class="tool-card-actions">
         <button class="btn btn-primary btn-sm" data-tool-action="save-everything-path">保存路径</button>
