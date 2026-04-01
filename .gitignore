@@ -16,3 +16,9 @@ coverage.out
 Thumbs.db
 .idea/
 .vscode/
+
+# Local agent / tool state
+.claire/
+.claude/
+.codex
+.playwright-mcp/
