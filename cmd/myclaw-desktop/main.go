@@ -44,6 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("prepare data dir: %v", err)
 	}
+	reportDesktopBackendStartup(dataDir)
 
 	appDBPath := filepath.Join(dataDir, "app.db")
 	store := knowledge.NewStore(appDBPath)

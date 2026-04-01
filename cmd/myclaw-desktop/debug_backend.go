@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,50 @@ func desktopBackendDebugLogPath(dataDir string) string {
 	return filepath.Join(dataDir, "debug", "desktop-backend-debug.log")
 }
 
+func appendDesktopBackendDebugEntry(dataDir string, lines []string) {
+	path := desktopBackendDebugLogPath(dataDir)
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+
+	desktopBackendDebugMu.Lock()
+	defer desktopBackendDebugMu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("[desktop-debug] mkdir debug log dir: %v", err)
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Printf("[desktop-debug] open debug log: %v", err)
+		return
+	}
+	defer file.Close()
+
+	payload := strings.Join(lines, "\n") + "\n---\n"
+	if _, err := file.WriteString(payload); err != nil {
+		log.Printf("[desktop-debug] write debug log: %v", err)
+	}
+}
+
+func reportDesktopBackendStartup(dataDir string) {
+	if !desktopDebugBuildEnabled() {
+		return
+	}
+
+	path := desktopBackendDebugLogPath(dataDir)
+	appendDesktopBackendDebugEntry(dataDir, []string{
+		"timestamp=" + time.Now().UTC().Format(time.RFC3339Nano),
+		"buildMode=" + strings.TrimSpace(desktopBuildMode),
+		"scope=startup",
+		"pid=" + strconv.Itoa(os.Getpid()),
+		"dataDir=" + strings.TrimSpace(dataDir),
+		"logPath=" + path,
+		"event=backend-debug-enabled",
+	})
+	log.Printf("[desktop-debug] backend debug enabled: %s", path)
+}
+
 func reportDesktopBackendPanic(dataDir, scope string, recovered any, stack []byte) {
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
@@ -43,11 +88,6 @@ func reportDesktopBackendPanic(dataDir, scope string, recovered any, stack []byt
 	}
 
 	if !desktopDebugBuildEnabled() {
-		return
-	}
-
-	path := desktopBackendDebugLogPath(dataDir)
-	if strings.TrimSpace(path) == "" {
 		return
 	}
 
@@ -70,22 +110,5 @@ func reportDesktopBackendPanic(dataDir, scope string, recovered any, stack []byt
 		entry.WriteByte('\n')
 	}
 	entry.WriteString("---\n")
-
-	desktopBackendDebugMu.Lock()
-	defer desktopBackendDebugMu.Unlock()
-
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("[desktop-debug] mkdir debug log dir: %v", err)
-		return
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		log.Printf("[desktop-debug] open debug log: %v", err)
-		return
-	}
-	defer file.Close()
-
-	if _, err := file.WriteString(entry.String()); err != nil {
-		log.Printf("[desktop-debug] write debug log: %v", err)
-	}
+	appendDesktopBackendDebugEntry(dataDir, strings.Split(strings.TrimSuffix(entry.String(), "---\n"), "\n"))
 }

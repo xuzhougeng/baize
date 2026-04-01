@@ -36,6 +36,35 @@ func TestReportDesktopBackendPanicWritesDebugLog(t *testing.T) {
 	}
 }
 
+func TestReportDesktopBackendStartupWritesMarker(t *testing.T) {
+	previousMode := desktopBuildMode
+	desktopBuildMode = "debug"
+	defer func() {
+		desktopBuildMode = previousMode
+	}()
+
+	dataDir := t.TempDir()
+	reportDesktopBackendStartup(dataDir)
+
+	path := desktopBackendDebugLogPath(dataDir)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read backend debug log: %v", err)
+	}
+	text := string(content)
+	for _, want := range []string{
+		"buildMode=debug",
+		"scope=startup",
+		"event=backend-debug-enabled",
+		"dataDir=" + dataDir,
+		"logPath=" + path,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in backend debug log, got %q", want, text)
+		}
+	}
+}
+
 func TestDesktopBackendDebugLogPath(t *testing.T) {
 	t.Parallel()
 
