@@ -241,11 +241,17 @@ func (s *Service) handleMessageDispatch(ctx context.Context, mc MessageContext, 
 		return s.finalizeMessageReply(ctx, mc, text, reply, err)
 	}
 
-	if reply, ok, err := s.tryHandleFileSearch(ctx, mc, text); ok || err != nil {
-		if err == nil {
-			emitIfPresent(onDelta, reply)
+	mode, _, overridden, err := s.resolveConversationMode(ctx, mc, text)
+	if err != nil {
+		return "", err
+	}
+	if !overridden && mode != ModeAsk {
+		if reply, ok, err := s.tryHandleFileSearch(ctx, mc, text); ok || err != nil {
+			if err == nil {
+				emitIfPresent(onDelta, reply)
+			}
+			return s.finalizeMessageReply(ctx, mc, text, reply, err)
 		}
-		return s.finalizeMessageReply(ctx, mc, text, reply, err)
 	}
 
 	reply, err := s.handleConversationMessageStream(ctx, mc, text, onDelta)

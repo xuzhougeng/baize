@@ -97,6 +97,10 @@ func (s *Service) handleConversationMessageStream(ctx context.Context, mc Messag
 		}
 	}
 
+	if mode == ModeAsk {
+		return s.handleAskConversationStream(ctx, mc, text, onDelta)
+	}
+
 	return s.handleAIDecisionInternal(ctx, mc, text, mode, onDelta)
 }
 
@@ -124,6 +128,22 @@ func (s *Service) handleAIDecision(ctx context.Context, mc MessageContext, text 
 
 func (s *Service) handleAIDecisionStream(ctx context.Context, mc MessageContext, text string, mode Mode, onDelta func(string)) (string, error) {
 	return s.handleAIDecisionInternal(ctx, mc, text, mode, onDelta)
+}
+
+func (s *Service) handleAskConversationStream(ctx context.Context, mc MessageContext, text string, onDelta func(string)) (string, error) {
+	if reply, err := s.ensureAIAvailable(ctx); reply != "" || err != nil {
+		emitIfPresent(onDelta, reply)
+		return reply, err
+	}
+	ctx = s.withSkillContext(ctx, mc)
+
+	history := s.chatHistoryWithRuntimeState(ctx, mc)
+	addProcessTrace(ctx, "执行模式", "mode=ask\nhistory="+fmt.Sprintf("%d", len(history)))
+	reply, err := s.streamOrChat(ctx, text, history, onDelta)
+	if err == nil {
+		s.maybeAppendConversationHistory(ctx, mc, text, reply)
+	}
+	return reply, err
 }
 
 func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContext, text string, mode Mode, onDelta func(string)) (string, error) {

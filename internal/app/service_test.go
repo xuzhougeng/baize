@@ -418,6 +418,74 @@ func TestHandleMessageAskModeUsesChat(t *testing.T) {
 	}
 }
 
+func TestHandleMessageAskModeBypassesRouteCommand(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		routeFunc: func(_ context.Context, input string) ai.RouteDecision {
+			t.Fatalf("route command should not be called in ask mode, input=%q", input)
+			return ai.RouteDecision{}
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "你好" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
+			return "普通聊天"
+		},
+	}, reminders)
+	if _, err := service.SetMode(context.Background(), MessageContext{}, ModeAsk); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "你好")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "普通聊天" {
+		t.Fatalf("unexpected ask reply: %q", reply)
+	}
+}
+
+func TestHandleMessageAskModeSkipsAutomaticFileSearchPlanning(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "app.db")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		toolOpportunityFunc: func(_ context.Context, task string, tools []ai.ToolCapability) []ai.ToolOpportunity {
+			t.Fatalf("tool opportunity detection should not run in ask mode, task=%q tools=%#v", task, tools)
+			return nil
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "查找D盘的csv文件" {
+				t.Fatalf("unexpected chat input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
+			return "这是普通聊天，不自动触发文件检索。"
+		},
+	}, reminders)
+	if _, err := service.SetMode(context.Background(), MessageContext{}, ModeAsk); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
+
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "查找D盘的csv文件")
+	if err != nil {
+		t.Fatalf("handle message: %v", err)
+	}
+	if reply != "这是普通聊天，不自动触发文件检索。" {
+		t.Fatalf("unexpected ask reply: %q", reply)
+	}
+}
+
 func TestHandleMessageScopesAnswerByProject(t *testing.T) {
 	t.Parallel()
 
@@ -1562,7 +1630,7 @@ func TestHandleMessageTreatsSpuriousHelpRouteAsAnswer(t *testing.T) {
 	}
 }
 
-func TestHandleMessagePreservesExplicitHelpRoute(t *testing.T) {
+func TestHandleMessageAgentModePreservesExplicitHelpRoute(t *testing.T) {
 	t.Parallel()
 
 	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
@@ -1578,7 +1646,7 @@ func TestHandleMessagePreservesExplicitHelpRoute(t *testing.T) {
 		},
 	}, reminders)
 	mc := MessageContext{Interface: "desktop", SessionID: "s1"}
-	if _, err := service.SetMode(context.Background(), mc, ModeAsk); err != nil {
+	if _, err := service.SetMode(context.Background(), mc, ModeAgent); err != nil {
 		t.Fatalf("set mode: %v", err)
 	}
 
@@ -2216,6 +2284,7 @@ func TestHandleMessageSlashFindExecutesToolOutsideWeixin(t *testing.T) {
 type fakeAI struct {
 	configured          bool
 	route               ai.RouteDecision
+	routeFunc           func(context.Context, string) ai.RouteDecision
 	searchPlan          ai.SearchPlan
 	toolOpportunities   []ai.ToolOpportunity
 	toolOpportunityFunc func(context.Context, string, []ai.ToolCapability) []ai.ToolOpportunity
@@ -2238,7 +2307,10 @@ func (f fakeAI) IsConfigured(context.Context) (bool, error) {
 	return f.configured, nil
 }
 
-func (f fakeAI) RouteCommand(context.Context, string) (ai.RouteDecision, error) {
+func (f fakeAI) RouteCommand(ctx context.Context, input string) (ai.RouteDecision, error) {
+	if f.routeFunc != nil {
+		return f.routeFunc(ctx, input), nil
+	}
 	return f.route, nil
 }
 
