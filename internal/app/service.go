@@ -363,7 +363,7 @@ func (s *Service) ingestFilePath(ctx context.Context, mc MessageContext, rawPath
 
 func (s *Service) ensureAIAvailable(ctx context.Context) (string, error) {
 	if s.aiService == nil {
-		return "模型尚未启用。请先配置模型，或使用 `/remember` / `记住：` 明确保存内容。", nil
+		return "模型尚未启用。请先配置模型，或使用 `/kb remember` / `记住：` 明确保存内容。", nil
 	}
 
 	configured, err := s.aiService.IsConfigured(ctx)
@@ -645,7 +645,7 @@ func parseRememberIntent(text string) (string, bool) {
 func formatKnowledgeDump(entries []knowledge.Entry, question string) (string, error) {
 	if len(entries) == 0 {
 		if strings.TrimSpace(question) == "" {
-			return "知识库为空。发送\u201c记住：xxx\u201d或 `/remember xxx` 添加内容。", nil
+			return "知识库为空。发送\u201c记住：xxx\u201d或 `/kb remember xxx` 添加内容。", nil
 		}
 		return fmt.Sprintf("我已读取知识库，但当前为空。\n\n你的问题：%s\n\n先用\u201c记住：xxx\u201d保存内容，再来问我。", question), nil
 	}
@@ -815,7 +815,7 @@ func (s *Service) showSkill(name string) (string, error) {
 		return "", err
 	}
 	if !ok {
-		return fmt.Sprintf("没有找到技能 %q。先用 /skills 查看可用技能。", strings.TrimSpace(name)), nil
+		return fmt.Sprintf("没有找到技能 %q。先用 /skill list 查看可用技能。", strings.TrimSpace(name)), nil
 	}
 	return skill.Content, nil
 }
@@ -826,7 +826,7 @@ func (s *Service) loadSkill(mc MessageContext, name string) (string, error) {
 		return "", err
 	}
 	if !ok {
-		return fmt.Sprintf("没有找到技能 %q。先用 /skills 查看可用技能。", strings.TrimSpace(name)), nil
+		return fmt.Sprintf("没有找到技能 %q。先用 /skill list 查看可用技能。", strings.TrimSpace(name)), nil
 	}
 
 	_ = s.loadedSkillsFor(mc)
@@ -878,6 +878,30 @@ func (s *Service) unloadSkill(mc MessageContext, name string) (string, error) {
 	}
 	s.setPersistedLoadedSkillNames(mc, names)
 	return fmt.Sprintf("已卸载技能 %s。", name), nil
+}
+
+func (s *Service) clearLoadedSkills(mc MessageContext) (string, error) {
+	_ = s.loadedSkillsFor(mc)
+	key := skillSessionKey(mc)
+
+	s.loadedSkillsMu.Lock()
+	loaded := len(s.loadedSkillsMap[key])
+	delete(s.loadedSkillsMap, key)
+	s.loadedSkillsMu.Unlock()
+
+	s.setPersistedLoadedSkillNames(mc, nil)
+	if loaded == 0 {
+		return "当前会话还没有加载技能。", nil
+	}
+	return "已清除当前会话已加载的技能。", nil
+}
+
+func (s *Service) formatCurrentSkills(mc MessageContext) string {
+	reply := s.listLoadedSkills(mc)
+	if len(s.loadedSkillsFor(mc)) == 0 {
+		return reply + "\n\n" + skillCommandUsage()
+	}
+	return reply
 }
 
 func (s *Service) listLoadedSkills(mc MessageContext) string {

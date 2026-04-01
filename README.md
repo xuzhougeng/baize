@@ -127,7 +127,7 @@ go run ./cmd/myclaw-desktop
 - 模型配置页面，可直接保存和测试连接
 - 原生文件选择和确认对话框
 - 微信页面，支持在桌面端直接显示二维码扫码登录
-- 对话面板，可继续使用 `/remember`、`/notice`、`/forget`、`/debug-search`、`/mode` 等命令
+- 对话面板，可继续使用 `/kb remember`、`/notice`、`/kb forget`、`/debug-search`、`/mode` 等命令
 
 桌面版默认数据目录会放到用户配置目录：
 
@@ -202,23 +202,23 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 
 - `记住：Windows 版本先做微信接口`
 - `请帮我记住这个东西：未来要支持 macOS`
-- `/remember 未来要支持 macOS`
-- `/remember-file ./docs/puppeteer.pdf`
+- `/kb remember 未来要支持 macOS`
+- `/kb remember-file ./docs/puppeteer.pdf`
 - `./screenshots/puppeteer-home.png`
-- `/append 6d2d7724 它是 Google 出品的一个工具`
+- `/kb append 6d2d7724 它是 Google 出品的一个工具`
 - `给 #6d2d7724 补充：它是 Google 出品的一个工具`
 - `再补充一点：它是 Google 出品的一个工具`
-- `/skills`
-- `/show-skill writer`
-- `/load-skill writer`
-- `/unload-skill writer`
-- `/page-skills`
+- `/skill`
+- `/skill list`
+- `/skill show writer`
+- `/skill load writer`
+- `/skill unload writer`
 - `/mode`
 - `/mode knowledge`
 - `@kb macOS 什么时候做？`
 - `@ai 帮我直接分析这个方案`
 - `/translate Puppeteer is a browser automation tool.`
-- `/forget 0015f908`
+- `/kb forget 0015f908`
 - `/notice 2小时后 喝水`
 - `一分钟后提醒我喝水`
 - `/notice 每天 09:00 写日报`
@@ -226,10 +226,10 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 - `/notice list`
 - `/notice remove <提醒ID前缀>`
 - `/cron 每天 18:00 健身`
-- `/list`
-- `/stats`
+- `/kb list`
+- `/kb stats`
 - `/debug-search macOS 什么时候做？`
-- `/clear`
+- `/kb clear`
 - `现在我记了什么？`
 
 文件摄入说明：
@@ -243,16 +243,17 @@ MYCLAW_WEIXIN_ENABLED=1 go run ./cmd/myclaw
 
 现在支持一个本地技能库，但只做人工控制，不做自动技能决策：
 
-- `/skills` 查看技能库和当前会话已加载技能
-- `/show-skill <技能名>` 查看某个技能内容
-- `/load-skill <技能名>` 手动加载一个技能到当前会话
-- `/unload-skill <技能名>` 从当前会话卸载一个技能
-- `/page-skills` 查看当前会话已加载技能
+- `/skill` 查看当前会话已加载技能
+- `/skill list` 查看技能库和当前会话加载状态
+- `/skill show <技能名>` 查看某个技能内容
+- `/skill load <技能名>` 手动加载一个技能到当前会话
+- `/skill unload <技能名>` 从当前会话卸载一个技能
+- `/skill clear` 清空当前会话已加载技能
 
 说明：
 
 - 模型不会自己决定加载哪个技能
-- 由人先看 `/skills` 和 `/show-skill`，再手动决定是否 `/load-skill`
+- 由人先看 `/skill list` 和 `/skill show`，再手动决定是否 `/skill load`
 - 技能一旦加载，会影响当前页面 / 当前会话里的 AI 路由、翻译、检索计划和回答
 - 现在技能隔离优先按 `SessionID`，没有会话 ID 时才回退到用户维度
 

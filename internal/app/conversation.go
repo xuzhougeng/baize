@@ -223,13 +223,13 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 		}
 		return reply, err
 	case "list":
-		reply, err := s.handleCommand(ctx, mc, "/list")
+		reply, err := s.handleCommand(ctx, mc, "/kb list")
 		if err == nil {
 			emitIfPresent(onDelta, reply)
 		}
 		return reply, err
 	case "stats":
-		reply, err := s.handleCommand(ctx, mc, "/stats")
+		reply, err := s.handleCommand(ctx, mc, "/kb stats")
 		if err == nil {
 			emitIfPresent(onDelta, reply)
 		}

@@ -56,6 +56,26 @@ func TestInspectInputPolicy(t *testing.T) {
 			wantActivateConv:   false,
 		},
 		{
+			name:               "kb stats stays stateless",
+			input:              "/kb stats",
+			wantCommand:        "/kb",
+			wantExecution:      CommandExecutionService,
+			wantKnown:          true,
+			wantControl:        false,
+			wantPersistHistory: false,
+			wantActivateConv:   false,
+		},
+		{
+			name:               "kb list activates conversation",
+			input:              "/kb list",
+			wantCommand:        "/kb",
+			wantExecution:      CommandExecutionService,
+			wantKnown:          true,
+			wantControl:        false,
+			wantPersistHistory: true,
+			wantActivateConv:   true,
+		},
+		{
 			name:      "unknown input",
 			input:     "/unknown",
 			wantKnown: false,
@@ -96,8 +116,8 @@ func TestCanonicalizeCommandInput(t *testing.T) {
 	if got := CanonicalizeCommandInput("／h"); got != "/help" {
 		t.Fatalf("expected /help, got %q", got)
 	}
-	if got := CanonicalizeCommandInput("/r hello"); got != "/remember hello" {
-		t.Fatalf("expected /remember hello, got %q", got)
+	if got := CanonicalizeCommandInput("/kb remember hello"); got != "/kb remember hello" {
+		t.Fatalf("expected /kb remember hello, got %q", got)
 	}
 	if got := CanonicalizeCommandInput("/unknown hello"); got != "/unknown hello" {
 		t.Fatalf("expected unknown command to remain unchanged, got %q", got)

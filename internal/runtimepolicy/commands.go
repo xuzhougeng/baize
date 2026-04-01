@@ -16,12 +16,22 @@ type CommandPolicy struct {
 	Execution            CommandExecutionKind
 	PersistHistory       bool
 	ActivateConversation bool
+	Subcommands          []SubcommandPolicy
+}
+
+type SubcommandPolicy struct {
+	Subcommand           string
+	Aliases              []string
+	Execution            CommandExecutionKind
+	PersistHistory       bool
+	ActivateConversation bool
 }
 
 type InputPolicy struct {
 	RawInput              string
 	NormalizedInput       string
 	Command               string
+	Subcommand            string
 	Execution             CommandExecutionKind
 	PersistHistory        bool
 	ActivateConversation  bool
@@ -32,24 +42,28 @@ type InputPolicy struct {
 var commandPolicies = []CommandPolicy{
 	{Command: "/new", Execution: CommandExecutionControl, PersistHistory: true, ActivateConversation: true},
 	{Command: "/help", Aliases: []string{"/h"}, Execution: CommandExecutionService, PersistHistory: false, ActivateConversation: false},
-	{Command: "/remember", Aliases: []string{"/r"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/remember-file", Aliases: []string{"/ingest"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/find", Execution: CommandExecutionTransportTool, PersistHistory: false, ActivateConversation: false},
 	{Command: "/send", Execution: CommandExecutionTransportTool, PersistHistory: false, ActivateConversation: false},
-	{Command: "/append", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/skills", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/show-skill", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/load-skill", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/unload-skill", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/page-skills", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+	{Command: "/skill", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/prompt", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+	{
+		Command:              "/kb",
+		Execution:            CommandExecutionService,
+		PersistHistory:       false,
+		ActivateConversation: false,
+		Subcommands: []SubcommandPolicy{
+			{Subcommand: "remember", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+			{Subcommand: "remember-file", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+			{Subcommand: "append", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+			{Subcommand: "forget", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+			{Subcommand: "list", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+			{Subcommand: "stats", Execution: CommandExecutionService, PersistHistory: false, ActivateConversation: false},
+			{Subcommand: "clear", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
+		},
+	},
 	{Command: "/translate", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/debug-search", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/mode", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/forget", Aliases: []string{"/delete"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/list", Aliases: []string{"/ls"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
-	{Command: "/stats", Execution: CommandExecutionService, PersistHistory: false, ActivateConversation: false},
-	{Command: "/clear", Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 	{Command: "/notice", Aliases: []string{"/cron"}, Execution: CommandExecutionService, PersistHistory: true, ActivateConversation: true},
 }
 
@@ -107,6 +121,14 @@ func InspectInputPolicy(input string) InputPolicy {
 	policy.Execution = command.Execution
 	policy.PersistHistory = command.PersistHistory
 	policy.ActivateConversation = command.ActivateConversation
+	if len(fields) > 1 {
+		if subcommand, ok := lookupSubcommandPolicy(command, fields[1]); ok {
+			policy.Subcommand = subcommand.Subcommand
+			policy.Execution = subcommand.Execution
+			policy.PersistHistory = subcommand.PersistHistory
+			policy.ActivateConversation = subcommand.ActivateConversation
+		}
+	}
 	policy.IsKnownCommand = true
 	policy.IsConversationControl = command.Execution == CommandExecutionControl
 	return policy
@@ -132,6 +154,19 @@ func CanonicalizeCommandInput(input string) string {
 func LookupCommandPolicy(command string) (CommandPolicy, bool) {
 	policy, ok := commandPolicyByAlias[strings.ToLower(strings.TrimSpace(command))]
 	return policy, ok
+}
+
+func lookupSubcommandPolicy(policy CommandPolicy, subcommand string) (SubcommandPolicy, bool) {
+	key := strings.ToLower(strings.TrimSpace(subcommand))
+	for _, item := range policy.Subcommands {
+		keys := append([]string{item.Subcommand}, item.Aliases...)
+		for _, candidate := range keys {
+			if strings.ToLower(strings.TrimSpace(candidate)) == key {
+				return item, true
+			}
+		}
+	}
+	return SubcommandPolicy{}, false
 }
 
 func IsSlashCommand(text string) bool {

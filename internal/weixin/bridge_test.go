@@ -233,7 +233,7 @@ func TestHandleMessageRecordsSlashCommandConversation(t *testing.T) {
 		ContextToken: "ctx-1",
 		MessageType:  MessageTypeUser,
 		MessageState: MessageStateFinish,
-		ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "/list"}}},
+		ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "/kb list"}}},
 	}
 
 	bridge.handleMessage(context.Background(), msg)
@@ -248,7 +248,7 @@ func TestHandleMessageRecordsSlashCommandConversation(t *testing.T) {
 	if len(snapshot.History) != 2 {
 		t.Fatalf("expected slash history, got %#v", snapshot.History)
 	}
-	if snapshot.History[0].Content != "/list" {
+	if snapshot.History[0].Content != "/kb list" {
 		t.Fatalf("unexpected recorded command: %#v", snapshot.History[0])
 	}
 	if !strings.Contains(snapshot.History[1].Content, "当前对话已开始。") {
@@ -278,7 +278,7 @@ func TestHandleMessageStatelessCommandsDoNotCreateConversation(t *testing.T) {
 		},
 		{
 			name:            "stats",
-			command:         "/stats",
+			command:         "/kb stats",
 			seedKnowledge:   true,
 			wantReplySubstr: "知识条数: 1",
 		},
@@ -446,7 +446,7 @@ func TestHandleMessageAfterDeletedConversationStartsNewSession(t *testing.T) {
 		ContextToken: "ctx-1",
 		MessageType:  MessageTypeUser,
 		MessageState: MessageStateFinish,
-		ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "/list"}}},
+		ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "/kb list"}}},
 	}
 
 	bridge.handleMessage(context.Background(), msg)

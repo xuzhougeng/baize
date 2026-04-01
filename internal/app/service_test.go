@@ -37,7 +37,7 @@ func TestHandleMessageRememberAndList(t *testing.T) {
 		t.Fatalf("unexpected remember reply: %q", reply)
 	}
 
-	reply, err = service.HandleMessage(ctx, MessageContext{}, "/list")
+	reply, err = service.HandleMessage(ctx, MessageContext{}, "/kb list")
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -133,7 +133,7 @@ Use concise Chinese writing.
 	service := NewServiceWithSkills(store, nil, reminders, skilllib.NewLoader(filepath.Join(root, "skills")))
 	mc := MessageContext{UserID: "u1", Interface: "terminal"}
 
-	reply, err := service.HandleMessage(context.Background(), mc, "/skills")
+	reply, err := service.HandleMessage(context.Background(), mc, "/skill list")
 	if err != nil {
 		t.Fatalf("list skills: %v", err)
 	}
@@ -141,7 +141,7 @@ Use concise Chinese writing.
 		t.Fatalf("expected listed skill, got %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mc, "/show-skill writer")
+	reply, err = service.HandleMessage(context.Background(), mc, "/skill show writer")
 	if err != nil {
 		t.Fatalf("show skill: %v", err)
 	}
@@ -149,7 +149,7 @@ Use concise Chinese writing.
 		t.Fatalf("expected skill content, got %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mc, "/load-skill writer")
+	reply, err = service.HandleMessage(context.Background(), mc, "/skill load writer")
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
@@ -157,7 +157,7 @@ Use concise Chinese writing.
 		t.Fatalf("unexpected load reply: %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mc, "/skills")
+	reply, err = service.HandleMessage(context.Background(), mc, "/skill list")
 	if err != nil {
 		t.Fatalf("list skills after load: %v", err)
 	}
@@ -165,7 +165,7 @@ Use concise Chinese writing.
 		t.Fatalf("expected loaded marker, got %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mc, "/page-skills")
+	reply, err = service.HandleMessage(context.Background(), mc, "/skill")
 	if err != nil {
 		t.Fatalf("page skills: %v", err)
 	}
@@ -173,7 +173,7 @@ Use concise Chinese writing.
 		t.Fatalf("expected loaded page skill, got %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mc, "/unload-skill writer")
+	reply, err = service.HandleMessage(context.Background(), mc, "/skill unload writer")
 	if err != nil {
 		t.Fatalf("unload skill: %v", err)
 	}
@@ -218,7 +218,7 @@ Preserve technical terms whenever possible.
 	}, reminders, skilllib.NewLoader(filepath.Join(root, "skills")))
 	mc := MessageContext{UserID: "u1", Interface: "terminal"}
 
-	if _, err := service.HandleMessage(context.Background(), mc, "/load-skill translator"); err != nil {
+	if _, err := service.HandleMessage(context.Background(), mc, "/skill load translator"); err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
 
@@ -257,7 +257,7 @@ Use concise Chinese writing.
 	mcA := MessageContext{UserID: "u1", Interface: "desktop", SessionID: "page-a"}
 	mcB := MessageContext{UserID: "u1", Interface: "desktop", SessionID: "page-b"}
 
-	reply, err := service.HandleMessage(context.Background(), mcA, "/load-skill writer")
+	reply, err := service.HandleMessage(context.Background(), mcA, "/skill load writer")
 	if err != nil {
 		t.Fatalf("load skill for page a: %v", err)
 	}
@@ -265,7 +265,7 @@ Use concise Chinese writing.
 		t.Fatalf("unexpected load reply: %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mcA, "/page-skills")
+	reply, err = service.HandleMessage(context.Background(), mcA, "/skill")
 	if err != nil {
 		t.Fatalf("page skills for page a: %v", err)
 	}
@@ -273,7 +273,7 @@ Use concise Chinese writing.
 		t.Fatalf("expected loaded skill in page a, got %q", reply)
 	}
 
-	reply, err = service.HandleMessage(context.Background(), mcB, "/page-skills")
+	reply, err = service.HandleMessage(context.Background(), mcB, "/skill")
 	if err != nil {
 		t.Fatalf("page skills for page b: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestAppendCommandUpdatesExistingKnowledge(t *testing.T) {
 		t.Fatalf("seed entry: %v", err)
 	}
 
-	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "/append 6d2d7724 它是 Google 出品的一个工具。")
+	reply, err := service.HandleMessage(context.Background(), MessageContext{}, "/kb append 6d2d7724 它是 Google 出品的一个工具。")
 	if err != nil {
 		t.Fatalf("append command: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestRememberFileCommandStoresImageSummary(t *testing.T) {
 	reply, err := service.HandleMessage(context.Background(), MessageContext{
 		UserID:    "terminal",
 		Interface: "terminal",
-	}, "/remember-file "+imagePath)
+	}, "/kb remember-file "+imagePath)
 	if err != nil {
 		t.Fatalf("remember-file: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestRememberFileReturnsFriendlyMessageWhenPDFUnavailable(t *testing.T) {
 	reply, err := service.HandleMessage(context.Background(), MessageContext{
 		UserID:    "terminal",
 		Interface: "terminal",
-	}, "/remember-file "+pdfPath)
+	}, "/kb remember-file "+pdfPath)
 	if err != nil {
 		t.Fatalf("remember-file unavailable pdf: %v", err)
 	}

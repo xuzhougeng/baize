@@ -65,12 +65,12 @@ func (r *REPL) Run(ctx context.Context) error {
 			fmt.Fprintln(r.output, "已开启新对话。")
 		case line == "/help":
 			r.printHelp()
-		case line == "/remember":
+		case line == "/kb remember":
 			body, err := r.readMultiline(scanner, "记忆内容")
 			if err != nil {
 				return err
 			}
-			r.runMessage(ctx, "/remember "+body)
+			r.runMessage(ctx, "/kb remember "+body)
 		case line == "/translate":
 			body, err := r.readMultiline(scanner, "待翻译内容")
 			if err != nil {
@@ -127,14 +127,17 @@ func (r *REPL) printHelp() {
 	fmt.Fprintln(r.output, "  /help")
 	fmt.Fprintln(r.output, "  /new")
 	fmt.Fprintln(r.output, "  /exit")
-	fmt.Fprintln(r.output, "  /remember          paste multiline content until EOF")
-	fmt.Fprintln(r.output, "  /remember-file <路径>")
-	fmt.Fprintln(r.output, "  /append <ID> <内容>")
-	fmt.Fprintln(r.output, "  /skills")
-	fmt.Fprintln(r.output, "  /show-skill <技能名>")
-	fmt.Fprintln(r.output, "  /load-skill <技能名>")
-	fmt.Fprintln(r.output, "  /unload-skill <技能名>")
-	fmt.Fprintln(r.output, "  /page-skills")
+	fmt.Fprintln(r.output, "  /kb remember       paste multiline content until EOF")
+	fmt.Fprintln(r.output, "  /kb remember-file <路径>")
+	fmt.Fprintln(r.output, "  /kb append <ID> <内容>")
+	fmt.Fprintln(r.output, "  /kb forget <ID>")
+	fmt.Fprintln(r.output, "  /kb list /kb stats /kb clear")
+	fmt.Fprintln(r.output, "  /skill")
+	fmt.Fprintln(r.output, "  /skill list")
+	fmt.Fprintln(r.output, "  /skill show <技能名>")
+	fmt.Fprintln(r.output, "  /skill load <技能名>")
+	fmt.Fprintln(r.output, "  /skill unload <技能名>")
+	fmt.Fprintln(r.output, "  /skill clear")
 	fmt.Fprintln(r.output, "  /translate         paste multiline content until EOF")
 	fmt.Fprintln(r.output, "  /ask               paste multiline question until EOF")
 	fmt.Fprintln(r.output, "  /notice 2小时后 喝水")
@@ -143,5 +146,4 @@ func (r *REPL) printHelp() {
 	fmt.Fprintln(r.output, "  /notice list")
 	fmt.Fprintln(r.output, "  /notice remove <提醒ID前缀>")
 	fmt.Fprintln(r.output, "  /cron ...           same as /notice")
-	fmt.Fprintln(r.output, "  /list /stats /clear")
 }

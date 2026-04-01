@@ -13,54 +13,45 @@ import (
 type commandHandler func(*Service, context.Context, MessageContext, string, []string) (string, error)
 
 var serviceCommandHandlers = map[string]commandHandler{
-	"/help":          handleHelpCommand,
-	"/new":           handleNewConversationCommand,
-	"/remember":      handleRememberCommand,
-	"/remember-file": handleRememberFileCommand,
-	"/find":          handleFindCommand,
-	"/send":          handleSendCommand,
-	"/append":        handleAppendCommand,
-	"/translate":     handleTranslateCommand,
-	"/debug-search":  handleDebugSearchCommand,
-	"/mode":          handleModeCommand,
-	"/skills":        handleSkillsCommand,
-	"/show-skill":    handleShowSkillCommand,
-	"/load-skill":    handleLoadSkillCommand,
-	"/unload-skill":  handleUnloadSkillCommand,
-	"/page-skills":   handlePageSkillsCommand,
-	"/prompt":        handlePromptCommandDispatch,
-	"/forget":        handleForgetCommand,
-	"/list":          handleListCommand,
-	"/stats":         handleStatsCommand,
-	"/clear":         handleClearCommand,
-	"/notice":        handleNoticeCommand,
+	"/help":         handleHelpCommand,
+	"/new":          handleNewConversationCommand,
+	"/find":         handleFindCommand,
+	"/send":         handleSendCommand,
+	"/translate":    handleTranslateCommand,
+	"/debug-search": handleDebugSearchCommand,
+	"/mode":         handleModeCommand,
+	"/skill":        handleSkillCommandDispatch,
+	"/prompt":       handlePromptCommandDispatch,
+	"/kb":           handleKnowledgeCommandDispatch,
+	"/notice":       handleNoticeCommand,
 }
 
 const helpCommandText = "可用命令:\n" +
 	"/new — 开启新对话（terminal / desktop）\n" +
-	"/remember <内容> 或 记住：<内容> — 保存一条知识\n" +
-	"/remember-file <路径> — 总结图片/PDF并存入知识库\n" +
 	"/find <关键词> — 搜索本地文件\n" +
 	"/send <序号> — 微信里发送上一轮 /find 结果中的文件\n" +
-	"/append <ID前缀> <内容> — 追加到已有知识\n" +
-	"/skills — 查看技能库和当前会话已加载技能\n" +
-	"/show-skill <技能名> — 查看某个技能内容\n" +
-	"/load-skill <技能名> — 手动为当前会话加载一个技能\n" +
-	"/unload-skill <技能名> — 从当前会话卸载一个技能\n" +
-	"/page-skills — 查看当前会话已加载技能\n" +
+	"/skill — 查看当前会话已加载技能\n" +
+	"/skill list — 查看可用技能和加载状态\n" +
+	"/skill show <技能名> — 查看某个技能内容\n" +
+	"/skill load <技能名> — 手动为当前会话加载一个技能\n" +
+	"/skill unload <技能名> — 从当前会话卸载一个技能\n" +
+	"/skill clear — 清空当前会话已加载技能\n" +
 	"/prompt — 查看当前 Prompt profile\n" +
 	"/prompt list — 查看可用 Prompt profiles\n" +
 	"/prompt use <PromptID前缀> — 为当前会话启用 Prompt profile\n" +
 	"/prompt clear — 清除当前会话 Prompt profile\n" +
+	"/kb remember <内容> 或 记住：<内容> — 保存一条知识\n" +
+	"/kb remember-file <路径> — 总结图片/PDF并存入知识库\n" +
+	"/kb append <ID前缀> <内容> — 追加到已有知识\n" +
+	"/kb forget <ID前缀> — 删除一条知识\n" +
+	"/kb list — 查看全部知识\n" +
+	"/kb stats — 查看知识库状态\n" +
+	"/kb clear — 清空知识库\n" +
 	"/translate <内容> — 翻译成中文\n" +
 	"/debug-search <问题> — 查看关键词检索和候选复核过程\n" +
 	"/mode [direct|knowledge|agent] — 查看或切换普通对话模式\n" +
-	"/forget <ID前缀> — 删除一条知识\n" +
-	"/list — 查看全部知识\n" +
-	"/stats — 查看知识库状态\n" +
 	"/notice — 创建、查看、删除提醒\n" +
 	"/cron — 与 /notice 等价\n" +
-	"/clear — 清空知识库\n" +
 	"/help — 查看帮助\n\n" +
 	"普通问题默认走 direct 模式；可以用 `/mode knowledge` 切到知识库检索，或在单条消息前加 `@kb` 临时覆盖。"
 
@@ -89,7 +80,7 @@ func handleNewConversationCommand(_ *Service, _ context.Context, _ MessageContex
 
 func handleRememberCommand(s *Service, ctx context.Context, mc MessageContext, input string, fields []string) (string, error) {
 	if len(fields) < 2 {
-		return "用法: /remember <内容>", nil
+		return "用法: /kb remember <内容>", nil
 	}
 	body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
 	entry, err := s.store.Add(ctx, knowledge.Entry{
@@ -105,7 +96,7 @@ func handleRememberCommand(s *Service, ctx context.Context, mc MessageContext, i
 
 func handleRememberFileCommand(s *Service, ctx context.Context, mc MessageContext, input string, fields []string) (string, error) {
 	if len(fields) < 2 {
-		return "用法: /remember-file <图片或PDF路径>", nil
+		return "用法: /kb remember-file <图片或PDF路径>", nil
 	}
 	body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
 	return s.ingestFilePath(ctx, mc, body)
@@ -128,12 +119,12 @@ func handleSendCommand(_ *Service, _ context.Context, mc MessageContext, _ strin
 
 func handleAppendCommand(s *Service, ctx context.Context, mc MessageContext, input string, fields []string) (string, error) {
 	if len(fields) < 3 {
-		return "用法: /append <知识ID前缀> <补充内容>", nil
+		return "用法: /kb append <知识ID前缀> <补充内容>", nil
 	}
 	body := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
 	bodyFields := strings.Fields(body)
 	if len(bodyFields) < 2 {
-		return "用法: /append <知识ID前缀> <补充内容>", nil
+		return "用法: /kb append <知识ID前缀> <补充内容>", nil
 	}
 	target := bodyFields[0]
 	appendText := strings.TrimSpace(strings.TrimPrefix(body, target))
@@ -184,42 +175,74 @@ func handleModeCommand(s *Service, ctx context.Context, mc MessageContext, _ str
 	return fmt.Sprintf("已切换到 %s 模式。\n%s", mode, modeDescription(mode)), nil
 }
 
-func handleSkillsCommand(s *Service, _ context.Context, mc MessageContext, _ string, _ []string) (string, error) {
-	return s.listSkills(mc)
-}
-
-func handleShowSkillCommand(s *Service, _ context.Context, _ MessageContext, _ string, fields []string) (string, error) {
-	if len(fields) < 2 {
-		return "用法: /show-skill <技能名>", nil
+func handleSkillCommandDispatch(s *Service, _ context.Context, mc MessageContext, input string, fields []string) (string, error) {
+	if len(fields) == 1 {
+		return s.formatCurrentSkills(mc), nil
 	}
-	return s.showSkill(fields[1])
-}
 
-func handleLoadSkillCommand(s *Service, _ context.Context, mc MessageContext, _ string, fields []string) (string, error) {
-	if len(fields) < 2 {
-		return "用法: /load-skill <技能名>", nil
+	switch strings.ToLower(fields[1]) {
+	case "current":
+		return s.formatCurrentSkills(mc), nil
+	case "list":
+		return s.listSkills(mc)
+	case "show":
+		if len(fields) < 3 {
+			return skillCommandUsage(), nil
+		}
+		return s.showSkill(fields[2])
+	case "load":
+		if len(fields) < 3 {
+			return skillCommandUsage(), nil
+		}
+		return s.loadSkill(mc, fields[2])
+	case "unload":
+		if len(fields) < 3 {
+			return skillCommandUsage(), nil
+		}
+		return s.unloadSkill(mc, fields[2])
+	case "clear":
+		return s.clearLoadedSkills(mc)
+	default:
+		return skillCommandUsage(), nil
 	}
-	return s.loadSkill(mc, fields[1])
-}
-
-func handleUnloadSkillCommand(s *Service, _ context.Context, mc MessageContext, _ string, fields []string) (string, error) {
-	if len(fields) < 2 {
-		return "用法: /unload-skill <技能名>", nil
-	}
-	return s.unloadSkill(mc, fields[1])
-}
-
-func handlePageSkillsCommand(s *Service, _ context.Context, mc MessageContext, _ string, _ []string) (string, error) {
-	return s.listLoadedSkills(mc), nil
 }
 
 func handlePromptCommandDispatch(s *Service, ctx context.Context, mc MessageContext, input string, _ []string) (string, error) {
 	return s.handlePromptCommand(ctx, mc, input)
 }
 
+func handleKnowledgeCommandDispatch(s *Service, ctx context.Context, mc MessageContext, input string, fields []string) (string, error) {
+	if len(fields) == 1 {
+		return knowledgeCommandUsage(), nil
+	}
+
+	switch strings.ToLower(fields[1]) {
+	case "remember":
+		rewritten, rewrittenFields := rewriteNamespacedCommand(input, fields, 2, "/remember")
+		return handleRememberCommand(s, ctx, mc, rewritten, rewrittenFields)
+	case "remember-file":
+		rewritten, rewrittenFields := rewriteNamespacedCommand(input, fields, 2, "/remember-file")
+		return handleRememberFileCommand(s, ctx, mc, rewritten, rewrittenFields)
+	case "append":
+		rewritten, rewrittenFields := rewriteNamespacedCommand(input, fields, 2, "/append")
+		return handleAppendCommand(s, ctx, mc, rewritten, rewrittenFields)
+	case "forget":
+		rewritten, rewrittenFields := rewriteNamespacedCommand(input, fields, 2, "/forget")
+		return handleForgetCommand(s, ctx, mc, rewritten, rewrittenFields)
+	case "list":
+		return handleListCommand(s, ctx, mc, "/kb list", []string{"/kb", "list"})
+	case "stats":
+		return handleStatsCommand(s, ctx, mc, "/kb stats", []string{"/kb", "stats"})
+	case "clear":
+		return handleClearCommand(s, ctx, mc, "/kb clear", []string{"/kb", "clear"})
+	default:
+		return knowledgeCommandUsage(), nil
+	}
+}
+
 func handleForgetCommand(s *Service, ctx context.Context, _ MessageContext, _ string, fields []string) (string, error) {
 	if len(fields) < 2 {
-		return "用法: /forget <知识ID前缀>", nil
+		return "用法: /kb forget <知识ID前缀>", nil
 	}
 	return s.forgetKnowledge(ctx, fields[1])
 }
@@ -254,4 +277,43 @@ func handleClearCommand(s *Service, ctx context.Context, _ MessageContext, _ str
 
 func handleNoticeCommand(s *Service, ctx context.Context, mc MessageContext, input string, _ []string) (string, error) {
 	return s.handleReminderCommand(ctx, mc, input)
+}
+
+func rewriteNamespacedCommand(input string, fields []string, consumedFields int, command string) (string, []string) {
+	body := stripLeadingFields(input, fields, consumedFields)
+	rewritten := strings.TrimSpace(command)
+	if body != "" {
+		rewritten += " " + body
+	}
+	return rewritten, strings.Fields(rewritten)
+}
+
+func stripLeadingFields(input string, fields []string, count int) string {
+	remaining := strings.TrimSpace(input)
+	for i := 0; i < count && i < len(fields); i++ {
+		remaining = strings.TrimSpace(strings.TrimPrefix(remaining, fields[i]))
+	}
+	return remaining
+}
+
+func skillCommandUsage() string {
+	return "用法:\n" +
+		"/skill\n" +
+		"/skill current\n" +
+		"/skill list\n" +
+		"/skill show <技能名>\n" +
+		"/skill load <技能名>\n" +
+		"/skill unload <技能名>\n" +
+		"/skill clear"
+}
+
+func knowledgeCommandUsage() string {
+	return "用法:\n" +
+		"/kb remember <内容>\n" +
+		"/kb remember-file <图片或PDF路径>\n" +
+		"/kb append <知识ID前缀> <补充内容>\n" +
+		"/kb forget <知识ID前缀>\n" +
+		"/kb list\n" +
+		"/kb stats\n" +
+		"/kb clear"
 }
