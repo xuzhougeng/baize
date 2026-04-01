@@ -137,6 +137,11 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 	if err != nil {
 		return "", err
 	}
+	rawCommand := strings.TrimSpace(decision.Command)
+	decision = normalizeConversationRouteDecision(text, decision)
+	if !strings.EqualFold(rawCommand, strings.TrimSpace(decision.Command)) {
+		addProcessTrace(ctx, "AI 路由修正", "from="+rawCommand+"\nto="+strings.TrimSpace(decision.Command))
+	}
 	addProcessTrace(ctx, "AI 路由", "command="+strings.TrimSpace(decision.Command)+"\nmode="+string(mode))
 
 	switch decision.Command {
@@ -280,6 +285,74 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 		emitIfPresent(onDelta, reply)
 		return reply, nil
 	}
+}
+
+func normalizeConversationRouteDecision(input string, decision ai.RouteDecision) ai.RouteDecision {
+	command := strings.TrimSpace(strings.ToLower(decision.Command))
+	if command == "" {
+		return decision
+	}
+
+	if command == "help" && !looksLikeConversationHelpIntent(input) {
+		return ai.RouteDecision{
+			Command:  "answer",
+			Question: strings.TrimSpace(input),
+		}
+	}
+
+	if command == "answer" && strings.TrimSpace(decision.Question) == "" {
+		decision.Question = strings.TrimSpace(input)
+	}
+	return decision
+}
+
+func looksLikeConversationHelpIntent(input string) bool {
+	text := strings.ToLower(strings.TrimSpace(normalizeSlash(input)))
+	if text == "" {
+		return false
+	}
+
+	exactPhrases := []string{
+		"help",
+		"usage",
+		"show help",
+		"show usage",
+		"帮助",
+		"查看帮助",
+		"需要帮助",
+		"用法",
+	}
+	for _, phrase := range exactPhrases {
+		if text == phrase {
+			return true
+		}
+	}
+
+	containsPhrases := []string{
+		"how to use",
+		"how do i use",
+		"what can you do",
+		"available commands",
+		"command list",
+		"show commands",
+		"怎么用",
+		"如何用",
+		"可以做什么",
+		"能做什么",
+		"有哪些功能",
+		"可用命令",
+		"命令列表",
+		"有哪些命令",
+		"可用指令",
+		"指令列表",
+		"有哪些指令",
+	}
+	for _, phrase := range containsPhrases {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) streamOrAnswer(ctx context.Context, question string, entries []knowledge.Entry, onDelta func(string)) (string, error) {

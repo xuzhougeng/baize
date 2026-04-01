@@ -1524,6 +1524,73 @@ func TestSetModePreservesConversationHistory(t *testing.T) {
 	}
 }
 
+func TestHandleMessageTreatsSpuriousHelpRouteAsAnswer(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []Mode{ModeAsk, ModeAgent} {
+		t.Run(string(mode), func(t *testing.T) {
+			store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+			reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminder.db")))
+			service := NewService(store, fakeAI{
+				configured: true,
+				route: ai.RouteDecision{
+					Command: "help",
+				},
+				chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+					if input != "你好" {
+						t.Fatalf("unexpected chat input: %q", input)
+					}
+					if len(history) != 0 {
+						t.Fatalf("expected empty history, got %#v", history)
+					}
+					return "正常对话"
+				},
+			}, reminders)
+			mc := MessageContext{Interface: "desktop", SessionID: "s1"}
+			if _, err := service.SetMode(context.Background(), mc, mode); err != nil {
+				t.Fatalf("set mode: %v", err)
+			}
+
+			reply, err := service.HandleMessage(context.Background(), mc, "你好")
+			if err != nil {
+				t.Fatalf("handle message: %v", err)
+			}
+			if reply != "正常对话" {
+				t.Fatalf("expected normal conversation reply, got %q", reply)
+			}
+		})
+	}
+}
+
+func TestHandleMessagePreservesExplicitHelpRoute(t *testing.T) {
+	t.Parallel()
+
+	store := knowledge.NewStore(filepath.Join(t.TempDir(), "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(t.TempDir(), "reminder.db")))
+	service := NewService(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command: "help",
+		},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			t.Fatalf("chat should not be called for explicit help, input=%q history=%#v", input, history)
+			return ""
+		},
+	}, reminders)
+	mc := MessageContext{Interface: "desktop", SessionID: "s1"}
+	if _, err := service.SetMode(context.Background(), mc, ModeAsk); err != nil {
+		t.Fatalf("set mode: %v", err)
+	}
+
+	reply, err := service.HandleMessage(context.Background(), mc, "怎么用")
+	if err != nil {
+		t.Fatalf("handle help message: %v", err)
+	}
+	if !strings.Contains(reply, "可用命令") {
+		t.Fatalf("expected help reply, got %q", reply)
+	}
+}
+
 func TestLoadedSkillsPersistAcrossServiceRestarts(t *testing.T) {
 	t.Parallel()
 
