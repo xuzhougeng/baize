@@ -9,8 +9,45 @@ async function waitForBackend() {
   throw new Error('Wails 后端尚未就绪。');
 }
 
+function selectNativeWailsSender() {
+  if (window.chrome?.webview && typeof window.chrome.webview.postMessage === 'function') {
+    return (message) => window.chrome.webview.postMessage(message);
+  }
+  if (window.webkit?.messageHandlers?.external && typeof window.webkit.messageHandlers.external.postMessage === 'function') {
+    return (message) => window.webkit.messageHandlers.external.postMessage(message);
+  }
+  if (window.external && typeof window.external.invoke === 'function') {
+    return (message) => window.external.invoke(message);
+  }
+  return null;
+}
+
+function installWailsBridgeShim() {
+  const nativeSender = selectNativeWailsSender();
+  const currentInvoke = typeof window.WailsInvoke === 'function'
+    ? window.WailsInvoke.bind(window)
+    : null;
+  const sender = nativeSender || currentInvoke;
+  if (!sender) return false;
+
+  window.WailsInvoke = (message) => sender(message);
+
+  if (nativeSender) {
+    try {
+      if (!window.external || typeof window.external !== 'object') {
+        window.external = {};
+      }
+      window.external.invoke = (message) => nativeSender(message);
+    } catch (error) {
+      // Ignore readonly host objects; direct WailsInvoke override is enough.
+    }
+  }
+
+  return true;
+}
+
 function hasWailsRuntime() {
-  return typeof window.WailsInvoke === 'function'
+  return installWailsBridgeShim()
     && Boolean(window.wails)
     && Boolean(window.wails.callbacks)
     && typeof window.wails.Callback === 'function';
