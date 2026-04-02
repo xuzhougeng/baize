@@ -2,7 +2,9 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"myclaw/internal/modelconfig"
@@ -160,5 +162,91 @@ func TestSummarizeWorkingState_WithAttempts(t *testing.T) {
 	}
 	if result == "" {
 		t.Fatal("expected non-empty summary")
+	}
+}
+
+func TestPlanAgentLoopStep_PrefersOutputSummaryOverRawOutput(t *testing.T) {
+	var prompt string
+	service := newTestAgentService(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		prompt = req.Input[0].Content[0].Text
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"action\":\"answer\",\"tool_name\":\"\",\"tool_input\":\"\",\"answer\":\"done\",\"question\":\"\",\"reason\":\"\"}"}]}]}`), nil
+	})
+
+	state := AgentTaskState{
+		Goal: "读取工具结果",
+		ToolAttempts: []ToolAttempt{
+			{
+				ToolName:      "local::knowledge_search",
+				ToolInput:     `{"query":"test"}`,
+				RawOutput:     "RAW-OUTPUT-SHOULD-NOT-BE-IN-PROMPT",
+				OutputSummary: "SUMMARY-OUTPUT-SHOULD-BE-IN-PROMPT",
+				Succeeded:     true,
+			},
+		},
+		CandidateTools: []AgentToolDefinition{{Name: "local::knowledge_search", Description: "搜索本地知识库"}},
+	}
+
+	if _, err := service.PlanAgentLoopStep(context.Background(), nil, state); err != nil {
+		t.Fatalf("PlanAgentLoopStep: %v", err)
+	}
+	if !strings.Contains(prompt, "SUMMARY-OUTPUT-SHOULD-BE-IN-PROMPT") {
+		t.Fatalf("expected prompt to include output summary, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "RAW-OUTPUT-SHOULD-NOT-BE-IN-PROMPT") {
+		t.Fatalf("expected prompt to omit raw output when summary exists, got:\n%s", prompt)
+	}
+}
+
+func TestPlanAgentLoopStep_FallsBackToTrimmedRawOutput(t *testing.T) {
+	var prompt string
+	service := newTestAgentService(t, func(r *http.Request) (*http.Response, error) {
+		var req responsesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		prompt = req.Input[0].Content[0].Text
+		return jsonResponse(http.StatusOK, `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"action\":\"answer\",\"tool_name\":\"\",\"tool_input\":\"\",\"answer\":\"done\",\"question\":\"\",\"reason\":\"\"}"}]}]}`), nil
+	})
+
+	rawOutput := strings.Join([]string{
+		"line-1",
+		"line-2",
+		"line-3",
+		"line-4",
+		"line-5",
+		"line-6",
+		"line-7",
+		"line-8",
+		"line-9-hidden",
+	}, "\n")
+
+	state := AgentTaskState{
+		Goal: "读取工具结果",
+		ToolAttempts: []ToolAttempt{
+			{
+				ToolName:  "local::knowledge_search",
+				ToolInput: `{"query":"test"}`,
+				RawOutput: rawOutput,
+				Succeeded: true,
+			},
+		},
+		CandidateTools: []AgentToolDefinition{{Name: "local::knowledge_search", Description: "搜索本地知识库"}},
+	}
+
+	if _, err := service.PlanAgentLoopStep(context.Background(), nil, state); err != nil {
+		t.Fatalf("PlanAgentLoopStep: %v", err)
+	}
+	if !strings.Contains(prompt, "line-8") {
+		t.Fatalf("expected prompt to retain trimmed raw output, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "[truncated]") {
+		t.Fatalf("expected prompt to mark raw output truncation, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "line-9-hidden") {
+		t.Fatalf("expected prompt to omit lines beyond fallback limit, got:\n%s", prompt)
 	}
 }

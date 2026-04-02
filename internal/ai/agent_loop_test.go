@@ -6,9 +6,10 @@ import (
 )
 
 type fakeRuntime struct {
-	persistCalled int
-	toolOutput    string
-	toolErr       error
+	persistCalled    int
+	toolResult       ToolExecutionResult
+	toolErr          error
+	workingSummaries []string
 }
 
 func (r *fakeRuntime) LoadHistory(_ context.Context, _ any) []ConversationMessage {
@@ -19,8 +20,12 @@ func (r *fakeRuntime) ListTools(_ context.Context, _ any) ([]AgentToolDefinition
 	return []AgentToolDefinition{{Name: "fake_tool"}}, nil
 }
 
-func (r *fakeRuntime) ExecuteTool(_ context.Context, _ any, _, _ string) (string, error) {
-	return r.toolOutput, r.toolErr
+func (r *fakeRuntime) ExecuteTool(_ context.Context, _ any, _, _ string) (ToolExecutionResult, error) {
+	return r.toolResult, r.toolErr
+}
+
+func (r *fakeRuntime) UpdateWorkingSummary(_ context.Context, _ any, summary string) {
+	r.workingSummaries = append(r.workingSummaries, summary)
 }
 
 func (r *fakeRuntime) PersistTurn(_ context.Context, _ any, _, _, _ string) {
@@ -30,9 +35,11 @@ func (r *fakeRuntime) PersistTurn(_ context.Context, _ any, _, _, _ string) {
 type fakePlanner struct {
 	decisions []LoopDecision
 	callIndex int
+	seenState []AgentTaskState
 }
 
-func (p *fakePlanner) PlanNext(_ context.Context, _ string, _ []ConversationMessage, _ []AgentToolDefinition, _ AgentTaskState) (LoopDecision, error) {
+func (p *fakePlanner) PlanNext(_ context.Context, _ string, _ []ConversationMessage, _ []AgentToolDefinition, state AgentTaskState) (LoopDecision, error) {
+	p.seenState = append(p.seenState, state)
 	if p.callIndex >= len(p.decisions) {
 		return LoopDecision{Action: LoopStop, Reason: "no more decisions"}, nil
 	}
@@ -70,7 +77,12 @@ func TestRunAgentLoop_DirectAnswer(t *testing.T) {
 }
 
 func TestRunAgentLoop_ToolThenAnswer(t *testing.T) {
-	rt := &fakeRuntime{toolOutput: "tool result"}
+	rt := &fakeRuntime{
+		toolResult: ToolExecutionResult{
+			RawOutput:     "tool result raw",
+			OutputSummary: "tool result summary",
+		},
+	}
 	pl := &fakePlanner{
 		decisions: []LoopDecision{
 			{Action: LoopContinue, ToolName: "fake_tool", ToolInput: `{}`},
@@ -88,10 +100,34 @@ func TestRunAgentLoop_ToolThenAnswer(t *testing.T) {
 	if rt.persistCalled != 1 {
 		t.Errorf("expected PersistTurn called once, got %d", rt.persistCalled)
 	}
+	if len(pl.seenState) < 2 {
+		t.Fatalf("expected planner to observe two loop states, got %d", len(pl.seenState))
+	}
+	secondState := pl.seenState[1]
+	if len(secondState.ToolAttempts) != 1 {
+		t.Fatalf("expected one tool attempt on second planner call, got %d", len(secondState.ToolAttempts))
+	}
+	if secondState.ToolAttempts[0].RawOutput != "tool result raw" {
+		t.Fatalf("unexpected raw output: %q", secondState.ToolAttempts[0].RawOutput)
+	}
+	if secondState.ToolAttempts[0].OutputSummary != "tool result summary" {
+		t.Fatalf("unexpected output summary: %q", secondState.ToolAttempts[0].OutputSummary)
+	}
+	if secondState.WorkingSummary != "working summary" {
+		t.Fatalf("unexpected working summary: %q", secondState.WorkingSummary)
+	}
+	if len(rt.workingSummaries) != 1 || rt.workingSummaries[0] != "working summary" {
+		t.Fatalf("expected working summary mirrored to runtime, got %#v", rt.workingSummaries)
+	}
 }
 
 func TestRunAgentLoop_MaxStepsExceeded(t *testing.T) {
-	rt := &fakeRuntime{toolOutput: "result"}
+	rt := &fakeRuntime{
+		toolResult: ToolExecutionResult{
+			RawOutput:     "result",
+			OutputSummary: "result summary",
+		},
+	}
 	// Always returns LoopContinue — loop will exhaust maxSteps.
 	alwaysContinue := make([]LoopDecision, 5)
 	for i := range alwaysContinue {

@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+// ToolExecutionResult is the normalized tool result returned by the app runtime.
+// RawOutput stays in scratchpad/debug state, while OutputSummary is the planner-facing form.
+type ToolExecutionResult struct {
+	RawOutput     string
+	OutputSummary string
+}
+
 // ToolAttempt records a single tool call made during the agent loop.
 type ToolAttempt struct {
 	ToolName      string
@@ -56,7 +63,8 @@ type LoopDecision struct {
 type AgentLoopRuntime interface {
 	LoadHistory(ctx context.Context, mc any) []ConversationMessage
 	ListTools(ctx context.Context, mc any) ([]AgentToolDefinition, error)
-	ExecuteTool(ctx context.Context, mc any, toolName, toolInput string) (string, error)
+	ExecuteTool(ctx context.Context, mc any, toolName, toolInput string) (ToolExecutionResult, error)
+	UpdateWorkingSummary(ctx context.Context, mc any, summary string)
 	PersistTurn(ctx context.Context, mc any, userInput, assistantReply, finalSummary string)
 }
 
@@ -96,18 +104,22 @@ func RunAgentLoop(ctx context.Context, runtime AgentLoopRuntime, planner AgentPl
 
 		switch decision.Action {
 		case LoopContinue:
-			rawOutput, execErr := runtime.ExecuteTool(ctx, mc, decision.ToolName, decision.ToolInput)
+			result, execErr := runtime.ExecuteTool(ctx, mc, decision.ToolName, decision.ToolInput)
 			attempt := ToolAttempt{
-				ToolName:  decision.ToolName,
-				ToolInput: decision.ToolInput,
-				RawOutput: rawOutput,
-				Succeeded: execErr == nil,
+				ToolName:      decision.ToolName,
+				ToolInput:     decision.ToolInput,
+				RawOutput:     strings.TrimSpace(result.RawOutput),
+				OutputSummary: strings.TrimSpace(result.OutputSummary),
+				Succeeded:     execErr == nil,
 			}
 			if execErr != nil {
 				attempt.FailureReason = execErr.Error()
 			}
 			state.ToolAttempts = append(state.ToolAttempts, attempt)
-			state.WorkingSummary, _ = planner.SummarizeWorkingState(ctx, state)
+			if workingSummary, summarizeErr := planner.SummarizeWorkingState(ctx, state); summarizeErr == nil {
+				state.WorkingSummary = strings.TrimSpace(workingSummary)
+			}
+			runtime.UpdateWorkingSummary(ctx, mc, state.WorkingSummary)
 
 		case LoopAnswer:
 			return finalize(decision.Answer)

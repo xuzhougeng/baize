@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"myclaw/internal/ai"
@@ -14,7 +15,8 @@ import (
 // test can script exactly which decisions are returned.
 type agentFakeAI struct {
 	fakeAI
-	planNextFn func(ctx context.Context, task string, history []ai.ConversationMessage, tools []ai.AgentToolDefinition, state ai.AgentTaskState) (ai.LoopDecision, error)
+	planNextFn              func(ctx context.Context, task string, history []ai.ConversationMessage, tools []ai.AgentToolDefinition, state ai.AgentTaskState) (ai.LoopDecision, error)
+	summarizeWorkingStateFn func(ctx context.Context, state ai.AgentTaskState) (string, error)
 }
 
 func (f agentFakeAI) PlanNext(ctx context.Context, task string, history []ai.ConversationMessage, tools []ai.AgentToolDefinition, state ai.AgentTaskState) (ai.LoopDecision, error) {
@@ -22,6 +24,13 @@ func (f agentFakeAI) PlanNext(ctx context.Context, task string, history []ai.Con
 		return f.planNextFn(ctx, task, history, tools, state)
 	}
 	return ai.LoopDecision{Action: ai.LoopAnswer, Answer: "fake answer"}, nil
+}
+
+func (f agentFakeAI) SummarizeWorkingState(ctx context.Context, state ai.AgentTaskState) (string, error) {
+	if f.summarizeWorkingStateFn != nil {
+		return f.summarizeWorkingStateFn(ctx, state)
+	}
+	return f.fakeAI.SummarizeWorkingState(ctx, state)
 }
 
 func newAgentTestService(t *testing.T, backend aiBackend) *Service {
@@ -65,6 +74,7 @@ func TestAgentLoopIntegration_ToolThenAnswer(t *testing.T) {
 
 	const wantAnswer = "The result from the knowledge search."
 	calls := 0
+	const wantWorkingSummary = "已经得到一次工具摘要。"
 
 	backend := agentFakeAI{
 		fakeAI: fakeAI{configured: true},
@@ -82,7 +92,22 @@ func TestAgentLoopIntegration_ToolThenAnswer(t *testing.T) {
 			if len(state.ToolAttempts) == 0 {
 				t.Error("expected at least one tool attempt in state on second call")
 			}
+			if got := state.ToolAttempts[0].OutputSummary; got == "" {
+				t.Error("expected non-empty output summary on second call")
+			}
+			if got := state.WorkingSummary; got != wantWorkingSummary {
+				t.Errorf("expected working summary %q, got %q", wantWorkingSummary, got)
+			}
 			return ai.LoopDecision{Action: ai.LoopAnswer, Answer: wantAnswer}, nil
+		},
+		summarizeWorkingStateFn: func(_ context.Context, state ai.AgentTaskState) (string, error) {
+			if len(state.ToolAttempts) == 0 {
+				return "", nil
+			}
+			if strings.TrimSpace(state.ToolAttempts[0].OutputSummary) == "" {
+				t.Error("expected planner summary input to contain tool output summary")
+			}
+			return wantWorkingSummary, nil
 		},
 	}
 
@@ -98,6 +123,12 @@ func TestAgentLoopIntegration_ToolThenAnswer(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("expected 2 PlanNext calls, got %d", calls)
+	}
+	if got := workingSummaryFromContext(ctx); got != wantWorkingSummary {
+		t.Fatalf("expected working summary mirrored into task context, got %q", got)
+	}
+	if got := artifactsSummaryFromContext(ctx); !strings.Contains(got, "local::knowledge_search") {
+		t.Fatalf("expected tool artifact summary recorded, got %q", got)
 	}
 }
 

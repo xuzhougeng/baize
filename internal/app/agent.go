@@ -22,15 +22,22 @@ func (r *serviceAgentRuntime) ListTools(ctx context.Context, mc any) ([]ai.Agent
 	return r.service.ListAgentToolDefinitions(ctx, mc.(MessageContext))
 }
 
-func (r *serviceAgentRuntime) ExecuteTool(ctx context.Context, mc any, toolName, toolInput string) (string, error) {
+func (r *serviceAgentRuntime) ExecuteTool(ctx context.Context, mc any, toolName, toolInput string) (ai.ToolExecutionResult, error) {
 	output, err := r.service.ExecuteAgentTool(ctx, mc.(MessageContext), toolName, toolInput)
 	if err != nil {
-		return "", err
+		return ai.ToolExecutionResult{}, err
 	}
 	summary := summarizeToolOutputForModel(output)
 	recordToolArtifact(ctx, toolName, toolInput, output, summary)
 	addProcessTrace(ctx, "tool:"+toolName, toolInput+"\n→ "+summary)
-	return output, nil
+	return ai.ToolExecutionResult{
+		RawOutput:     output,
+		OutputSummary: summary,
+	}, nil
+}
+
+func (r *serviceAgentRuntime) UpdateWorkingSummary(ctx context.Context, _ any, summary string) {
+	setWorkingSummary(ctx, summary)
 }
 
 func (r *serviceAgentRuntime) PersistTurn(ctx context.Context, mc any, userInput, assistantReply, finalSummary string) {

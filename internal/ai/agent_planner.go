@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+const (
+	maxPlannerAttemptRawLines = 8
+	maxPlannerAttemptRawRunes = 600
+)
 
 type loopDecisionRaw struct {
 	Action    string `json:"action"`
@@ -24,6 +28,7 @@ var validLoopActions = map[string]LoopAction{
 }
 
 // appendAttemptListToPrompt writes the numbered tool-attempt history block into b.
+// Planner prompts are summary-first: only fall back to trimmed raw output when no summary exists.
 func appendAttemptListToPrompt(b *strings.Builder, attempts []ToolAttempt) {
 	if len(attempts) == 0 {
 		return
@@ -34,27 +39,75 @@ func appendAttemptListToPrompt(b *strings.Builder, attempts []ToolAttempt) {
 		if !attempt.Succeeded {
 			status = "失败"
 		}
-		summary := strings.TrimSpace(attempt.OutputSummary)
-		if summary == "" {
-			summary = strings.TrimSpace(attempt.RawOutput)
-		}
+		summary := plannerFacingAttemptSummary(attempt)
 		fmt.Fprintf(b, "%d. tool=%s input=%s [%s]\n",
 			index+1,
 			strings.TrimSpace(attempt.ToolName),
 			strings.TrimSpace(attempt.ToolInput),
 			status,
 		)
-		if attempt.Succeeded && summary != "" {
-			b.WriteString("   输出摘要: ")
+		if !attempt.Succeeded && summary != "" {
+			b.WriteString("   失败原因: ")
 			b.WriteString(summary)
 			b.WriteString("\n")
 		}
-		if !attempt.Succeeded && strings.TrimSpace(attempt.FailureReason) != "" {
-			b.WriteString("   失败原因: ")
-			b.WriteString(strings.TrimSpace(attempt.FailureReason))
+		if attempt.Succeeded && summary != "" {
+			b.WriteString("   结果摘要: ")
+			b.WriteString(summary)
 			b.WriteString("\n")
 		}
 	}
+}
+
+func plannerFacingAttemptSummary(attempt ToolAttempt) string {
+	if !attempt.Succeeded {
+		if reason := strings.TrimSpace(attempt.FailureReason); reason != "" {
+			return reason
+		}
+	}
+	if summary := strings.TrimSpace(attempt.OutputSummary); summary != "" {
+		return summary
+	}
+	return truncatePlannerAttemptRawOutput(attempt.RawOutput)
+}
+
+func truncatePlannerAttemptRawOutput(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	if raw == "" {
+		return ""
+	}
+
+	lines := strings.Split(raw, "\n")
+	truncated := false
+	if len(lines) > maxPlannerAttemptRawLines {
+		lines = lines[:maxPlannerAttemptRawLines]
+		truncated = true
+	}
+	raw = strings.TrimSpace(strings.Join(lines, "\n"))
+	if raw == "" {
+		return ""
+	}
+
+	if len([]rune(raw)) > maxPlannerAttemptRawRunes {
+		raw = previewRunes(raw, maxPlannerAttemptRawRunes)
+		truncated = true
+	}
+	if truncated {
+		raw = strings.TrimSpace(raw) + "\n[truncated]"
+	}
+	return raw
+}
+
+func previewRunes(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if text == "" || limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return string(runes)
+	}
+	return string(runes[:limit])
 }
 
 func (s *Service) PlanAgentLoopStep(ctx context.Context, history []ConversationMessage, state AgentTaskState) (LoopDecision, error) {

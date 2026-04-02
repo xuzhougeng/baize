@@ -18,7 +18,9 @@ type State struct {
 	mu             sync.Mutex
 	turnSummary    string
 	workingSummary string
-	artifacts      []ToolArtifact
+	// artifacts is scratchpad/debug state for the current task. Planner input must
+	// come from ai.AgentTaskState instead of reading taskcontext directly.
+	artifacts []ToolArtifact
 }
 
 type stateKey struct{}

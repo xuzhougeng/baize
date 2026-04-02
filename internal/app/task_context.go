@@ -45,6 +45,9 @@ func artifactsSummaryFromContext(ctx context.Context) string {
 	return taskcontext.ArtifactsSummary(ctx)
 }
 
+// summarizeToolOutputForModel compacts raw tool output into the planner-facing summary
+// that is carried through the synchronous agent loop. It is intentionally lossy so
+// scratchpad artifacts remain available for debugging while planner prompts stay bounded.
 func summarizeToolOutputForModel(output string) string {
 	output = strings.TrimSpace(strings.ReplaceAll(output, "\r\n", "\n"))
 	if output == "" {
