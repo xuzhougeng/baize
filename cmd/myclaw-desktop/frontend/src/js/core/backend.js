@@ -485,6 +485,10 @@ function createWailsBackend() {
     LogoutWeixin: () => call('LogoutWeixin'),
     GetSettings: () => call('GetSettings'),
     SaveSettings: (payload) => call('SaveSettings', payload),
+    GetScreenTraceStatus: () => call('GetScreenTraceStatus'),
+    ListScreenTraceRecords: (limit = 60) => call('ListScreenTraceRecords', limit),
+    ListScreenTraceDigests: (limit = 20) => call('ListScreenTraceDigests', limit),
+    CaptureScreenTraceNow: () => call('CaptureScreenTraceNow'),
   };
 }
 
@@ -548,6 +552,10 @@ function createHTTPBackend() {
     LogoutWeixin: () => requestJSON('POST', '/api/weixin/logout'),
     GetSettings: () => requestJSON('GET', '/api/settings'),
     SaveSettings: (payload) => requestJSON('POST', '/api/settings', payload),
+    GetScreenTraceStatus: () => requestJSON('GET', '/api/screentrace/status'),
+    ListScreenTraceRecords: (limit = 60) => requestJSON('GET', `/api/screentrace/records?limit=${encodeURIComponent(limit)}`),
+    ListScreenTraceDigests: (limit = 20) => requestJSON('GET', `/api/screentrace/digests?limit=${encodeURIComponent(limit)}`),
+    CaptureScreenTraceNow: () => requestJSON('POST', '/api/screentrace/capture'),
   };
 }
 
@@ -674,12 +682,12 @@ function startBackendPolling() {
   if (state.backendMode !== 'http') return;
 
   devPollTimer = window.setInterval(() => {
-    void Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshModel(), refreshWeixin()]).catch(() => {});
+    void Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshModel(), refreshWeixin(), refreshScreenTraceStatus()]).catch(() => {});
   }, 2000);
 }
 
 async function refreshAll() {
-  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshTools(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings()]);
+  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshTools(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings(), refreshScreenTraceData()]);
 }
 
 async function refreshProjectState() {
@@ -803,9 +811,11 @@ async function refreshChatPrompt() {
 async function refreshModel() {
   state.model = normalizeModelSettings(await state.backend.GetModelSettings());
   if (state.modelFormDirty) {
+    renderSettings();
     return;
   }
   renderModel();
+  renderSettings();
 }
 
 async function refreshWeixin() {
@@ -816,4 +826,21 @@ async function refreshWeixin() {
 async function refreshSettings() {
   state.settings = normalizeSettingsState(await state.backend.GetSettings());
   renderSettings();
+}
+
+async function refreshScreenTraceStatus() {
+  state.screenTraceStatus = normalizeScreenTraceStatus(await state.backend.GetScreenTraceStatus());
+  renderScreenTrace();
+}
+
+async function refreshScreenTraceData() {
+  const [status, records, digests] = await Promise.all([
+    state.backend.GetScreenTraceStatus(),
+    state.backend.ListScreenTraceRecords(60),
+    state.backend.ListScreenTraceDigests(20),
+  ]);
+  state.screenTraceStatus = normalizeScreenTraceStatus(status);
+  state.screenTraceRecords = normalizeScreenTraceRecords(records);
+  state.screenTraceDigests = normalizeScreenTraceDigests(digests);
+  renderScreenTrace();
 }

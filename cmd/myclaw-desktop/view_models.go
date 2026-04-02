@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"myclaw/internal/knowledge"
 	"myclaw/internal/modelconfig"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
+	"myclaw/internal/screentrace"
 	"myclaw/internal/skilllib"
 )
 
@@ -136,4 +138,77 @@ func desktopModelMessage(snapshot modelconfig.Snapshot, missing []string) string
 	default:
 		return "当前活跃模型 profile 已保存，但配置仍不完整。"
 	}
+}
+
+func toScreenTraceStatus(status screentrace.Status) ScreenTraceStatus {
+	settings := status.Settings.Normalize()
+	return ScreenTraceStatus{
+		Enabled:            settings.Enabled,
+		Running:            status.Running,
+		IntervalSeconds:    settings.IntervalSeconds,
+		RetentionDays:      settings.RetentionDays,
+		VisionProfileID:    strings.TrimSpace(settings.VisionProfileID),
+		WriteDigestsToKB:   settings.WriteDigestsToKB,
+		LastCaptureAt:      formatMaybeTime(status.LastCaptureAt),
+		LastCaptureAtUnix:  unixMaybe(status.LastCaptureAt),
+		LastAnalysisAt:     formatMaybeTime(status.LastAnalysisAt),
+		LastAnalysisAtUnix: unixMaybe(status.LastAnalysisAt),
+		LastDigestAt:       formatMaybeTime(status.LastDigestAt),
+		LastDigestAtUnix:   unixMaybe(status.LastDigestAt),
+		LastError:          strings.TrimSpace(status.LastError),
+		LastImagePath:      strings.TrimSpace(status.LastImagePath),
+		TotalRecords:       status.TotalRecords,
+		SkippedDuplicates:  status.SkippedDuplicates,
+	}
+}
+
+func toScreenTraceRecordItem(record screentrace.Record) ScreenTraceRecordItem {
+	return ScreenTraceRecordItem{
+		ID:              record.ID,
+		ShortID:         shortID(record.ID),
+		CapturedAt:      record.CapturedAt.Local().Format("2006-01-02 15:04:05"),
+		CapturedAtUnix:  record.CapturedAt.Unix(),
+		ImagePath:       strings.TrimSpace(record.ImagePath),
+		SceneSummary:    strings.TrimSpace(record.SceneSummary),
+		VisibleText:     append([]string(nil), record.VisibleText...),
+		Apps:            append([]string(nil), record.Apps...),
+		TaskGuess:       strings.TrimSpace(record.TaskGuess),
+		Keywords:        append([]string(nil), record.Keywords...),
+		SensitiveLevel:  strings.TrimSpace(record.SensitiveLevel),
+		Confidence:      record.Confidence,
+		DisplayLabel:    fmt.Sprintf("显示器 %d", record.DisplayIndex+1),
+		DimensionsLabel: fmt.Sprintf("%d × %d", record.Width, record.Height),
+	}
+}
+
+func toScreenTraceDigestItem(digest screentrace.Digest) ScreenTraceDigestItem {
+	return ScreenTraceDigestItem{
+		ID:               digest.ID,
+		ShortID:          shortID(digest.ID),
+		BucketStart:      digest.BucketStart.Local().Format("2006-01-02 15:04:05"),
+		BucketStartUnix:  digest.BucketStart.Unix(),
+		BucketEnd:        digest.BucketEnd.Local().Format("2006-01-02 15:04:05"),
+		BucketEndUnix:    digest.BucketEnd.Unix(),
+		RecordCount:      digest.RecordCount,
+		Summary:          strings.TrimSpace(digest.Summary),
+		Keywords:         append([]string(nil), digest.Keywords...),
+		DominantApps:     append([]string(nil), digest.DominantApps...),
+		DominantTasks:    append([]string(nil), digest.DominantTasks...),
+		WrittenToKB:      digest.WrittenToKB,
+		KnowledgeEntryID: strings.TrimSpace(digest.KnowledgeEntryID),
+	}
+}
+
+func formatMaybeTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Local().Format("2006-01-02 15:04:05")
+}
+
+func unixMaybe(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.Unix()
 }

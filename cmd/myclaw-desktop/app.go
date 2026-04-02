@@ -20,6 +20,7 @@ import (
 	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
+	"myclaw/internal/screentrace"
 	"myclaw/internal/sessionstate"
 	"myclaw/internal/skilllib"
 	"myclaw/internal/weixin"
@@ -45,6 +46,7 @@ type DesktopApp struct {
 	service           *appsvc.Service
 	sessionStore      *sessionstate.Store
 	reminders         *reminder.Manager
+	screenTrace       *screentrace.Manager
 	weixinBridge      *weixin.Bridge
 	settingsStore     *desktopSettingsStore
 	reminderCancel    context.CancelFunc
@@ -179,17 +181,79 @@ type MessageResult struct {
 }
 
 type AppSettings struct {
-	WeixinHistoryMessages int      `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int      `json:"weixinHistoryRunes"`
-	WeixinEverythingPath  string   `json:"weixinEverythingPath"`
-	DisabledToolNames     []string `json:"disabledToolNames,omitempty"`
+	WeixinHistoryMessages       int      `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes          int      `json:"weixinHistoryRunes"`
+	WeixinEverythingPath        string   `json:"weixinEverythingPath"`
+	DisabledToolNames           []string `json:"disabledToolNames,omitempty"`
+	ScreenTraceEnabled          bool     `json:"screenTraceEnabled"`
+	ScreenTraceIntervalSeconds  int      `json:"screenTraceIntervalSeconds"`
+	ScreenTraceRetentionDays    int      `json:"screenTraceRetentionDays"`
+	ScreenTraceVisionProfileID  string   `json:"screenTraceVisionProfileId"`
+	ScreenTraceWriteDigestsToKB bool     `json:"screenTraceWriteDigestsToKb"`
 }
 
 type AppSettingsInput struct {
-	WeixinHistoryMessages int      `json:"weixinHistoryMessages"`
-	WeixinHistoryRunes    int      `json:"weixinHistoryRunes"`
-	WeixinEverythingPath  string   `json:"weixinEverythingPath"`
-	DisabledToolNames     []string `json:"disabledToolNames,omitempty"`
+	WeixinHistoryMessages       int      `json:"weixinHistoryMessages"`
+	WeixinHistoryRunes          int      `json:"weixinHistoryRunes"`
+	WeixinEverythingPath        string   `json:"weixinEverythingPath"`
+	DisabledToolNames           []string `json:"disabledToolNames,omitempty"`
+	ScreenTraceEnabled          bool     `json:"screenTraceEnabled"`
+	ScreenTraceIntervalSeconds  int      `json:"screenTraceIntervalSeconds"`
+	ScreenTraceRetentionDays    int      `json:"screenTraceRetentionDays"`
+	ScreenTraceVisionProfileID  string   `json:"screenTraceVisionProfileId"`
+	ScreenTraceWriteDigestsToKB bool     `json:"screenTraceWriteDigestsToKb"`
+}
+
+type ScreenTraceStatus struct {
+	Enabled            bool   `json:"enabled"`
+	Running            bool   `json:"running"`
+	IntervalSeconds    int    `json:"intervalSeconds"`
+	RetentionDays      int    `json:"retentionDays"`
+	VisionProfileID    string `json:"visionProfileId"`
+	WriteDigestsToKB   bool   `json:"writeDigestsToKb"`
+	LastCaptureAt      string `json:"lastCaptureAt"`
+	LastCaptureAtUnix  int64  `json:"lastCaptureAtUnix"`
+	LastAnalysisAt     string `json:"lastAnalysisAt"`
+	LastAnalysisAtUnix int64  `json:"lastAnalysisAtUnix"`
+	LastDigestAt       string `json:"lastDigestAt"`
+	LastDigestAtUnix   int64  `json:"lastDigestAtUnix"`
+	LastError          string `json:"lastError"`
+	LastImagePath      string `json:"lastImagePath"`
+	TotalRecords       int    `json:"totalRecords"`
+	SkippedDuplicates  int    `json:"skippedDuplicates"`
+}
+
+type ScreenTraceRecordItem struct {
+	ID              string   `json:"id"`
+	ShortID         string   `json:"shortId"`
+	CapturedAt      string   `json:"capturedAt"`
+	CapturedAtUnix  int64    `json:"capturedAtUnix"`
+	ImagePath       string   `json:"imagePath"`
+	SceneSummary    string   `json:"sceneSummary"`
+	VisibleText     []string `json:"visibleText"`
+	Apps            []string `json:"apps"`
+	TaskGuess       string   `json:"taskGuess"`
+	Keywords        []string `json:"keywords"`
+	SensitiveLevel  string   `json:"sensitiveLevel"`
+	Confidence      float64  `json:"confidence"`
+	DisplayLabel    string   `json:"displayLabel"`
+	DimensionsLabel string   `json:"dimensionsLabel"`
+}
+
+type ScreenTraceDigestItem struct {
+	ID               string   `json:"id"`
+	ShortID          string   `json:"shortId"`
+	BucketStart      string   `json:"bucketStart"`
+	BucketStartUnix  int64    `json:"bucketStartUnix"`
+	BucketEnd        string   `json:"bucketEnd"`
+	BucketEndUnix    int64    `json:"bucketEndUnix"`
+	RecordCount      int      `json:"recordCount"`
+	Summary          string   `json:"summary"`
+	Keywords         []string `json:"keywords"`
+	DominantApps     []string `json:"dominantApps"`
+	DominantTasks    []string `json:"dominantTasks"`
+	WrittenToKB      bool     `json:"writtenToKb"`
+	KnowledgeEntryID string   `json:"knowledgeEntryId"`
 }
 
 type ChatPromptState struct {
@@ -250,6 +314,15 @@ func NewDesktopApp(dataDir string, store *knowledge.Store, promptStore *promptli
 		chatSessionMap: make(map[string]string),
 		weixinStatus:   defaultWeixinStatus(),
 	}
+	app.screenTrace = screentrace.NewManager(
+		dataDir,
+		screentrace.NewStore(filepath.Join(dataDir, "app.db")),
+		aiService,
+		modelStore,
+		screentrace.ManagerOptions{
+			DigestRecorder: app.recordScreenTraceDigest,
+		},
+	)
 	if weixinBridge != nil {
 		weixinBridge.SetConversationUpdatedHook(app.emitChatChanged)
 	}
@@ -291,6 +364,9 @@ func (a *DesktopApp) startup(ctx context.Context) {
 }
 
 func (a *DesktopApp) startBackgroundServices() {
+	if a.screenTrace != nil {
+		a.screenTrace.Start()
+	}
 	if a.reminders == nil {
 		a.initWeixin()
 		return
@@ -403,6 +479,9 @@ func (a *DesktopApp) quitFromTray() {
 }
 
 func (a *DesktopApp) stopBackgroundServices() {
+	if a.screenTrace != nil {
+		a.screenTrace.Stop()
+	}
 	a.stopWeixin()
 	if a.reminderCancel != nil {
 		a.reminderCancel()
@@ -541,11 +620,20 @@ func (a *DesktopApp) GetSettings() (AppSettings, error) {
 	if a.weixinBridge != nil {
 		everythingPath = a.weixinBridge.EverythingPath()
 	}
+	screenTraceSettings := screentrace.DefaultSettings()
+	if a.screenTrace != nil {
+		screenTraceSettings = a.screenTrace.Settings()
+	}
 	return AppSettings{
-		WeixinHistoryMessages: messages,
-		WeixinHistoryRunes:    runes,
-		WeixinEverythingPath:  everythingPath,
-		DisabledToolNames:     a.service.DisabledAgentTools(),
+		WeixinHistoryMessages:       messages,
+		WeixinHistoryRunes:          runes,
+		WeixinEverythingPath:        everythingPath,
+		DisabledToolNames:           a.service.DisabledAgentTools(),
+		ScreenTraceEnabled:          screenTraceSettings.Enabled,
+		ScreenTraceIntervalSeconds:  screenTraceSettings.IntervalSeconds,
+		ScreenTraceRetentionDays:    screenTraceSettings.RetentionDays,
+		ScreenTraceVisionProfileID:  screenTraceSettings.VisionProfileID,
+		ScreenTraceWriteDigestsToKB: screenTraceSettings.WriteDigestsToKB,
 	}, nil
 }
 
@@ -559,9 +647,33 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 	if input.WeixinHistoryRunes < 0 {
 		return AppSettings{}, errors.New("微信历史字符上限不能小于 0")
 	}
+	if input.ScreenTraceIntervalSeconds < 0 {
+		return AppSettings{}, errors.New("活动记录截图间隔不能小于 0")
+	}
+	if input.ScreenTraceRetentionDays < 0 {
+		return AppSettings{}, errors.New("活动记录保留天数不能小于 0")
+	}
 
 	input.WeixinEverythingPath = strings.TrimSpace(input.WeixinEverythingPath)
 	input.DisabledToolNames = appsvc.NormalizeAgentToolNames(input.DisabledToolNames)
+	screenTraceSettings := screentrace.Settings{
+		Enabled:            input.ScreenTraceEnabled,
+		IntervalSeconds:    input.ScreenTraceIntervalSeconds,
+		RetentionDays:      input.ScreenTraceRetentionDays,
+		VisionProfileID:    strings.TrimSpace(input.ScreenTraceVisionProfileID),
+		WriteDigestsToKB:   input.ScreenTraceWriteDigestsToKB,
+		DigestIntervalMins: screentrace.DefaultDigestIntervalMinute,
+	}.Normalize()
+	if screenTraceSettings.Enabled && screenTraceSettings.VisionProfileID == "" {
+		return AppSettings{}, errors.New("启用活动记录前请先选择专用视觉模型 profile")
+	}
+	if screenTraceSettings.Enabled && a.modelStore != nil {
+		if _, ok, err := a.modelStore.Get(context.Background(), screenTraceSettings.VisionProfileID); err != nil {
+			return AppSettings{}, err
+		} else if !ok {
+			return AppSettings{}, errors.New("活动记录选择的视觉模型 profile 不存在")
+		}
+	}
 	if a.settingsStore != nil {
 		cfg, _, err := a.settingsStore.Load()
 		if err != nil {
@@ -571,6 +683,11 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 		cfg.WeixinHistoryRunes = input.WeixinHistoryRunes
 		cfg.WeixinEverythingPath = input.WeixinEverythingPath
 		cfg.DisabledToolNames = input.DisabledToolNames
+		cfg.ScreenTraceEnabled = screenTraceSettings.Enabled
+		cfg.ScreenTraceIntervalSeconds = screenTraceSettings.IntervalSeconds
+		cfg.ScreenTraceRetentionDays = screenTraceSettings.RetentionDays
+		cfg.ScreenTraceVisionProfileID = screenTraceSettings.VisionProfileID
+		cfg.ScreenTraceWriteDigestsToKB = screenTraceSettings.WriteDigestsToKB
 		if sessions := a.persistedDesktopChatSessions(); len(sessions) > 0 {
 			cfg.DesktopChatSessions = sessions
 		}
@@ -584,7 +701,57 @@ func (a *DesktopApp) SaveSettings(input AppSettingsInput) (AppSettings, error) {
 	if a.weixinBridge != nil {
 		a.weixinBridge.SetEverythingPath(input.WeixinEverythingPath)
 	}
+	if a.screenTrace != nil {
+		a.screenTrace.SetSettings(screenTraceSettings)
+	}
 	return a.GetSettings()
+}
+
+func (a *DesktopApp) GetScreenTraceStatus() (ScreenTraceStatus, error) {
+	if a.screenTrace == nil {
+		return ScreenTraceStatus{}, nil
+	}
+	return toScreenTraceStatus(a.screenTrace.Status()), nil
+}
+
+func (a *DesktopApp) ListScreenTraceRecords(limit int) ([]ScreenTraceRecordItem, error) {
+	if a.screenTrace == nil {
+		return []ScreenTraceRecordItem{}, nil
+	}
+	records, err := a.screenTrace.ListRecentRecords(context.Background(), limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ScreenTraceRecordItem, 0, len(records))
+	for _, record := range records {
+		items = append(items, toScreenTraceRecordItem(record))
+	}
+	return items, nil
+}
+
+func (a *DesktopApp) ListScreenTraceDigests(limit int) ([]ScreenTraceDigestItem, error) {
+	if a.screenTrace == nil {
+		return []ScreenTraceDigestItem{}, nil
+	}
+	digests, err := a.screenTrace.ListRecentDigests(context.Background(), limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ScreenTraceDigestItem, 0, len(digests))
+	for _, digest := range digests {
+		items = append(items, toScreenTraceDigestItem(digest))
+	}
+	return items, nil
+}
+
+func (a *DesktopApp) CaptureScreenTraceNow() (MessageResult, error) {
+	if a.screenTrace == nil {
+		return MessageResult{Message: "活动记录尚未启用。"}, nil
+	}
+	if err := a.screenTrace.CaptureNow(context.Background()); err != nil {
+		return MessageResult{}, err
+	}
+	return MessageResult{Message: "已执行一次即时截图分析。"}, nil
 }
 
 func (a *DesktopApp) SaveModelConfig(input ModelConfigInput) (ModelSettings, error) {
@@ -1196,6 +1363,16 @@ func (a *DesktopApp) applyPersistedSettings() {
 	a.service.SetDisabledAgentTools(cfg.DisabledToolNames)
 	if a.weixinBridge != nil {
 		a.weixinBridge.SetEverythingPath(cfg.WeixinEverythingPath)
+	}
+	if a.screenTrace != nil {
+		a.screenTrace.SetSettings(screentrace.Settings{
+			Enabled:            cfg.ScreenTraceEnabled,
+			IntervalSeconds:    cfg.ScreenTraceIntervalSeconds,
+			RetentionDays:      cfg.ScreenTraceRetentionDays,
+			VisionProfileID:    cfg.ScreenTraceVisionProfileID,
+			WriteDigestsToKB:   cfg.ScreenTraceWriteDigestsToKB,
+			DigestIntervalMins: screentrace.DefaultDigestIntervalMinute,
+		})
 	}
 	a.applyPersistedChatSessions(cfg.DesktopChatSessions)
 }

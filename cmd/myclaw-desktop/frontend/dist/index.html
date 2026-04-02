@@ -51,6 +51,10 @@
             <span class="icon">⌘</span>
             <span>工具</span>
           </a>
+          <a class="nav-item" data-view="activity">
+            <span class="icon">▣</span>
+            <span>活动记录</span>
+          </a>
           <a class="nav-item" data-view="settings">
             <span class="icon">⚙</span>
             <span>设置</span>
@@ -148,6 +152,10 @@
               <div class="action-card" data-nav-view="settings" data-nav-section="settings-section-model">
                 <h3>模型配置</h3>
                 <p>在设置里保存与测试 profile</p>
+              </div>
+              <div class="action-card" data-nav-view="activity">
+                <h3>活动记录</h3>
+                <p>查看定时截图摘要与时间段整理结果</p>
               </div>
               <div class="action-card" data-open-quick-memory>
                 <h3>快速记忆</h3>
@@ -385,6 +393,83 @@
           </div>
         </div>
 
+        <div id="view-activity" class="view">
+          <header class="content-header">
+            <div class="content-header-row">
+              <div>
+                <h2>活动记录</h2>
+                <p class="subtitle">定时截图后的轻量时间线与时间段摘要。图像分析使用独立视觉模型，不复用主对话模型。</p>
+              </div>
+              <div class="content-header-actions">
+                <button class="btn btn-ghost btn-sm" id="screentrace-refresh">刷新</button>
+                <button class="btn btn-primary btn-sm" id="screentrace-capture-now">立即分析一次</button>
+              </div>
+            </div>
+          </header>
+          <div class="content-body">
+            <div class="dashboard-grid">
+              <div class="stat-card">
+                <div class="label">状态</div>
+                <div class="value" id="screentrace-status-pill">未启用</div>
+                <div class="subtext" id="screentrace-status-copy">尚未启用活动记录。</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">记录数</div>
+                <div class="value" id="screentrace-total-records">0</div>
+                <div class="subtext">已保存的截图摘要</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">去重跳过</div>
+                <div class="value" id="screentrace-skipped-duplicates">0</div>
+                <div class="subtext">与上次过于相似的截图</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">最近截图</div>
+                <div class="value" id="screentrace-last-capture">—</div>
+                <div class="subtext">后台最近一次抓图时间</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">最近分析</div>
+                <div class="value" id="screentrace-last-analysis">—</div>
+                <div class="subtext">最近一次成功图像分析</div>
+              </div>
+              <div class="stat-card">
+                <div class="label">最近摘要</div>
+                <div class="value" id="screentrace-last-digest">—</div>
+                <div class="subtext" id="screentrace-last-error">无</div>
+              </div>
+            </div>
+
+            <div class="memory-header">
+              <div>
+                <h3 style="margin:0 0 4px;">时间段摘要</h3>
+                <p class="subtitle" style="margin:0;">按时间窗口整理的活动结果，可选写入知识库。</p>
+              </div>
+            </div>
+            <div class="memory-list" id="screentrace-digest-list">
+              <div class="empty-state">
+                <div class="empty-state-icon">◫</div>
+                <h3>还没有时间段摘要</h3>
+                <p>启用活动记录后，这里会显示整理结果。</p>
+              </div>
+            </div>
+
+            <div class="memory-header" style="margin-top: 24px;">
+              <div>
+                <h3 style="margin:0 0 4px;">最近截图摘要</h3>
+                <p class="subtitle" style="margin:0;">每条记录都来自单次截图分析，不直接写入知识库。</p>
+              </div>
+            </div>
+            <div class="memory-list" id="screentrace-record-list">
+              <div class="empty-state">
+                <div class="empty-state-icon">▣</div>
+                <h3>还没有活动记录</h3>
+                <p>启用 ScreenTrace 后，这里会显示时间线记录。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div id="view-settings" class="view">
           <header class="content-header">
             <h2>设置</h2>
@@ -602,6 +687,44 @@
 
                 <div class="model-actions">
                   <button class="btn btn-primary" id="settings-save">保存设置</button>
+                </div>
+              </section>
+
+              <section class="model-card" id="settings-section-screentrace">
+                <div class="model-card-header">
+                  <div>
+                    <h3>活动记录</h3>
+                    <p>桌面后台定时截图与轻量整理功能。必须选择独立的低成本视觉模型 profile，避免占用主对话模型预算。</p>
+                  </div>
+                  <span class="status-pill on">Desktop 专用</span>
+                </div>
+
+                <div class="form-grid">
+                  <label class="form-field">
+                    <span>启用活动记录</span>
+                    <input id="settings-screentrace-enabled" type="checkbox" />
+                  </label>
+                  <label class="form-field">
+                    <span>截图间隔（秒）</span>
+                    <input id="settings-screentrace-interval-seconds" type="number" min="0" step="1" placeholder="15" />
+                  </label>
+                  <label class="form-field">
+                    <span>保留天数</span>
+                    <input id="settings-screentrace-retention-days" type="number" min="0" step="1" placeholder="7" />
+                  </label>
+                  <label class="form-field form-field-wide">
+                    <span>独立视觉模型 Profile</span>
+                    <select id="settings-screentrace-vision-profile"></select>
+                  </label>
+                  <label class="form-field">
+                    <span>时间段摘要写入知识库</span>
+                    <input id="settings-screentrace-write-digests-kb" type="checkbox" />
+                  </label>
+                </div>
+
+                <div class="settings-note">
+                  <p>建议把这里绑定到单独的便宜视觉模型，例如轻量 VLM 或 mini 档位模型。</p>
+                  <p>时间线记录保存在本地 `screentrace/` 目录和 `app.db` 中；每条原始截图摘要不会直接写入知识库。</p>
                 </div>
               </section>
             </div>

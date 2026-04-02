@@ -378,6 +378,11 @@ function defaultSettingsState() {
     weixinHistoryRunes: 360,
     weixinEverythingPath: '',
     disabledToolNames: [],
+    screenTraceEnabled: false,
+    screenTraceIntervalSeconds: 15,
+    screenTraceRetentionDays: 7,
+    screenTraceVisionProfileId: '',
+    screenTraceWriteDigestsToKb: false,
   };
 }
 
@@ -396,8 +401,92 @@ function normalizeSettingsState(payload) {
     weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
     weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
     weixinEverythingPath: String(source?.weixinEverythingPath ?? ''),
+    screenTraceEnabled: Boolean(source?.screenTraceEnabled),
+    screenTraceIntervalSeconds: Number(source?.screenTraceIntervalSeconds ?? 15),
+    screenTraceRetentionDays: Number(source?.screenTraceRetentionDays ?? 7),
+    screenTraceVisionProfileId: String(source?.screenTraceVisionProfileId ?? ''),
+    screenTraceWriteDigestsToKb: Boolean(source?.screenTraceWriteDigestsToKb),
     disabledToolNames,
   };
+}
+
+function defaultScreenTraceStatus() {
+  return {
+    enabled: false,
+    running: false,
+    intervalSeconds: 15,
+    retentionDays: 7,
+    visionProfileId: '',
+    writeDigestsToKb: false,
+    lastCaptureAt: '',
+    lastCaptureAtUnix: 0,
+    lastAnalysisAt: '',
+    lastAnalysisAtUnix: 0,
+    lastDigestAt: '',
+    lastDigestAtUnix: 0,
+    lastError: '',
+    lastImagePath: '',
+    totalRecords: 0,
+    skippedDuplicates: 0,
+  };
+}
+
+function normalizeScreenTraceStatus(payload) {
+  const source = Array.isArray(payload) ? payload[0] : payload;
+  return {
+    ...defaultScreenTraceStatus(),
+    ...(source || {}),
+    enabled: Boolean(source?.enabled),
+    running: Boolean(source?.running),
+    intervalSeconds: Number(source?.intervalSeconds ?? 15),
+    retentionDays: Number(source?.retentionDays ?? 7),
+    visionProfileId: String(source?.visionProfileId ?? ''),
+    writeDigestsToKb: Boolean(source?.writeDigestsToKb),
+    lastCaptureAtUnix: Number(source?.lastCaptureAtUnix || 0),
+    lastAnalysisAtUnix: Number(source?.lastAnalysisAtUnix || 0),
+    lastDigestAtUnix: Number(source?.lastDigestAtUnix || 0),
+    totalRecords: Number(source?.totalRecords || 0),
+    skippedDuplicates: Number(source?.skippedDuplicates || 0),
+  };
+}
+
+function normalizeScreenTraceRecords(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    id: item?.id || '',
+    shortId: item?.shortId || '',
+    capturedAt: item?.capturedAt || '',
+    capturedAtUnix: Number(item?.capturedAtUnix || 0),
+    imagePath: item?.imagePath || '',
+    sceneSummary: item?.sceneSummary || '',
+    visibleText: Array.isArray(item?.visibleText) ? item.visibleText.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    apps: Array.isArray(item?.apps) ? item.apps.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    taskGuess: item?.taskGuess || '',
+    keywords: Array.isArray(item?.keywords) ? item.keywords.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    sensitiveLevel: item?.sensitiveLevel || '',
+    confidence: Number(item?.confidence || 0),
+    displayLabel: item?.displayLabel || '',
+    dimensionsLabel: item?.dimensionsLabel || '',
+  }));
+}
+
+function normalizeScreenTraceDigests(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    id: item?.id || '',
+    shortId: item?.shortId || '',
+    bucketStart: item?.bucketStart || '',
+    bucketStartUnix: Number(item?.bucketStartUnix || 0),
+    bucketEnd: item?.bucketEnd || '',
+    bucketEndUnix: Number(item?.bucketEndUnix || 0),
+    recordCount: Number(item?.recordCount || 0),
+    summary: item?.summary || '',
+    keywords: Array.isArray(item?.keywords) ? item.keywords.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    dominantApps: Array.isArray(item?.dominantApps) ? item.dominantApps.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    dominantTasks: Array.isArray(item?.dominantTasks) ? item.dominantTasks.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    writtenToKb: Boolean(item?.writtenToKb),
+    knowledgeEntryId: item?.knowledgeEntryId || '',
+  }));
 }
 
 function defaultWeixinState() {

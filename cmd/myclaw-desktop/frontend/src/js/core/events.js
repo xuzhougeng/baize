@@ -132,6 +132,16 @@ function bindStaticEvents() {
     settingsSave.addEventListener('click', () => void saveSettings());
   }
 
+  const screenTraceRefresh = document.getElementById('screentrace-refresh');
+  if (screenTraceRefresh) {
+    screenTraceRefresh.addEventListener('click', () => void refreshScreenTraceManually());
+  }
+
+  const screenTraceCaptureNow = document.getElementById('screentrace-capture-now');
+  if (screenTraceCaptureNow) {
+    screenTraceCaptureNow.addEventListener('click', () => void captureScreenTraceNow());
+  }
+
   const skillImportTrigger = document.getElementById('skill-import-trigger');
   if (skillImportTrigger) {
     skillImportTrigger.addEventListener('click', () => void browseSkillArchive());

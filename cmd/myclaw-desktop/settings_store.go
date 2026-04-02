@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	appsvc "myclaw/internal/app"
+	"myclaw/internal/screentrace"
 	"myclaw/internal/sqliteutil"
 )
 
@@ -22,11 +23,16 @@ type desktopSettingsStore struct {
 }
 
 type desktopSettingsFile struct {
-	WeixinHistoryMessages int               `json:"weixin_history_messages"`
-	WeixinHistoryRunes    int               `json:"weixin_history_runes"`
-	WeixinEverythingPath  string            `json:"weixin_everything_path"`
-	DisabledToolNames     []string          `json:"disabled_tool_names,omitempty"`
-	DesktopChatSessions   map[string]string `json:"desktop_chat_sessions,omitempty"`
+	WeixinHistoryMessages       int               `json:"weixin_history_messages"`
+	WeixinHistoryRunes          int               `json:"weixin_history_runes"`
+	WeixinEverythingPath        string            `json:"weixin_everything_path"`
+	DisabledToolNames           []string          `json:"disabled_tool_names,omitempty"`
+	DesktopChatSessions         map[string]string `json:"desktop_chat_sessions,omitempty"`
+	ScreenTraceEnabled          bool              `json:"screentrace_enabled"`
+	ScreenTraceIntervalSeconds  int               `json:"screentrace_interval_seconds"`
+	ScreenTraceRetentionDays    int               `json:"screentrace_retention_days"`
+	ScreenTraceVisionProfileID  string            `json:"screentrace_vision_profile_id"`
+	ScreenTraceWriteDigestsToKB bool              `json:"screentrace_write_digests_to_kb"`
 }
 
 func newDesktopSettingsStore(dataDir string) *desktopSettingsStore {
@@ -44,21 +50,40 @@ func (s *desktopSettingsStore) Load() (desktopSettingsFile, bool, error) {
 	}
 
 	row := s.db.QueryRowContext(context.Background(), `
-		SELECT weixin_history_messages, weixin_history_runes, weixin_everything_path, disabled_tool_names_json, desktop_chat_sessions_json
+		SELECT
+			weixin_history_messages, weixin_history_runes, weixin_everything_path,
+			disabled_tool_names_json, desktop_chat_sessions_json,
+			screentrace_enabled, screentrace_interval_seconds, screentrace_retention_days,
+			screentrace_vision_profile_id, screentrace_write_digests_to_kb
 		FROM desktop_settings
 		WHERE id = ?
 	`, desktopSettingsRowID)
 	var (
-		cfg               desktopSettingsFile
-		disabledToolsJSON string
-		chatSessionsJSON  string
+		cfg                desktopSettingsFile
+		disabledToolsJSON  string
+		chatSessionsJSON   string
+		screenTraceEnabled int
+		screenTraceWriteKB int
 	)
-	if err := row.Scan(&cfg.WeixinHistoryMessages, &cfg.WeixinHistoryRunes, &cfg.WeixinEverythingPath, &disabledToolsJSON, &chatSessionsJSON); err != nil {
+	if err := row.Scan(
+		&cfg.WeixinHistoryMessages,
+		&cfg.WeixinHistoryRunes,
+		&cfg.WeixinEverythingPath,
+		&disabledToolsJSON,
+		&chatSessionsJSON,
+		&screenTraceEnabled,
+		&cfg.ScreenTraceIntervalSeconds,
+		&cfg.ScreenTraceRetentionDays,
+		&cfg.ScreenTraceVisionProfileID,
+		&screenTraceWriteKB,
+	); err != nil {
 		if err == sql.ErrNoRows {
 			return desktopSettingsFile{}, false, nil
 		}
 		return desktopSettingsFile{}, false, err
 	}
+	cfg.ScreenTraceEnabled = screenTraceEnabled == 1
+	cfg.ScreenTraceWriteDigestsToKB = screenTraceWriteKB == 1
 	if err := json.Unmarshal([]byte(strings.TrimSpace(disabledToolsJSON)), &cfg.DisabledToolNames); err != nil {
 		return desktopSettingsFile{}, false, err
 	}
@@ -88,15 +113,35 @@ func (s *desktopSettingsStore) Save(cfg desktopSettingsFile) error {
 	}
 	_, err = s.db.ExecContext(context.Background(), `
 		INSERT INTO desktop_settings (
-			id, weixin_history_messages, weixin_history_runes, weixin_everything_path, disabled_tool_names_json, desktop_chat_sessions_json
-		) VALUES (?, ?, ?, ?, ?, ?)
+			id, weixin_history_messages, weixin_history_runes, weixin_everything_path,
+			disabled_tool_names_json, desktop_chat_sessions_json,
+			screentrace_enabled, screentrace_interval_seconds, screentrace_retention_days,
+			screentrace_vision_profile_id, screentrace_write_digests_to_kb
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			weixin_history_messages = excluded.weixin_history_messages,
 			weixin_history_runes = excluded.weixin_history_runes,
 			weixin_everything_path = excluded.weixin_everything_path,
 			disabled_tool_names_json = excluded.disabled_tool_names_json,
-			desktop_chat_sessions_json = excluded.desktop_chat_sessions_json
-	`, desktopSettingsRowID, cfg.WeixinHistoryMessages, cfg.WeixinHistoryRunes, cfg.WeixinEverythingPath, string(disabledToolsJSON), string(chatSessionsJSON))
+			desktop_chat_sessions_json = excluded.desktop_chat_sessions_json,
+			screentrace_enabled = excluded.screentrace_enabled,
+			screentrace_interval_seconds = excluded.screentrace_interval_seconds,
+			screentrace_retention_days = excluded.screentrace_retention_days,
+			screentrace_vision_profile_id = excluded.screentrace_vision_profile_id,
+			screentrace_write_digests_to_kb = excluded.screentrace_write_digests_to_kb
+	`,
+		desktopSettingsRowID,
+		cfg.WeixinHistoryMessages,
+		cfg.WeixinHistoryRunes,
+		cfg.WeixinEverythingPath,
+		string(disabledToolsJSON),
+		string(chatSessionsJSON),
+		boolToDBInt(cfg.ScreenTraceEnabled),
+		cfg.ScreenTraceIntervalSeconds,
+		cfg.ScreenTraceRetentionDays,
+		cfg.ScreenTraceVisionProfileID,
+		boolToDBInt(cfg.ScreenTraceWriteDigestsToKB),
+	)
 	return err
 }
 
@@ -113,13 +158,36 @@ func (s *desktopSettingsStore) ensureReady() error {
 				weixin_history_runes INTEGER NOT NULL DEFAULT 0,
 				weixin_everything_path TEXT NOT NULL DEFAULT '',
 				disabled_tool_names_json TEXT NOT NULL DEFAULT '[]',
-				desktop_chat_sessions_json TEXT NOT NULL DEFAULT '{}'
+				desktop_chat_sessions_json TEXT NOT NULL DEFAULT '{}',
+				screentrace_enabled INTEGER NOT NULL DEFAULT 0,
+				screentrace_interval_seconds INTEGER NOT NULL DEFAULT 15,
+				screentrace_retention_days INTEGER NOT NULL DEFAULT 7,
+				screentrace_vision_profile_id TEXT NOT NULL DEFAULT '',
+				screentrace_write_digests_to_kb INTEGER NOT NULL DEFAULT 0
 			)
 		`)
 		if s.initErr != nil {
 			return
 		}
 		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN disabled_tool_names_json TEXT NOT NULL DEFAULT '[]'`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN desktop_chat_sessions_json TEXT NOT NULL DEFAULT '{}'`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN screentrace_enabled INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN screentrace_interval_seconds INTEGER NOT NULL DEFAULT 15`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN screentrace_retention_days INTEGER NOT NULL DEFAULT 7`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN screentrace_vision_profile_id TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			s.initErr = err
+		}
+		if _, err := s.db.Exec(`ALTER TABLE desktop_settings ADD COLUMN screentrace_write_digests_to_kb INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
 			s.initErr = err
 		}
 	})
@@ -140,6 +208,14 @@ func normalizeDesktopSettings(cfg *desktopSettingsFile) {
 	if cfg.WeixinEverythingPath == "." {
 		cfg.WeixinEverythingPath = ""
 	}
+	screenTraceDefaults := screentrace.DefaultSettings()
+	if cfg.ScreenTraceIntervalSeconds <= 0 {
+		cfg.ScreenTraceIntervalSeconds = screenTraceDefaults.IntervalSeconds
+	}
+	if cfg.ScreenTraceRetentionDays <= 0 {
+		cfg.ScreenTraceRetentionDays = screenTraceDefaults.RetentionDays
+	}
+	cfg.ScreenTraceVisionProfileID = strings.TrimSpace(cfg.ScreenTraceVisionProfileID)
 	cfg.DisabledToolNames = appsvc.NormalizeAgentToolNames(cfg.DisabledToolNames)
 	cfg.DesktopChatSessions = normalizeDesktopChatSessions(cfg.DesktopChatSessions)
 }
@@ -161,4 +237,11 @@ func normalizeDesktopChatSessions(raw map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+func boolToDBInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

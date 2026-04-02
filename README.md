@@ -75,6 +75,9 @@ flowchart TD
 - 普通问题默认走 agent 模式；需要传统一问一答时可用 `@ai`，需要单条附加知识库检索时可用 `@kb`
 - desktop 新建对话时会先选择 `ask` 或 `agent`，模式在该会话创建时确定
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
+- 支持 agent 单次调用 `screen_capture`：抓取当前屏幕、落临时 JPEG，并可选走视觉摘要
+- 支持 Windows 专用 `windows_automation_tool`：列出顶层窗口、读取前台窗口、聚焦窗口或启动后聚焦应用
+- 支持 desktop 专用的 `ScreenTrace` 活动记录：后台定时截图、轻量去重、独立视觉模型分析、时间段摘要与可选知识库同步
 - 支持单次提醒和每天重复提醒
 - 桌面主会话与提醒面板会聚合显示当前运行时里的提醒，并标注来源（如桌面、微信）
 - 微信桥接只保留扫码登录、长轮询、文本/语音文字收发
@@ -103,6 +106,9 @@ internal/powershelltool powershell_tool 工具单元，Windows 只读 PowerShell
 internal/sessionstate 会话快照持久化（历史消息、模式、已加载技能）
 internal/skilllib     技能加载与管理
 internal/fileingest   图片与 PDF 摄入（视觉总结 / go-fitz 全文提取）
+internal/screencapture 单次屏幕截图工具单元（agent tool）
+internal/windowsautomationtool Windows 桌面自动化工具单元（聚焦窗口 / 启动并聚焦应用）
+internal/screentrace  Desktop 专用活动记录（定时截图 / 去重 / 摘要 / digest）
 internal/promptlib    提示词模板管理与存储
 internal/projectstate 项目运行时状态跟踪
 internal/sqliteutil   SQLite 公共工具函数
@@ -145,6 +151,7 @@ go run ./cmd/myclaw-desktop
 - 图片 / PDF 文件导入
 - 知识库列表、补充、删除、清空
 - 模型配置页面，可直接保存和测试连接
+- 活动记录页面，可查看定时截图摘要与按时间段整理后的 digest
 - 原生文件选择和确认对话框
 - 微信页面，支持在桌面端直接显示二维码扫码登录
 - 新建对话时可直接选择 `ask` 或 `agent`
@@ -164,6 +171,7 @@ go run ./cmd/myclaw-desktop
 - 模型 API Key 会配套写入 `model/secret.key`，密钥文件与数据库分离
 - API Key 会单独加密后保存，前端只显示掩码，不会回填明文
 - 支持多 profile，并可切换当前活跃模型
+- `ScreenTrace` 会单独绑定一个视觉模型 profile，不复用当前活跃聊天模型
 - OpenAI 支持 `responses` 和 `chat_completions`
 - Anthropic 支持 `messages`
 

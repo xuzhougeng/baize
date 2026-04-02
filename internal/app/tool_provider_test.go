@@ -12,6 +12,8 @@ import (
 	"myclaw/internal/knowledge"
 	"myclaw/internal/powershelltool"
 	"myclaw/internal/reminder"
+	"myclaw/internal/screencapture"
+	"myclaw/internal/windowsautomationtool"
 )
 
 func TestLocalToolSideEffectLabels(t *testing.T) {
@@ -53,6 +55,12 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 	}
 	if powershelltool.SupportedForCurrentPlatform() {
 		want[powershelltool.ToolName] = string(ToolSideEffectReadOnly)
+	}
+	if screencapture.SupportedForCurrentPlatform() {
+		want[screencapture.ToolName] = string(ToolSideEffectReadOnly)
+	}
+	if windowsautomationtool.SupportedForCurrentPlatform() {
+		want[windowsautomationtool.ToolName] = string(ToolSideEffectSoftWrite)
 	}
 
 	for tool, wantLevel := range want {
@@ -104,6 +112,12 @@ func TestLocalToolFamiliesAreExposed(t *testing.T) {
 	if powershelltool.SupportedForCurrentPlatform() {
 		wantFamilies[powershelltool.ToolName] = powershelltool.ToolFamilyKey
 	}
+	if screencapture.SupportedForCurrentPlatform() {
+		wantFamilies[screencapture.ToolName] = screencapture.ToolFamilyKey
+	}
+	if windowsautomationtool.SupportedForCurrentPlatform() {
+		wantFamilies[windowsautomationtool.ToolName] = windowsautomationtool.ToolFamilyKey
+	}
 	for tool, wantFamily := range wantFamilies {
 		if got := familyByTool[tool]; got != wantFamily {
 			t.Errorf("tool %q FamilyKey = %q, want %q", tool, got, wantFamily)
@@ -128,6 +142,8 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 		hasDirlist    bool
 		hasBash       bool
 		hasPowerShell bool
+		hasScreen     bool
+		hasWinAuto    bool
 	)
 	for _, def := range defs {
 		if strings.HasSuffix(def.Name, "::bash_tool") {
@@ -139,6 +155,12 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 		if strings.HasSuffix(def.Name, "::list_directory") {
 			hasDirlist = true
 		}
+		if strings.HasSuffix(def.Name, "::screen_capture") {
+			hasScreen = true
+		}
+		if strings.HasSuffix(def.Name, "::windows_automation_tool") {
+			hasWinAuto = true
+		}
 	}
 	if !hasDirlist {
 		t.Fatalf("expected directory listing tool in weixin definitions: %#v", defs)
@@ -148,6 +170,12 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 	}
 	if powershelltool.SupportedForCurrentPlatform() && !hasPowerShell {
 		t.Fatalf("expected powershell tool in weixin definitions: %#v", defs)
+	}
+	if screencapture.SupportedForCurrentPlatform() && !hasScreen {
+		t.Fatalf("expected screen capture tool in weixin definitions: %#v", defs)
+	}
+	if windowsautomationtool.SupportedForCurrentPlatform() && !hasWinAuto {
+		t.Fatalf("expected windows automation tool in weixin definitions: %#v", defs)
 	}
 }
 

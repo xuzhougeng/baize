@@ -252,6 +252,34 @@ Flags：
   - Bash-oriented execution contract in `internal/bashtool`
   - PowerShell-oriented execution contract in `internal/powershelltool`
 
+### Screen Family
+
+- Package: `internal/screencapture`
+- Tools: `screen_capture`
+- Family metadata: `FamilyKey=screen`, `FamilyTitle=屏幕`
+- Purpose: Capture the current host screen as a local JPEG file for one-shot inspection, with optional visual summarization.
+- Input contract: `analyze`, `max_dimension`, `jpeg_quality`
+- Output contract: tool name, saved image path, mime type, dimensions, display index, capture timestamp, analysis status, and optional summary
+- Shortcut registration: none; exposed through the shared local agent tool provider for both desktop and WeChat, and filtered only by platform support
+- Current pipeline split:
+  - tool selection and invocation in `internal/ai`
+  - runtime exposure and AI summary wiring in `internal/app`
+  - capture contract, image normalization, and file output in `internal/screencapture`
+
+### Windows Family
+
+- Package: `internal/windowsautomationtool`
+- Tools: `windows_automation_tool`
+- Family metadata: `FamilyKey=windows`, `FamilyTitle=Windows`
+- Purpose: Inspect Windows top-level desktop windows and bring a target window or app to the foreground through a small allowlisted automation surface.
+- Input contract: `action`, plus `title_contains` for `focus_window`, `process_name` for `focus_app`, `app_name` for `launch_or_focus_app`, optional `limit` for `list_windows`, and optional `timeout_seconds`
+- Output contract: tool name, shell, action, exit code, stdout, stderr, truncation flag
+- Shortcut registration: none; exposed through the shared local agent tool provider for both desktop and WeChat, and filtered only by platform support
+- Current pipeline split:
+  - tool selection and invocation in `internal/ai`
+  - runtime exposure in `internal/app`
+  - Windows action normalization, allowlisting, and PowerShell execution in `internal/windowsautomationtool`
+
 ### Knowledge Family
 
 - Package: `internal/knowledge`

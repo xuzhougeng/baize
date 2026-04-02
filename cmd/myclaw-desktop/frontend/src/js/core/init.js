@@ -23,6 +23,7 @@ async function init() {
   renderModel();
   renderWeixin();
   renderSettings();
+  renderScreenTrace();
 
   try {
     state.backend = await waitForBackend();

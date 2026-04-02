@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"myclaw/internal/ai"
@@ -451,6 +452,44 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		}
 	})
 
+	mux.HandleFunc("/api/screentrace/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		result, err := s.app.GetScreenTraceStatus()
+		s.writeResult(w, result, err)
+	})
+
+	mux.HandleFunc("/api/screentrace/records", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		limit := parseOptionalInt(r.URL.Query().Get("limit"), 60)
+		result, err := s.app.ListScreenTraceRecords(limit)
+		s.writeResult(w, result, err)
+	})
+
+	mux.HandleFunc("/api/screentrace/digests", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		limit := parseOptionalInt(r.URL.Query().Get("limit"), 20)
+		result, err := s.app.ListScreenTraceDigests(limit)
+		s.writeResult(w, result, err)
+	})
+
+	mux.HandleFunc("/api/screentrace/capture", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeMethodNotAllowed(w, http.MethodPost)
+			return
+		}
+		result, err := s.app.CaptureScreenTraceNow()
+		s.writeResult(w, result, err)
+	})
+
 	mux.HandleFunc("/api/model/save", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			s.writeMethodNotAllowed(w, http.MethodPost)
@@ -556,6 +595,14 @@ func (s desktopHTTPDevServer) registerAPI(mux *http.ServeMux) {
 		result, err := s.app.LogoutWeixin()
 		s.writeResult(w, result, err)
 	})
+}
+
+func parseOptionalInt(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func (s desktopHTTPDevServer) registerFrontend(mux *http.ServeMux) {

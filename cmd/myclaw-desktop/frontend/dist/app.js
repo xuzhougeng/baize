@@ -464,6 +464,11 @@ function defaultSettingsState() {
     weixinHistoryRunes: 360,
     weixinEverythingPath: '',
     disabledToolNames: [],
+    screenTraceEnabled: false,
+    screenTraceIntervalSeconds: 15,
+    screenTraceRetentionDays: 7,
+    screenTraceVisionProfileId: '',
+    screenTraceWriteDigestsToKb: false,
   };
 }
 
@@ -482,8 +487,92 @@ function normalizeSettingsState(payload) {
     weixinHistoryMessages: Number(source?.weixinHistoryMessages ?? 12),
     weixinHistoryRunes: Number(source?.weixinHistoryRunes ?? 360),
     weixinEverythingPath: String(source?.weixinEverythingPath ?? ''),
+    screenTraceEnabled: Boolean(source?.screenTraceEnabled),
+    screenTraceIntervalSeconds: Number(source?.screenTraceIntervalSeconds ?? 15),
+    screenTraceRetentionDays: Number(source?.screenTraceRetentionDays ?? 7),
+    screenTraceVisionProfileId: String(source?.screenTraceVisionProfileId ?? ''),
+    screenTraceWriteDigestsToKb: Boolean(source?.screenTraceWriteDigestsToKb),
     disabledToolNames,
   };
+}
+
+function defaultScreenTraceStatus() {
+  return {
+    enabled: false,
+    running: false,
+    intervalSeconds: 15,
+    retentionDays: 7,
+    visionProfileId: '',
+    writeDigestsToKb: false,
+    lastCaptureAt: '',
+    lastCaptureAtUnix: 0,
+    lastAnalysisAt: '',
+    lastAnalysisAtUnix: 0,
+    lastDigestAt: '',
+    lastDigestAtUnix: 0,
+    lastError: '',
+    lastImagePath: '',
+    totalRecords: 0,
+    skippedDuplicates: 0,
+  };
+}
+
+function normalizeScreenTraceStatus(payload) {
+  const source = Array.isArray(payload) ? payload[0] : payload;
+  return {
+    ...defaultScreenTraceStatus(),
+    ...(source || {}),
+    enabled: Boolean(source?.enabled),
+    running: Boolean(source?.running),
+    intervalSeconds: Number(source?.intervalSeconds ?? 15),
+    retentionDays: Number(source?.retentionDays ?? 7),
+    visionProfileId: String(source?.visionProfileId ?? ''),
+    writeDigestsToKb: Boolean(source?.writeDigestsToKb),
+    lastCaptureAtUnix: Number(source?.lastCaptureAtUnix || 0),
+    lastAnalysisAtUnix: Number(source?.lastAnalysisAtUnix || 0),
+    lastDigestAtUnix: Number(source?.lastDigestAtUnix || 0),
+    totalRecords: Number(source?.totalRecords || 0),
+    skippedDuplicates: Number(source?.skippedDuplicates || 0),
+  };
+}
+
+function normalizeScreenTraceRecords(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    id: item?.id || '',
+    shortId: item?.shortId || '',
+    capturedAt: item?.capturedAt || '',
+    capturedAtUnix: Number(item?.capturedAtUnix || 0),
+    imagePath: item?.imagePath || '',
+    sceneSummary: item?.sceneSummary || '',
+    visibleText: Array.isArray(item?.visibleText) ? item.visibleText.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    apps: Array.isArray(item?.apps) ? item.apps.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    taskGuess: item?.taskGuess || '',
+    keywords: Array.isArray(item?.keywords) ? item.keywords.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    sensitiveLevel: item?.sensitiveLevel || '',
+    confidence: Number(item?.confidence || 0),
+    displayLabel: item?.displayLabel || '',
+    dimensionsLabel: item?.dimensionsLabel || '',
+  }));
+}
+
+function normalizeScreenTraceDigests(payload) {
+  if (!Array.isArray(payload)) return [];
+  return payload.map((item) => ({
+    id: item?.id || '',
+    shortId: item?.shortId || '',
+    bucketStart: item?.bucketStart || '',
+    bucketStartUnix: Number(item?.bucketStartUnix || 0),
+    bucketEnd: item?.bucketEnd || '',
+    bucketEndUnix: Number(item?.bucketEndUnix || 0),
+    recordCount: Number(item?.recordCount || 0),
+    summary: item?.summary || '',
+    keywords: Array.isArray(item?.keywords) ? item.keywords.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    dominantApps: Array.isArray(item?.dominantApps) ? item.dominantApps.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    dominantTasks: Array.isArray(item?.dominantTasks) ? item.dominantTasks.map((v) => String(v || '').trim()).filter(Boolean) : [],
+    writtenToKb: Boolean(item?.writtenToKb),
+    knowledgeEntryId: item?.knowledgeEntryId || '',
+  }));
 }
 
 function defaultWeixinState() {
@@ -881,6 +970,9 @@ const state = {
   modelFormDirty: false,
   weixin: defaultWeixinState(),
   settings: defaultSettingsState(),
+  screenTraceStatus: defaultScreenTraceStatus(),
+  screenTraceRecords: [],
+  screenTraceDigests: [],
   chat: [],
   chatSidebarCollapsed: false,
   chatSessionDialog: defaultChatSessionDialogState(),
@@ -2686,11 +2778,21 @@ async function saveSettingsWithOverrides(overrides = {}) {
     const messagesValue = document.getElementById('settings-weixin-history-messages')?.value.trim() || String(state.settings.weixinHistoryMessages ?? 12);
     const runesValue = document.getElementById('settings-weixin-history-runes')?.value.trim() || String(state.settings.weixinHistoryRunes ?? 360);
     const everythingPathValue = document.getElementById('tool-everything-path')?.value.trim() || state.settings.weixinEverythingPath || '';
+    const screenTraceEnabled = Boolean(document.getElementById('settings-screentrace-enabled')?.checked ?? state.settings.screenTraceEnabled);
+    const screenTraceIntervalValue = document.getElementById('settings-screentrace-interval-seconds')?.value.trim() || String(state.settings.screenTraceIntervalSeconds ?? 15);
+    const screenTraceRetentionValue = document.getElementById('settings-screentrace-retention-days')?.value.trim() || String(state.settings.screenTraceRetentionDays ?? 7);
+    const screenTraceVisionProfileId = document.getElementById('settings-screentrace-vision-profile')?.value.trim() || state.settings.screenTraceVisionProfileId || '';
+    const screenTraceWriteDigestsToKb = Boolean(document.getElementById('settings-screentrace-write-digests-kb')?.checked ?? state.settings.screenTraceWriteDigestsToKb);
     const payload = {
       weixinHistoryMessages: Number(messagesValue),
       weixinHistoryRunes: Number(runesValue),
       weixinEverythingPath: everythingPathValue,
       disabledToolNames: Array.isArray(state.settings.disabledToolNames) ? [...state.settings.disabledToolNames] : [],
+      screenTraceEnabled,
+      screenTraceIntervalSeconds: Number(screenTraceIntervalValue),
+      screenTraceRetentionDays: Number(screenTraceRetentionValue),
+      screenTraceVisionProfileId,
+      screenTraceWriteDigestsToKb,
       ...overrides,
     };
 
@@ -2700,9 +2802,16 @@ async function saveSettingsWithOverrides(overrides = {}) {
     if (!Number.isInteger(payload.weixinHistoryRunes) || payload.weixinHistoryRunes < 0) {
       throw new Error('单条消息字符上限必须是大于等于 0 的整数。');
     }
+    if (!Number.isInteger(payload.screenTraceIntervalSeconds) || payload.screenTraceIntervalSeconds < 0) {
+      throw new Error('活动记录截图间隔必须是大于等于 0 的整数。');
+    }
+    if (!Number.isInteger(payload.screenTraceRetentionDays) || payload.screenTraceRetentionDays < 0) {
+      throw new Error('活动记录保留天数必须是大于等于 0 的整数。');
+    }
 
     state.settings = normalizeSettingsState(await state.backend.SaveSettings(payload));
     await refreshTools();
+    await refreshScreenTraceData();
     renderSettings();
     showBanner('设置已保存。', false);
   } catch (error) {
@@ -2728,12 +2837,159 @@ async function setToolEnabled(name, enabled) {
 function renderSettings() {
   const messages = document.getElementById('settings-weixin-history-messages');
   const runes = document.getElementById('settings-weixin-history-runes');
+  const screenTraceEnabled = document.getElementById('settings-screentrace-enabled');
+  const screenTraceInterval = document.getElementById('settings-screentrace-interval-seconds');
+  const screenTraceRetention = document.getElementById('settings-screentrace-retention-days');
+  const screenTraceProfile = document.getElementById('settings-screentrace-vision-profile');
+  const screenTraceWriteDigests = document.getElementById('settings-screentrace-write-digests-kb');
 
   if (messages) {
     messages.value = String(state.settings.weixinHistoryMessages ?? 12);
   }
   if (runes) {
     runes.value = String(state.settings.weixinHistoryRunes ?? 360);
+  }
+  if (screenTraceEnabled) {
+    screenTraceEnabled.checked = Boolean(state.settings.screenTraceEnabled);
+  }
+  if (screenTraceInterval) {
+    screenTraceInterval.value = String(state.settings.screenTraceIntervalSeconds ?? 15);
+  }
+  if (screenTraceRetention) {
+    screenTraceRetention.value = String(state.settings.screenTraceRetentionDays ?? 7);
+  }
+  if (screenTraceWriteDigests) {
+    screenTraceWriteDigests.checked = Boolean(state.settings.screenTraceWriteDigestsToKb);
+  }
+  if (screenTraceProfile) {
+    const profiles = Array.isArray(state.model.profiles) ? state.model.profiles : [];
+    const selected = state.settings.screenTraceVisionProfileId || '';
+    const options = ['<option value="">请选择独立视觉模型</option>']
+      .concat(profiles.map((item) => `<option value="${escapeAttribute(item.id)}">${escapeHTML(item.name || item.model || item.id)}</option>`));
+    screenTraceProfile.innerHTML = options.join('');
+    screenTraceProfile.value = selected;
+  }
+}
+
+function renderScreenTrace() {
+  const status = state.screenTraceStatus || defaultScreenTraceStatus();
+  const pill = document.getElementById('screentrace-status-pill');
+  const copy = document.getElementById('screentrace-status-copy');
+  const total = document.getElementById('screentrace-total-records');
+  const skipped = document.getElementById('screentrace-skipped-duplicates');
+  const lastCapture = document.getElementById('screentrace-last-capture');
+  const lastAnalysis = document.getElementById('screentrace-last-analysis');
+  const lastDigest = document.getElementById('screentrace-last-digest');
+  const lastError = document.getElementById('screentrace-last-error');
+  const recordList = document.getElementById('screentrace-record-list');
+  const digestList = document.getElementById('screentrace-digest-list');
+
+  if (pill) {
+    pill.className = `status-pill ${status.enabled && status.running ? 'on' : 'off'}`;
+    pill.textContent = status.enabled ? (status.running ? '记录中' : '已启用') : '未启用';
+  }
+  if (copy) {
+    copy.textContent = status.lastError
+      ? `最近错误：${status.lastError}`
+      : status.enabled
+        ? `每 ${status.intervalSeconds || 15} 秒截图一次，当前已保存 ${status.totalRecords || 0} 条记录。`
+        : '尚未启用活动记录。启用后会周期性截图并生成轻量活动摘要。';
+  }
+  if (total) total.textContent = String(status.totalRecords || 0);
+  if (skipped) skipped.textContent = String(status.skippedDuplicates || 0);
+  if (lastCapture) lastCapture.textContent = status.lastCaptureAt || '—';
+  if (lastAnalysis) lastAnalysis.textContent = status.lastAnalysisAt || '—';
+  if (lastDigest) lastDigest.textContent = status.lastDigestAt || '—';
+  if (lastError) lastError.textContent = status.lastError || '无';
+
+  if (recordList) {
+    const items = Array.isArray(state.screenTraceRecords) ? state.screenTraceRecords : [];
+    if (items.length === 0) {
+      recordList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">▣</div>
+          <h3>还没有活动记录</h3>
+          <p>启用 ScreenTrace 后，这里会显示最近的桌面截图摘要。</p>
+        </div>
+      `;
+    } else {
+      recordList.innerHTML = items.map((item) => `
+        <article class="memory-card">
+          <div class="memory-card-header">
+            <div>
+              <div class="memory-meta">
+                <span class="memory-badge id">#${escapeHTML(item.shortId)}</span>
+                ${item.displayLabel ? `<span class="memory-badge source">${escapeHTML(item.displayLabel)}</span>` : ''}
+                ${item.sensitiveLevel ? `<span class="memory-badge source">${escapeHTML(item.sensitiveLevel)}</span>` : ''}
+              </div>
+              <h3 class="prompt-card-title">${escapeHTML(item.sceneSummary || '未生成摘要')}</h3>
+            </div>
+          </div>
+          <div class="memory-content expanded">${escapeHTML(item.taskGuess || '—')}</div>
+          <div class="memory-card-footer">
+            <span class="memory-date">${escapeHTML(item.capturedAt || '—')}</span>
+            <div class="memory-actions">
+              ${item.apps?.length ? `<span class="memory-badge source">${escapeHTML(item.apps.join(' / '))}</span>` : ''}
+              ${item.dimensionsLabel ? `<span class="memory-badge source">${escapeHTML(item.dimensionsLabel)}</span>` : ''}
+            </div>
+          </div>
+        </article>
+      `).join('');
+    }
+  }
+
+  if (digestList) {
+    const items = Array.isArray(state.screenTraceDigests) ? state.screenTraceDigests : [];
+    if (items.length === 0) {
+      digestList.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">◫</div>
+          <h3>还没有时间段摘要</h3>
+          <p>累计活动记录后，这里会生成按时间段整理的摘要。</p>
+        </div>
+      `;
+    } else {
+      digestList.innerHTML = items.map((item) => `
+        <article class="memory-card">
+          <div class="memory-card-header">
+            <div>
+              <div class="memory-meta">
+                <span class="memory-badge id">#${escapeHTML(item.shortId)}</span>
+                <span class="memory-badge source">${escapeHTML(String(item.recordCount || 0))} 条</span>
+                ${item.writtenToKb ? '<span class="memory-badge source">已写入 KB</span>' : ''}
+              </div>
+              <h3 class="prompt-card-title">${escapeHTML(item.bucketStart || '')} - ${escapeHTML(item.bucketEnd || '')}</h3>
+            </div>
+          </div>
+          <div class="memory-content expanded">${escapeHTML(item.summary || '—')}</div>
+          <div class="memory-card-footer">
+            <span class="memory-date">${escapeHTML((item.dominantApps || []).join(' / ') || '—')}</span>
+            <div class="memory-actions">
+              ${item.dominantTasks?.length ? `<span class="memory-badge source">${escapeHTML(item.dominantTasks.join(' / '))}</span>` : ''}
+            </div>
+          </div>
+        </article>
+      `).join('');
+    }
+  }
+}
+
+async function refreshScreenTraceManually() {
+  try {
+    await refreshScreenTraceData();
+    showBanner('活动记录已刷新。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
+  }
+}
+
+async function captureScreenTraceNow() {
+  try {
+    const result = await state.backend.CaptureScreenTraceNow();
+    await refreshScreenTraceData();
+    showBanner(result?.message || '已执行一次即时截图分析。', false);
+  } catch (error) {
+    showBanner(asMessage(error), true);
   }
 }
 
@@ -3449,6 +3705,16 @@ function bindStaticEvents() {
   const settingsSave = document.getElementById('settings-save');
   if (settingsSave) {
     settingsSave.addEventListener('click', () => void saveSettings());
+  }
+
+  const screenTraceRefresh = document.getElementById('screentrace-refresh');
+  if (screenTraceRefresh) {
+    screenTraceRefresh.addEventListener('click', () => void refreshScreenTraceManually());
+  }
+
+  const screenTraceCaptureNow = document.getElementById('screentrace-capture-now');
+  if (screenTraceCaptureNow) {
+    screenTraceCaptureNow.addEventListener('click', () => void captureScreenTraceNow());
   }
 
   const skillImportTrigger = document.getElementById('skill-import-trigger');
@@ -4374,6 +4640,10 @@ function createWailsBackend() {
     LogoutWeixin: () => call('LogoutWeixin'),
     GetSettings: () => call('GetSettings'),
     SaveSettings: (payload) => call('SaveSettings', payload),
+    GetScreenTraceStatus: () => call('GetScreenTraceStatus'),
+    ListScreenTraceRecords: (limit = 60) => call('ListScreenTraceRecords', limit),
+    ListScreenTraceDigests: (limit = 20) => call('ListScreenTraceDigests', limit),
+    CaptureScreenTraceNow: () => call('CaptureScreenTraceNow'),
   };
 }
 
@@ -4437,6 +4707,10 @@ function createHTTPBackend() {
     LogoutWeixin: () => requestJSON('POST', '/api/weixin/logout'),
     GetSettings: () => requestJSON('GET', '/api/settings'),
     SaveSettings: (payload) => requestJSON('POST', '/api/settings', payload),
+    GetScreenTraceStatus: () => requestJSON('GET', '/api/screentrace/status'),
+    ListScreenTraceRecords: (limit = 60) => requestJSON('GET', `/api/screentrace/records?limit=${encodeURIComponent(limit)}`),
+    ListScreenTraceDigests: (limit = 20) => requestJSON('GET', `/api/screentrace/digests?limit=${encodeURIComponent(limit)}`),
+    CaptureScreenTraceNow: () => requestJSON('POST', '/api/screentrace/capture'),
   };
 }
 
@@ -4563,12 +4837,12 @@ function startBackendPolling() {
   if (state.backendMode !== 'http') return;
 
   devPollTimer = window.setInterval(() => {
-    void Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshModel(), refreshWeixin()]).catch(() => {});
+    void Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshModel(), refreshWeixin(), refreshScreenTraceStatus()]).catch(() => {});
   }, 2000);
 }
 
 async function refreshAll() {
-  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshTools(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings()]);
+  await Promise.all([refreshProjectState(), refreshOverview(), refreshReminders(), refreshKnowledge(), refreshPrompts(), refreshSkills(), refreshTools(), refreshChatPrompt(), refreshModel(), refreshWeixin(), refreshSettings(), refreshScreenTraceData()]);
 }
 
 async function refreshProjectState() {
@@ -4692,9 +4966,11 @@ async function refreshChatPrompt() {
 async function refreshModel() {
   state.model = normalizeModelSettings(await state.backend.GetModelSettings());
   if (state.modelFormDirty) {
+    renderSettings();
     return;
   }
   renderModel();
+  renderSettings();
 }
 
 async function refreshWeixin() {
@@ -4705,6 +4981,23 @@ async function refreshWeixin() {
 async function refreshSettings() {
   state.settings = normalizeSettingsState(await state.backend.GetSettings());
   renderSettings();
+}
+
+async function refreshScreenTraceStatus() {
+  state.screenTraceStatus = normalizeScreenTraceStatus(await state.backend.GetScreenTraceStatus());
+  renderScreenTrace();
+}
+
+async function refreshScreenTraceData() {
+  const [status, records, digests] = await Promise.all([
+    state.backend.GetScreenTraceStatus(),
+    state.backend.ListScreenTraceRecords(60),
+    state.backend.ListScreenTraceDigests(20),
+  ]);
+  state.screenTraceStatus = normalizeScreenTraceStatus(status);
+  state.screenTraceRecords = normalizeScreenTraceRecords(records);
+  state.screenTraceDigests = normalizeScreenTraceDigests(digests);
+  renderScreenTrace();
 }
 
 
@@ -5740,6 +6033,7 @@ async function init() {
   renderModel();
   renderWeixin();
   renderSettings();
+  renderScreenTrace();
 
   try {
     state.backend = await waitForBackend();

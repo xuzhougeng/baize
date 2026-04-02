@@ -10,7 +10,9 @@ import (
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/powershelltool"
+	"myclaw/internal/screencapture"
 	"myclaw/internal/toolcontract"
+	"myclaw/internal/windowsautomationtool"
 )
 
 type localAgentToolProvider struct {
@@ -129,6 +131,22 @@ func (p *localAgentToolProvider) localToolSets() []localToolSet {
 			p.executeListDirectory,
 			func(mc MessageContext) bool {
 				return dirlist.AllowedForInterface(mc.Interface)
+			},
+		),
+		singletonLocalToolSet(
+			screencapture.Definition(),
+			ToolSideEffectReadOnly,
+			p.executeScreenCapture,
+			func(mc MessageContext) bool {
+				return screencapture.AllowedForInterface(mc.Interface) && screencapture.SupportedForCurrentPlatform()
+			},
+		),
+		singletonLocalToolSet(
+			windowsautomationtool.Definition(),
+			ToolSideEffectSoftWrite,
+			p.executeWindowsAutomationTool,
+			func(mc MessageContext) bool {
+				return windowsautomationtool.AllowedForInterface(mc.Interface) && windowsautomationtool.SupportedForCurrentPlatform()
 			},
 		),
 	}

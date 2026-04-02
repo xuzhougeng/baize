@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	appsvc "myclaw/internal/app"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/modelconfig"
 	"myclaw/internal/projectstate"
 	"myclaw/internal/promptlib"
 	"myclaw/internal/reminder"
@@ -135,5 +137,58 @@ func TestDesktopSettingsSavePreservesPersistedChatSessionSelection(t *testing.T)
 	}
 	if state.SessionID != first.SessionID {
 		t.Fatalf("expected settings save to preserve chat selection %q, got %#v", first.SessionID, state)
+	}
+}
+
+func TestDesktopSettingsPersistScreenTraceOptions(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appDBPath := filepath.Join(root, "app.db")
+	store := knowledge.NewStore(appDBPath)
+	projectStore := projectstate.NewStore(appDBPath)
+	promptStore := promptlib.NewStore(appDBPath)
+	reminders := reminder.NewManager(reminder.NewStore(appDBPath))
+	sessionStore := sessionstate.NewStore(appDBPath)
+	modelStore := modelconfig.NewStore(appDBPath, filepath.Join(root, "model", "secret.key"))
+	service := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+
+	savedProfile, err := modelStore.Save(context.Background(), modelconfig.Config{
+		Name:     "ScreenTrace Mini",
+		Provider: modelconfig.ProviderOpenAI,
+		APIType:  modelconfig.APITypeResponses,
+		BaseURL:  "https://api.openai.com/v1",
+		APIKey:   "sk-test",
+		Model:    "gpt-4.1-mini",
+	}, modelconfig.SaveOptions{})
+	if err != nil {
+		t.Fatalf("save model profile: %v", err)
+	}
+
+	app := NewDesktopApp(root, store, promptStore, projectStore, modelStore, nil, service, sessionStore, reminders, nil)
+	result, err := app.SaveSettings(AppSettingsInput{
+		WeixinHistoryMessages:       12,
+		WeixinHistoryRunes:          360,
+		ScreenTraceEnabled:          true,
+		ScreenTraceIntervalSeconds:  30,
+		ScreenTraceRetentionDays:    14,
+		ScreenTraceVisionProfileID:  savedProfile.ID,
+		ScreenTraceWriteDigestsToKB: true,
+	})
+	if err != nil {
+		t.Fatalf("save screentrace settings: %v", err)
+	}
+	if !result.ScreenTraceEnabled || result.ScreenTraceIntervalSeconds != 30 || result.ScreenTraceRetentionDays != 14 || result.ScreenTraceVisionProfileID != savedProfile.ID || !result.ScreenTraceWriteDigestsToKB {
+		t.Fatalf("unexpected saved screentrace settings: %#v", result)
+	}
+
+	reloadedService := appsvc.NewServiceWithRuntime(store, nil, reminders, nil, sessionStore, promptStore)
+	reloadedApp := NewDesktopApp(root, store, promptStore, projectStore, modelStore, nil, reloadedService, sessionStore, reminders, nil)
+	reloaded, err := reloadedApp.GetSettings()
+	if err != nil {
+		t.Fatalf("get settings after reload: %v", err)
+	}
+	if !reloaded.ScreenTraceEnabled || reloaded.ScreenTraceIntervalSeconds != 30 || reloaded.ScreenTraceRetentionDays != 14 || reloaded.ScreenTraceVisionProfileID != savedProfile.ID || !reloaded.ScreenTraceWriteDigestsToKB {
+		t.Fatalf("unexpected reloaded screentrace settings: %#v", reloaded)
 	}
 }
