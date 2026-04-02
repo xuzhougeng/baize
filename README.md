@@ -116,6 +116,8 @@ internal/sqliteutil   SQLite 公共工具函数
 
 ## 运行
 
+当前实现会强制单实例运行：同一用户环境下同时只允许一个 `myclaw` 进程。若已有 terminal、desktop 或 HTTP dev 模式实例在运行，再启动新的 `myclaw` 会直接报错退出。
+
 ### 0. 终端模式
 
 直接运行即可进入终端：

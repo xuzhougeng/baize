@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"flag"
 	"log"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"myclaw/internal/ai"
 	appsvc "myclaw/internal/app"
+	"myclaw/internal/instancelock"
 	"myclaw/internal/knowledge"
 	"myclaw/internal/modelconfig"
 	"myclaw/internal/projectstate"
@@ -45,6 +47,19 @@ func main() {
 		log.Fatalf("prepare data dir: %v", err)
 	}
 	reportDesktopBackendStartup(dataDir)
+
+	instanceGuard, err := instancelock.Acquire(dataDir)
+	if err != nil {
+		if errors.Is(err, instancelock.ErrAlreadyRunning) {
+			log.Fatalf("myclaw is already running; only one instance is allowed at a time")
+		}
+		log.Fatalf("acquire instance lock: %v", err)
+	}
+	defer func() {
+		if err := instanceGuard.Release(); err != nil {
+			log.Printf("release instance lock: %v", err)
+		}
+	}()
 
 	appDBPath := filepath.Join(dataDir, "app.db")
 	store := knowledge.NewStore(appDBPath)
