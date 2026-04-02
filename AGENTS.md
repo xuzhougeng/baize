@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`cmd/myclaw` is the CLI entry point; `cmd/myclaw-desktop` hosts the Wails desktop app and checked-in web assets under `frontend/dist/`; `cmd/myclaw-eval` is the model evaluation CLI. Shared business logic lives in `internal/` packages such as `ai`, `app`, `dirlist`, `fileingest`, `knowledge`, `modelconfig`, `projectstate`, `promptlib`, `reminder`, `runtimepolicy`, `screencapture`, `screentrace`, `sessionstate`, `skilllib`, `sqliteutil`, `terminal`, `weixin`, and `windowsautomationtool`. Keep new code in `internal/<domain>` unless it is an executable entry point. Repo docs and images live in `docs/`; release packaging scripts live in `scripts/` and `packaging/windows/`.
+`cmd/myclaw` is the CLI entry point; `cmd/myclaw-desktop` hosts the Wails desktop app and checked-in web assets under `frontend/dist/`; `cmd/myclaw-eval` is the model evaluation CLI. Shared business logic lives in `internal/` packages such as `ai`, `app`, `dirlist`, `fileingest`, `knowledge`, `modelconfig`, `osascripttool`, `projectstate`, `promptlib`, `reminder`, `runtimepolicy`, `screencapture`, `screentrace`, `sessionstate`, `skilllib`, `sqliteutil`, `terminal`, `weixin`, and `windowsautomationtool`. Keep new code in `internal/<domain>` unless it is an executable entry point. Repo docs and images live in `docs/`; release packaging scripts live in `scripts/` and `packaging/windows/`.
 
 Persistent app state is now centered on a SQLite database (`app.db`) under the data directory. Keep core runtime state in shared storage packages, and treat extra files such as WeChat credentials or secret keys as interface-specific/supporting artifacts rather than the primary source of truth.
 

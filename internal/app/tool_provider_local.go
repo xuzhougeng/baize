@@ -9,6 +9,7 @@ import (
 	"myclaw/internal/bashtool"
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
+	"myclaw/internal/osascripttool"
 	"myclaw/internal/powershelltool"
 	"myclaw/internal/screencapture"
 	"myclaw/internal/toolcontract"
@@ -139,6 +140,14 @@ func (p *localAgentToolProvider) localToolSets() []localToolSet {
 			p.executeScreenCapture,
 			func(mc MessageContext) bool {
 				return screencapture.AllowedForInterface(mc.Interface) && screencapture.SupportedForCurrentPlatform()
+			},
+		),
+		singletonLocalToolSet(
+			osascripttool.Definition(),
+			ToolSideEffectSoftWrite,
+			p.executeOsaScriptTool,
+			func(mc MessageContext) bool {
+				return osascripttool.AllowedForInterface(mc.Interface) && osascripttool.SupportedForCurrentPlatform()
 			},
 		),
 		singletonLocalToolSet(

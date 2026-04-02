@@ -41,6 +41,7 @@ const state = {
   screenTraceStatus: defaultScreenTraceStatus(),
   screenTraceRecords: [],
   screenTraceDigests: [],
+  screenTraceCapturePending: false,
   chat: [],
   chatSidebarCollapsed: false,
   chatSessionDialog: defaultChatSessionDialogState(),

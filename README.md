@@ -76,8 +76,9 @@ flowchart TD
 - desktop 新建对话时会先选择 `ask` 或 `agent`，模式在该会话创建时确定
 - 支持图片直接总结入库；PDF 走 `go-fitz` 提取全文后再总结
 - 支持 agent 单次调用 `screen_capture`：抓取当前屏幕、落临时 JPEG，并可选走视觉摘要
+- 支持 macOS 专用 `osascript_tool`：读取前台应用、可见应用、前台窗口标题，以及激活或打开后激活应用
 - 支持 Windows 专用 `windows_automation_tool`：列出顶层窗口、读取前台窗口、聚焦窗口或启动后聚焦应用
-- 支持 desktop 专用的 `ScreenTrace` 活动记录：后台定时截图、轻量去重、独立视觉模型分析、时间段摘要与可选知识库同步
+- 支持 desktop 专用的 `ScreenTrace` 活动记录：后台定时截图、轻量去重、独立视觉模型分析、时间段摘要与可选写入当前记忆库
 - 支持单次提醒和每天重复提醒
 - 桌面主会话与提醒面板会聚合显示当前运行时里的提醒，并标注来源（如桌面、微信）
 - 微信桥接只保留扫码登录、长轮询、文本/语音文字收发
@@ -106,6 +107,7 @@ internal/powershelltool powershell_tool 工具单元，Windows 只读 PowerShell
 internal/sessionstate 会话快照持久化（历史消息、模式、已加载技能）
 internal/skilllib     技能加载与管理
 internal/fileingest   图片与 PDF 摄入（视觉总结 / go-fitz 全文提取）
+internal/osascripttool macOS 自动化工具单元（前台应用 / 激活应用）
 internal/screencapture 单次屏幕截图工具单元（agent tool）
 internal/windowsautomationtool Windows 桌面自动化工具单元（聚焦窗口 / 启动并聚焦应用）
 internal/screentrace  Desktop 专用活动记录（定时截图 / 去重 / 摘要 / digest）

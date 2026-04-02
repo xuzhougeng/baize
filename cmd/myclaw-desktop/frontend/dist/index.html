@@ -443,7 +443,7 @@
             <div class="memory-header">
               <div>
                 <h3 style="margin:0 0 4px;">时间段摘要</h3>
-                <p class="subtitle" style="margin:0;">按时间窗口整理的活动结果，可选写入知识库。</p>
+                <p class="subtitle" style="margin:0;">按时间窗口整理的活动结果，可选写入当前记忆库。</p>
               </div>
             </div>
             <div class="memory-list" id="screentrace-digest-list">
@@ -456,8 +456,8 @@
 
             <div class="memory-header" style="margin-top: 24px;">
               <div>
-                <h3 style="margin:0 0 4px;">最近截图摘要</h3>
-                <p class="subtitle" style="margin:0;">每条记录都来自单次截图分析，不直接写入知识库。</p>
+                <h3 style="margin:0 0 4px;">最近截图摘要（最近 10 条）</h3>
+                <p class="subtitle" style="margin:0;">每条记录都来自单次截图分析，不直接写入当前记忆库。</p>
               </div>
             </div>
             <div class="memory-list" id="screentrace-record-list">
@@ -699,11 +699,33 @@
                   <span class="status-pill on">Desktop 专用</span>
                 </div>
 
-                <div class="form-grid">
-                  <label class="form-field">
-                    <span>启用活动记录</span>
-                    <input id="settings-screentrace-enabled" type="checkbox" />
+                <div class="settings-toggle-stack">
+                  <label class="settings-toggle-card" for="settings-screentrace-enabled">
+                    <div class="settings-toggle-copy">
+                      <span class="settings-toggle-kicker">采集开关</span>
+                      <span class="settings-toggle-title">启用活动记录</span>
+                      <span class="settings-toggle-desc">按设定间隔在后台截图，并生成轻量的桌面活动摘要。</span>
+                    </div>
+                    <span class="settings-switch">
+                      <input id="settings-screentrace-enabled" type="checkbox" />
+                      <span class="settings-switch-ui" aria-hidden="true"></span>
+                    </span>
                   </label>
+
+                  <label class="settings-toggle-card" for="settings-screentrace-write-digests-kb">
+                    <div class="settings-toggle-copy">
+                      <span class="settings-toggle-kicker">整理策略</span>
+                      <span class="settings-toggle-title">将时间段摘要写入当前记忆库</span>
+                      <span class="settings-toggle-desc">只把按时间段整理后的摘要写入当前记忆库，不写入每一张原始截图记录。</span>
+                    </div>
+                    <span class="settings-switch">
+                      <input id="settings-screentrace-write-digests-kb" type="checkbox" />
+                      <span class="settings-switch-ui" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
+
+                <div class="form-grid">
                   <label class="form-field">
                     <span>截图间隔（秒）</span>
                     <input id="settings-screentrace-interval-seconds" type="number" min="0" step="1" placeholder="15" />
@@ -716,15 +738,16 @@
                     <span>独立视觉模型 Profile</span>
                     <select id="settings-screentrace-vision-profile"></select>
                   </label>
-                  <label class="form-field">
-                    <span>时间段摘要写入知识库</span>
-                    <input id="settings-screentrace-write-digests-kb" type="checkbox" />
-                  </label>
                 </div>
 
                 <div class="settings-note">
                   <p>建议把这里绑定到单独的便宜视觉模型，例如轻量 VLM 或 mini 档位模型。</p>
-                  <p>时间线记录保存在本地 `screentrace/` 目录和 `app.db` 中；每条原始截图摘要不会直接写入知识库。</p>
+                  <p>这些字段改动后会自动保存；也可以点击下面按钮手动保存并立即应用。</p>
+                  <p>时间线记录保存在本地 <code>screentrace/</code> 目录和 <code>app.db</code> 中；每条原始截图摘要不会直接写入当前记忆库。</p>
+                </div>
+
+                <div class="model-actions">
+                  <button class="btn btn-primary" id="settings-screentrace-save">保存并应用活动记录</button>
                 </div>
               </section>
             </div>

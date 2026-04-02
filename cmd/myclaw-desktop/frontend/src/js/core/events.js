@@ -132,6 +132,24 @@ function bindStaticEvents() {
     settingsSave.addEventListener('click', () => void saveSettings());
   }
 
+  const screenTraceSave = document.getElementById('settings-screentrace-save');
+  if (screenTraceSave) {
+    screenTraceSave.addEventListener('click', () => void saveSettings());
+  }
+
+  const screenTraceAutoSaveIds = [
+    'settings-screentrace-enabled',
+    'settings-screentrace-interval-seconds',
+    'settings-screentrace-retention-days',
+    'settings-screentrace-vision-profile',
+    'settings-screentrace-write-digests-kb',
+  ];
+  screenTraceAutoSaveIds.forEach((id) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener('change', () => void saveSettings());
+  });
+
   const screenTraceRefresh = document.getElementById('screentrace-refresh');
   if (screenTraceRefresh) {
     screenTraceRefresh.addEventListener('click', () => void refreshScreenTraceManually());

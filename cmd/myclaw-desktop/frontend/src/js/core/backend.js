@@ -836,7 +836,7 @@ async function refreshScreenTraceStatus() {
 async function refreshScreenTraceData() {
   const [status, records, digests] = await Promise.all([
     state.backend.GetScreenTraceStatus(),
-    state.backend.ListScreenTraceRecords(60),
+    state.backend.ListScreenTraceRecords(10),
     state.backend.ListScreenTraceDigests(20),
   ]);
   state.screenTraceStatus = normalizeScreenTraceStatus(status);

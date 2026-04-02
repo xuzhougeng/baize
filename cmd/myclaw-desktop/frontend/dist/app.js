@@ -973,6 +973,7 @@ const state = {
   screenTraceStatus: defaultScreenTraceStatus(),
   screenTraceRecords: [],
   screenTraceDigests: [],
+  screenTraceCapturePending: false,
   chat: [],
   chatSidebarCollapsed: false,
   chatSessionDialog: defaultChatSessionDialogState(),
@@ -2873,6 +2874,7 @@ function renderSettings() {
 
 function renderScreenTrace() {
   const status = state.screenTraceStatus || defaultScreenTraceStatus();
+  const captureNowButton = document.getElementById('screentrace-capture-now');
   const pill = document.getElementById('screentrace-status-pill');
   const copy = document.getElementById('screentrace-status-copy');
   const total = document.getElementById('screentrace-total-records');
@@ -2901,9 +2903,13 @@ function renderScreenTrace() {
   if (lastAnalysis) lastAnalysis.textContent = status.lastAnalysisAt || '—';
   if (lastDigest) lastDigest.textContent = status.lastDigestAt || '—';
   if (lastError) lastError.textContent = status.lastError || '无';
+  if (captureNowButton) {
+    captureNowButton.disabled = Boolean(state.screenTraceCapturePending);
+    captureNowButton.textContent = state.screenTraceCapturePending ? '分析中...' : '立即分析一次';
+  }
 
   if (recordList) {
-    const items = Array.isArray(state.screenTraceRecords) ? state.screenTraceRecords : [];
+    const items = Array.isArray(state.screenTraceRecords) ? state.screenTraceRecords.slice(0, 10) : [];
     if (items.length === 0) {
       recordList.innerHTML = `
         <div class="empty-state">
@@ -2984,12 +2990,28 @@ async function refreshScreenTraceManually() {
 }
 
 async function captureScreenTraceNow() {
+  if (state.screenTraceCapturePending) return;
+  const trigger = document.getElementById('screentrace-capture-now');
+  const originalLabel = trigger?.textContent || '立即分析一次';
   try {
+    state.screenTraceCapturePending = true;
+    if (trigger) {
+      trigger.disabled = true;
+      trigger.textContent = '分析中...';
+    }
+    renderScreenTrace();
     const result = await state.backend.CaptureScreenTraceNow();
     await refreshScreenTraceData();
     showBanner(result?.message || '已执行一次即时截图分析。', false);
   } catch (error) {
     showBanner(asMessage(error), true);
+  } finally {
+    state.screenTraceCapturePending = false;
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.textContent = originalLabel;
+    }
+    renderScreenTrace();
   }
 }
 
@@ -3706,6 +3728,24 @@ function bindStaticEvents() {
   if (settingsSave) {
     settingsSave.addEventListener('click', () => void saveSettings());
   }
+
+  const screenTraceSave = document.getElementById('settings-screentrace-save');
+  if (screenTraceSave) {
+    screenTraceSave.addEventListener('click', () => void saveSettings());
+  }
+
+  const screenTraceAutoSaveIds = [
+    'settings-screentrace-enabled',
+    'settings-screentrace-interval-seconds',
+    'settings-screentrace-retention-days',
+    'settings-screentrace-vision-profile',
+    'settings-screentrace-write-digests-kb',
+  ];
+  screenTraceAutoSaveIds.forEach((id) => {
+    const field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener('change', () => void saveSettings());
+  });
 
   const screenTraceRefresh = document.getElementById('screentrace-refresh');
   if (screenTraceRefresh) {
@@ -4991,7 +5031,7 @@ async function refreshScreenTraceStatus() {
 async function refreshScreenTraceData() {
   const [status, records, digests] = await Promise.all([
     state.backend.GetScreenTraceStatus(),
-    state.backend.ListScreenTraceRecords(60),
+    state.backend.ListScreenTraceRecords(10),
     state.backend.ListScreenTraceDigests(20),
   ]);
   state.screenTraceStatus = normalizeScreenTraceStatus(status);

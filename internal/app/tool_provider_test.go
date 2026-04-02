@@ -10,6 +10,7 @@ import (
 	"myclaw/internal/dirlist"
 	"myclaw/internal/filesearch"
 	"myclaw/internal/knowledge"
+	"myclaw/internal/osascripttool"
 	"myclaw/internal/powershelltool"
 	"myclaw/internal/reminder"
 	"myclaw/internal/screencapture"
@@ -58,6 +59,9 @@ func TestLocalToolSideEffectLabels(t *testing.T) {
 	}
 	if screencapture.SupportedForCurrentPlatform() {
 		want[screencapture.ToolName] = string(ToolSideEffectReadOnly)
+	}
+	if osascripttool.SupportedForCurrentPlatform() {
+		want[osascripttool.ToolName] = string(ToolSideEffectSoftWrite)
 	}
 	if windowsautomationtool.SupportedForCurrentPlatform() {
 		want[windowsautomationtool.ToolName] = string(ToolSideEffectSoftWrite)
@@ -115,6 +119,9 @@ func TestLocalToolFamiliesAreExposed(t *testing.T) {
 	if screencapture.SupportedForCurrentPlatform() {
 		wantFamilies[screencapture.ToolName] = screencapture.ToolFamilyKey
 	}
+	if osascripttool.SupportedForCurrentPlatform() {
+		wantFamilies[osascripttool.ToolName] = osascripttool.ToolFamilyKey
+	}
 	if windowsautomationtool.SupportedForCurrentPlatform() {
 		wantFamilies[windowsautomationtool.ToolName] = windowsautomationtool.ToolFamilyKey
 	}
@@ -143,6 +150,7 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 		hasBash       bool
 		hasPowerShell bool
 		hasScreen     bool
+		hasOsaScript  bool
 		hasWinAuto    bool
 	)
 	for _, def := range defs {
@@ -157,6 +165,9 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 		}
 		if strings.HasSuffix(def.Name, "::screen_capture") {
 			hasScreen = true
+		}
+		if strings.HasSuffix(def.Name, "::osascript_tool") {
+			hasOsaScript = true
 		}
 		if strings.HasSuffix(def.Name, "::windows_automation_tool") {
 			hasWinAuto = true
@@ -173,6 +184,9 @@ func TestHostToolsExposedOnWeixin(t *testing.T) {
 	}
 	if screencapture.SupportedForCurrentPlatform() && !hasScreen {
 		t.Fatalf("expected screen capture tool in weixin definitions: %#v", defs)
+	}
+	if osascripttool.SupportedForCurrentPlatform() && !hasOsaScript {
+		t.Fatalf("expected osascript tool in weixin definitions: %#v", defs)
 	}
 	if windowsautomationtool.SupportedForCurrentPlatform() && !hasWinAuto {
 		t.Fatalf("expected windows automation tool in weixin definitions: %#v", defs)

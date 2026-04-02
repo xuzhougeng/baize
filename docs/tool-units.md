@@ -266,6 +266,20 @@ Flags：
   - runtime exposure and AI summary wiring in `internal/app`
   - capture contract, image normalization, and file output in `internal/screencapture`
 
+### macOS Family
+
+- Package: `internal/osascripttool`
+- Tools: `osascript_tool`
+- Family metadata: `FamilyKey=macos`, `FamilyTitle=macOS`
+- Purpose: Inspect the current macOS desktop state and activate a target application through a small allowlisted AppleScript surface.
+- Input contract: `action`, plus `app_name` for `activate_app` and `open_or_activate_app`, and optional `timeout_seconds`
+- Output contract: tool name, shell, action, exit code, stdout, stderr, truncation flag
+- Shortcut registration: none; exposed through the shared local agent tool provider for both desktop and WeChat, and filtered only by platform support
+- Current pipeline split:
+  - tool selection and invocation in `internal/ai`
+  - runtime exposure in `internal/app`
+  - macOS action normalization, allowlisting, and osascript execution in `internal/osascripttool`
+
 ### Windows Family
 
 - Package: `internal/windowsautomationtool`
