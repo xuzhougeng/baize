@@ -36,6 +36,12 @@ window.navigateTo = function(viewName, sectionId) {
     });
   }
 
+  if (normalizedView === 'memory' && state.backend) {
+    void Promise.all([refreshKnowledge(), refreshProjectState(), refreshOverview()]).catch((error) => {
+      showBanner(asMessage(error), true);
+    });
+  }
+
   if (normalizedView === 'tools' && state.backend) {
     void refreshTools().catch((error) => {
       showBanner(asMessage(error), true);
@@ -835,6 +841,22 @@ function escapeAttribute(value) {
 
 
 /* Source: js/core/state.js */
+const TOOL_GROUP_COLLAPSE_STORAGE_KEY = 'myclaw-tool-group-collapsed';
+
+function loadToolGroupCollapseState() {
+  try {
+    const raw = localStorage.getItem(TOOL_GROUP_COLLAPSE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch (_error) {
+    return {};
+  }
+}
+
 const state = {
   backend: null,
   backendMode: "",
@@ -866,6 +888,7 @@ const state = {
   chatSessionDrag: defaultChatSessionDragState(),
   chatStreaming: false,
   chatStreamHandlers: {},
+  toolGroupCollapsed: loadToolGroupCollapseState(),
 };
 
 let devPollTimer = 0;
@@ -1924,6 +1947,29 @@ function toolSideEffectLabel(level) {
   }
 }
 
+function persistToolGroupCollapseState() {
+  try {
+    localStorage.setItem(TOOL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(state.toolGroupCollapsed || {}));
+  } catch (_error) {
+    // Ignore storage failures and keep collapse state in memory.
+  }
+}
+
+function isToolGroupCollapsed(groupKey) {
+  return Boolean(state.toolGroupCollapsed?.[groupKey]);
+}
+
+function toggleToolGroupCollapse(groupKey) {
+  const key = String(groupKey || '').trim();
+  if (!key) return;
+  state.toolGroupCollapsed = {
+    ...(state.toolGroupCollapsed || {}),
+    [key]: !isToolGroupCollapsed(key),
+  };
+  persistToolGroupCollapseState();
+  renderTools();
+}
+
 function renderToolConfig(tool) {
   if (!tool.configurable || tool.shortName !== 'everything_file_search') {
     return '';
@@ -2037,19 +2083,30 @@ function renderToolGroupItem(tool) {
 function renderToolGroup(group) {
   const providerLabel = formatProviderLabel(group.provider, group.providerKind);
   const countLabel = `${group.items.length} 个工具`;
+  const collapsed = isToolGroupCollapsed(group.key);
   return `
-    <article class="tool-card tool-group-card">
-      <div class="tool-card-header">
-        <div>
-          <div class="tool-card-title-row">
-            <h3>${escapeHTML(group.familyTitle || '工具组')}</h3>
+    <article class="tool-card tool-group-card ${collapsed ? 'is-collapsed' : ''}">
+      <button
+        type="button"
+        class="tool-group-toggle"
+        data-tool-action="toggle-group"
+        data-tool-group-key="${escapeAttribute(group.key)}"
+        aria-expanded="${escapeAttribute(collapsed ? 'false' : 'true')}"
+      >
+        <div class="tool-card-header">
+          <div>
+            <div class="tool-card-title-row">
+              <h3>${escapeHTML(group.familyTitle || '工具组')}</h3>
+            </div>
+            <div class="tool-card-name">${escapeHTML(countLabel)}</div>
           </div>
-          <div class="tool-card-name">${escapeHTML(countLabel)}</div>
+          <div class="tool-card-tags tool-group-toggle-side">
+            <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
+            <span class="tool-group-toggle-label">${collapsed ? '展开' : '折叠'}</span>
+            <span class="tool-group-chevron" aria-hidden="true">▾</span>
+          </div>
         </div>
-        <div class="tool-card-tags">
-          <span class="tool-meta-pill provider">${escapeHTML(providerLabel)}</span>
-        </div>
-      </div>
+      </button>
       <div class="tool-group-list">
         ${group.items.map((tool) => renderToolGroupItem(tool)).join('')}
       </div>
@@ -3455,6 +3512,8 @@ function bindStaticEvents() {
         void saveSettings();
       } else if (actionTarget.dataset.toolAction === 'toggle-enabled') {
         void setToolEnabled(actionTarget.dataset.toolName || '', actionTarget.dataset.toolEnabled === 'true');
+      } else if (actionTarget.dataset.toolAction === 'toggle-group') {
+        toggleToolGroupCollapse(actionTarget.dataset.toolGroupKey || '');
       }
     });
   }

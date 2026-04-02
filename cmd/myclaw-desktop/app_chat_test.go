@@ -418,6 +418,57 @@ func TestDesktopSendMessageStreamsProcessStepsBeforeError(t *testing.T) {
 	}
 }
 
+func TestDesktopSendMessageStreamsAgentReply(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	projectStore := projectstate.NewStore(filepath.Join(root, "app.db"))
+	promptStore := promptlib.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	sessionStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
+	wantReply := "这是一个用于验证 desktop agent 最终回答会分段流到前端占位消息中的长回复。"
+	service := appsvc.NewServiceWithRuntime(store, desktopTestAI{
+		route: ai.RouteDecision{Command: "answer"},
+		chatFunc: func(_ context.Context, input string, history []ai.ConversationMessage) string {
+			if input != "请给我一个长回答" {
+				t.Fatalf("unexpected input: %q", input)
+			}
+			if len(history) != 0 {
+				t.Fatalf("expected empty history, got %#v", history)
+			}
+			return wantReply
+		},
+	}, reminders, nil, sessionStore, promptStore)
+	app := NewDesktopApp(root, store, promptStore, projectStore, nil, nil, service, sessionStore, reminders, nil)
+
+	var deltas []string
+	var process []ai.CallTraceStep
+	result, err := app.sendMessage(context.Background(), "请给我一个长回答", func(delta string) {
+		deltas = append(deltas, delta)
+	}, func(step ai.CallTraceStep) {
+		process = append(process, step)
+	})
+	if err != nil {
+		t.Fatalf("send streaming agent message: %v", err)
+	}
+	if result.Reply != wantReply {
+		t.Fatalf("unexpected reply: %#v", result)
+	}
+	if strings.Join(deltas, "") != wantReply {
+		t.Fatalf("unexpected streamed deltas: %#v", deltas)
+	}
+	if len(deltas) < 2 {
+		t.Fatalf("expected multiple streamed deltas, got %#v", deltas)
+	}
+	if len(process) < 2 {
+		t.Fatalf("expected streamed process steps, got %#v", process)
+	}
+	if process[0].Title != "AI 路由" || process[1].Title != "执行模式" {
+		t.Fatalf("unexpected process steps: %#v", process)
+	}
+}
+
 func TestDesktopSendMessageReusesCurrentSession(t *testing.T) {
 	t.Parallel()
 

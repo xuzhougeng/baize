@@ -1,3 +1,19 @@
+const TOOL_GROUP_COLLAPSE_STORAGE_KEY = 'myclaw-tool-group-collapsed';
+
+function loadToolGroupCollapseState() {
+  try {
+    const raw = localStorage.getItem(TOOL_GROUP_COLLAPSE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return parsed;
+  } catch (_error) {
+    return {};
+  }
+}
+
 const state = {
   backend: null,
   backendMode: "",
@@ -29,6 +45,7 @@ const state = {
   chatSessionDrag: defaultChatSessionDragState(),
   chatStreaming: false,
   chatStreamHandlers: {},
+  toolGroupCollapsed: loadToolGroupCollapseState(),
 };
 
 let devPollTimer = 0;

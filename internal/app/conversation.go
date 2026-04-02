@@ -124,6 +124,43 @@ func emitIfPresent(onDelta func(string), reply string) {
 	}
 }
 
+func emitChunkedIfPresent(onDelta func(string), reply string) {
+	if onDelta == nil || reply == "" {
+		return
+	}
+	for _, chunk := range splitReplyIntoChunks(reply, 24) {
+		onDelta(chunk)
+	}
+}
+
+func splitReplyIntoChunks(reply string, maxRunes int) []string {
+	if reply == "" {
+		return nil
+	}
+	if maxRunes <= 0 {
+		return []string{reply}
+	}
+
+	var chunks []string
+	current := make([]rune, 0, maxRunes)
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		chunks = append(chunks, string(current))
+		current = current[:0]
+	}
+
+	for _, r := range []rune(reply) {
+		current = append(current, r)
+		if r == '\n' || len(current) >= maxRunes {
+			flush()
+		}
+	}
+	flush()
+	return chunks
+}
+
 func (s *Service) handleAIDecision(ctx context.Context, mc MessageContext, text string, mode Mode) (string, error) {
 	return s.handleAIDecisionInternal(ctx, mc, text, mode, nil)
 }
@@ -292,7 +329,7 @@ func (s *Service) handleAIDecisionInternal(ctx context.Context, mc MessageContex
 			addProcessTrace(ctx, "执行模式", "mode=agent")
 			reply, err := s.handleAgentQuestion(ctx, mc, question)
 			if err == nil {
-				emitIfPresent(onDelta, reply)
+				emitChunkedIfPresent(onDelta, reply)
 			}
 			return reply, err
 		case ModeAsk:

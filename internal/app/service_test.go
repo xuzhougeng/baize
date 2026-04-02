@@ -2137,6 +2137,54 @@ func TestHandleMessageStreamUsesStreamingChat(t *testing.T) {
 	}
 }
 
+func TestHandleMessageStreamChunksAgentReply(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := knowledge.NewStore(filepath.Join(root, "app.db"))
+	reminders := reminder.NewManager(reminder.NewStore(filepath.Join(root, "app.db")))
+	stateStore := sessionstate.NewStore(filepath.Join(root, "app.db"))
+	mc := MessageContext{Interface: "desktop", UserID: "u1", SessionID: "s1"}
+	wantReply := "这是一个用于验证 desktop agent 最终回答分块流式输出的较长结果，应该通过多个 delta 返回给前端。"
+
+	service := NewServiceWithSkillsAndSessions(store, fakeAI{
+		configured: true,
+		route: ai.RouteDecision{
+			Command:  "answer",
+			Question: "给我一个长回答",
+		},
+		chat: wantReply,
+	}, reminders, nil, stateStore)
+
+	var chunks []string
+	reply, err := service.HandleMessageStream(context.Background(), mc, "@agent 给我一个长回答", func(delta string) {
+		chunks = append(chunks, delta)
+	})
+	if err != nil {
+		t.Fatalf("handle message stream: %v", err)
+	}
+	if reply != wantReply {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+	if strings.Join(chunks, "") != wantReply {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple agent chunks, got %#v", chunks)
+	}
+
+	snapshot, ok, err := stateStore.Load(context.Background(), conversationSessionKey(mc))
+	if err != nil {
+		t.Fatalf("load session snapshot: %v", err)
+	}
+	if !ok || len(snapshot.History) != 2 {
+		t.Fatalf("unexpected history snapshot: %#v / ok=%v", snapshot, ok)
+	}
+	if snapshot.History[1].Content != wantReply {
+		t.Fatalf("expected persisted streamed agent reply, got %#v", snapshot.History)
+	}
+}
+
 func TestResolveFileSearchIgnoresNaturalLanguageInput(t *testing.T) {
 	t.Parallel()
 

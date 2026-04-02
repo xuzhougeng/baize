@@ -40,6 +40,7 @@
 
   .tool-card-header,
   .tool-group-item-header,
+  .tool-group-toggle-side,
   .tool-group-item-tags,
   .tool-card-tags {
     flex-direction: column;

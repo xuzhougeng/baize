@@ -193,6 +193,8 @@ function bindStaticEvents() {
         void saveSettings();
       } else if (actionTarget.dataset.toolAction === 'toggle-enabled') {
         void setToolEnabled(actionTarget.dataset.toolName || '', actionTarget.dataset.toolEnabled === 'true');
+      } else if (actionTarget.dataset.toolAction === 'toggle-group') {
+        toggleToolGroupCollapse(actionTarget.dataset.toolGroupKey || '');
       }
     });
   }

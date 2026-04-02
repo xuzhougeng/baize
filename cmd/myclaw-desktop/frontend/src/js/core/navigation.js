@@ -32,6 +32,12 @@ window.navigateTo = function(viewName, sectionId) {
     });
   }
 
+  if (normalizedView === 'memory' && state.backend) {
+    void Promise.all([refreshKnowledge(), refreshProjectState(), refreshOverview()]).catch((error) => {
+      showBanner(asMessage(error), true);
+    });
+  }
+
   if (normalizedView === 'tools' && state.backend) {
     void refreshTools().catch((error) => {
       showBanner(asMessage(error), true);

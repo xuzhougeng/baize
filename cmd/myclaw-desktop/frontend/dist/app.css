@@ -1261,6 +1261,46 @@ select {
   gap: 18px;
 }
 
+.tool-group-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tool-group-toggle:focus-visible {
+  outline: 2px solid rgba(196, 122, 92, 0.35);
+  outline-offset: 6px;
+  border-radius: 18px;
+}
+
+.tool-group-toggle-side {
+  align-items: center;
+}
+
+.tool-group-toggle-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tool-group-chevron {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--accent-primary);
+  transition: transform 180ms ease;
+}
+
+.tool-group-card.is-collapsed .tool-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.tool-group-card.is-collapsed .tool-group-list {
+  display: none;
+}
+
 .tool-group-list {
   display: grid;
   gap: 16px;
@@ -2884,6 +2924,7 @@ select {
 
   .tool-card-header,
   .tool-group-item-header,
+  .tool-group-toggle-side,
   .tool-group-item-tags,
   .tool-card-tags {
     flex-direction: column;
